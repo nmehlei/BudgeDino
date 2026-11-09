@@ -22,6 +22,7 @@ Replacing a connector must not affect the rest of the system. **[owner]**
 Further institutions come from the same connectors (any FinTS bank; any Enable Banking bank).
 
 - **FinTS** via `lib-fints` (TypeScript, LGPL-2.1, tested with DKB and comdirect). **[call]**
+  See [FinTS connector](#fints-connector-implementation-summary) and [ADR 0009](../adr/0009-fints-in-memory-dialogs.md).
 - **Enable Banking** in free "restricted/personal" mode: each self-hoster registers their own Enable
   Banking application. The app provides a guided wizard (server generates the key pair, shows what to
   paste where, verifies the result). Accepted by owner as a necessary evil. **[owner]**
@@ -110,6 +111,38 @@ injected (no global); `get(type)` throws `UnknownConnectorError`.
 - Config, state and dialog are opaque JSON (stored encrypted); dialog state never leaves the server.
 - `FakeConnector` (scenarios in its file header) and the reusable `runConnectorContract` suite
   (`tests/server/connectors/contract.ts`) back all sync/challenge tests and future connectors.
+
+## FinTS connector (implementation summary)
+
+Code: `src/server/src/connectors/fints/` (`connector.ts` has the full algorithm in its header). Decision record:
+[ADR 0009](../adr/0009-fints-in-memory-dialogs.md). Enabled with `BUDGEDINO_CONNECTORS=fints` plus a registered
+product id (`BUDGEDINO_FINTS_PRODUCT_ID`, see [the registration guide](../guides/fints-product-registration.md)).
+Banks: DKB and Comdirect (`banks.ts`: BLZ and endpoint; the catalog URL always wins over the URL in a stored BPD).
+Connection config (encrypted): `{bank, userId, pin, tanMethodId?}`.
+
+- **TAN method preference:** the configured `tanMethodId` if the bank offers it, else decoupled (app approval) > code
+  (SMS/push TAN) > photoTAN. chipTAN with flicker/optical cannot be rendered and is never selected; a bank offering only
+  that is `declined`.
+- **Auth:** BPD/UPD sync, TAN method selection, then a second sync. A TAN demand becomes a `decoupled` (poll after 3 s),
+  `code` or `image` (PNG/JPEG) challenge. Wrong PIN or locked access (answer codes 9910, 9931, 9942, 3938) is `declined`;
+  a rejected TAN allows up to 3 attempts; any other failure is a generic `fints_failed` (502). Bank text never reaches
+  errors; only the sanitised TAN challenge message does.
+- **SCA probe:** after sync, a 3-day statements fetch on the first checking/credit-card account. If the bank demands a TAN
+  for it, a second challenge is raised so the user's strong authentication covers account access, which enables later
+  unattended fetches under the PSD2 90-day exemption.
+- **First window:** the first fetch (no `since`) and any longer look-back are clamped to the last **89 days** (Europe/Berlin
+  calendar date), inside the SCA-exempt window. Consent is recorded as expiring after 90 days.
+- **`needs_attention` semantics:** a TAN demanded on a fetch, a PIN error, or unusable stored state/config (corrupt BPD,
+  missing config, unknown account) is `needs_attention`: the server never opens an interactive dialog on its own, the user
+  reconnects. Network errors, 5xx and unparseable statements are `temporary`.
+- **Single-instance dialogs:** the bank session of an open challenge is held in an in-process registry (not serialisable);
+  the persisted dialog carries only an opaque handle. Entries live at most 10 minutes, are swept every 60 s and dropped on
+  shutdown; a restart drops open challenges (the user restarts the connection). Run one server instance.
+- **Dependency:** `lib-fints` (LGPL-2.1-or-later), patched via `patches/lib-fints@1.5.3.patch` (no console dumps of bank
+  responses, parse failures surfaced, raw CAMT dates). Regenerate the patch on upgrades.
+- **Live test:** `pnpm test:live` (opt-in, real bank, never in CI): set `FINTS_LIVE_BANK`, `FINTS_LIVE_USER`,
+  `FINTS_LIVE_PIN`, `BUDGEDINO_FINTS_PRODUCT_ID`. It prints only the challenge kind and message, account count and kinds,
+  and the first checking account's 30-day transaction count and booking date range.
 
 ## Connect, reconnect and challenges (implementation summary)
 

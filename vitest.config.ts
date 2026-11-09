@@ -19,6 +19,7 @@ export default defineConfig({
             '**/*.int.test.ts',
             '**/*.e2e.test.ts',
             '**/*.build.test.ts',
+            '**/*.live.test.ts',
             '**/node_modules/**',
           ],
         },
@@ -36,6 +37,16 @@ export default defineConfig({
         // Runs against `pnpm build` output (src/server/dist), with plain Node.
         resolve: { alias },
         test: { name: 'build', include: ['tests/**/*.build.test.ts'], testTimeout: 30_000 },
+      },
+      {
+        // Opt-in, against real banks (`pnpm test:live`); never part of ci/check.sh or CI.
+        resolve: { alias },
+        test: {
+          name: 'live',
+          include: ['tests/live/**/*.live.test.ts'],
+          testTimeout: 600_000,
+          hookTimeout: 60_000,
+        },
       },
       {
         resolve: { alias },

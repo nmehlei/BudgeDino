@@ -16,6 +16,7 @@
     "test": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "test:e2e": "vitest run --project e2e",
+    "test:live": "vitest run --project live",
     "test:build": "pnpm build && vitest run --project build",
     "format": "prettier --write ."
   },

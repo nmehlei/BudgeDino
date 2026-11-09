@@ -32,18 +32,19 @@ now, Expo Android app later. Read this before changing anything.
 
 ## Commands
 
-| Command                 | Purpose                                                                                                      |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `pnpm install`          | install (pnpm 12, Node 22+; CI uses `.nvmrc`)                                                                |
-| `pnpm lint`             | ESLint (typescript-eslint strict)                                                                            |
-| `pnpm typecheck`        | `tsc` in every workspace package                                                                             |
-| `pnpm test`             | unit tests (Vitest `unit` project)                                                                           |
-| `pnpm test:integration` | integration tests (Vitest `integration` project, `*.int.test.ts`; **needs Docker**, Testcontainers Postgres) |
-| `pnpm test:e2e`         | end-to-end household slice through the real entry point (needs Docker)                                       |
-| `pnpm test:build`       | builds, then smoke-tests `dist` with plain Node (needs Docker)                                               |
-| `pnpm build`            | esbuild bundle of the server into `src/server/dist`                                                          |
-| `pnpm openapi`          | builds and regenerates `docs/api/openapi.json`; commit the result (CI fails on drift)                        |
-| `bash ci/check.sh`      | everything CI runs (`SKIP_INTEGRATION=1` skips the Docker-based suites: integration, e2e, build smoke)       |
+| Command                 | Purpose                                                                                                                                                                                                                                            |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install`          | install (pnpm 12, Node 22+; CI uses `.nvmrc`)                                                                                                                                                                                                      |
+| `pnpm lint`             | ESLint (typescript-eslint strict)                                                                                                                                                                                                                  |
+| `pnpm typecheck`        | `tsc` in every workspace package                                                                                                                                                                                                                   |
+| `pnpm test`             | unit tests (Vitest `unit` project)                                                                                                                                                                                                                 |
+| `pnpm test:integration` | integration tests (Vitest `integration` project, `*.int.test.ts`; **needs Docker**, Testcontainers Postgres)                                                                                                                                       |
+| `pnpm test:e2e`         | end-to-end household slice through the real entry point (needs Docker)                                                                                                                                                                             |
+| `pnpm test:live`        | **opt-in** live FinTS test against a real bank (never in `ci/check.sh`/CI; needs `FINTS_LIVE_BANK` = `dkb`/`comdirect`, `FINTS_LIVE_USER`, `FINTS_LIVE_PIN`, `BUDGEDINO_FINTS_PRODUCT_ID`; prompts for the TAN; prints no amounts, names or IBANs) |
+| `pnpm test:build`       | builds, then smoke-tests `dist` with plain Node (needs Docker)                                                                                                                                                                                     |
+| `pnpm build`            | esbuild bundle of the server into `src/server/dist`                                                                                                                                                                                                |
+| `pnpm openapi`          | builds and regenerates `docs/api/openapi.json`; commit the result (CI fails on drift)                                                                                                                                                              |
+| `bash ci/check.sh`      | everything CI runs (`SKIP_INTEGRATION=1` skips the Docker-based suites: integration, e2e, build smoke)                                                                                                                                             |
 
 Toolchain: no Node-26-only APIs (packages declare `engines.node >=22`). TypeScript is pinned to 6.x
 until typescript-eslint supports TS 7.

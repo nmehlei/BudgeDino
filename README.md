@@ -61,6 +61,11 @@ shuts down gracefully on SIGTERM/SIGINT.
 | `LOG_LEVEL`                                           | `info`                | log level                                                                                    |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` and other `OTEL_*`      | unset                 | telemetry export (off unless the endpoint is set)                                            |
 
+FinTS needs a product registration number from the Deutsche Kreditwirtschaft (free; step-by-step in
+[docs/guides/fints-product-registration.md](docs/guides/fints-product-registration.md)). The FinTS library
+`lib-fints` is LGPL-2.1-or-later, used unmodified except for the pnpm patch in `patches/`, which is published here.
+An opt-in live test against a real bank runs with `pnpm test:live` (see [AGENTS.md](AGENTS.md)); it is not part of CI.
+
 Invalid configuration exits with code 1 and a message naming the variable, never its value.
 
 ### CLI
