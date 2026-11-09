@@ -55,12 +55,14 @@ export function createLogger(options: CreateLoggerOptions = {}): Logger {
         if ('req' in o) o['req'] = serializeReq(o['req'] as RawRequest);
         if ('res' in o) o['res'] = serializeRes(o['res'] as RawReply);
         // Trace ids are hex and can look like an IBAN; keep them out of redaction.
+        // Only values equal to the active span context are trusted; caller-supplied ones are redacted.
+        const ctx = trace.getActiveSpan()?.spanContext();
+        const active = ctx && isSpanContextValid(ctx) ? ctx : undefined;
         const { trace_id, span_id, ...rest } = o;
-        return {
-          ...asRecord(redact(rest)),
-          ...(trace_id === undefined ? {} : { trace_id }),
-          ...(span_id === undefined ? {} : { span_id }),
-        };
+        const redacted = asRecord(redact({ ...rest, trace_id, span_id }));
+        if (active && trace_id === active.traceId) redacted['trace_id'] = trace_id;
+        if (active && span_id === active.spanId) redacted['span_id'] = span_id;
+        return redacted;
       },
       bindings: (bindings) => asRecord(redact(bindings)),
     },
