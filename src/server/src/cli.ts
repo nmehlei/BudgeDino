@@ -199,7 +199,7 @@ async function rotateMasterKey(
   io.stderr.write(
     'WARNING: Stop all running servers first. They hold the old master key and cannot read data after rotation.\n',
   );
-  let confirmed = false;
+  let confirmed: boolean;
   try {
     confirmed =
       parseArgs({
