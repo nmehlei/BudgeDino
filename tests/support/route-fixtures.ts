@@ -22,6 +22,14 @@ export const ROUTE_FIXTURES: RouteFixtures = {
   // '/api/v1/accounts/:accountId/transactions': { ':accountId': (s) => s.hiddenAccountId },
 };
 
+/**
+ * GET routes exempt from the owner positive control (B, a plain member, must get 2xx, and
+ * parameterised routes must return one of B's canaries). Keep this empty unless a route genuinely
+ * cannot satisfy it, e.g. an admin-only route; the value is the reason. Exempt routes are still
+ * probed as the other member in the leak sweep.
+ */
+export const OWNER_POSITIVE_CONTROL_EXEMPT: Record<string, string> = {};
+
 /** Substitutes every `:param` of a route URL, throwing when a parameter has no fixture. */
 export function resolveRouteUrl(
   url: string,

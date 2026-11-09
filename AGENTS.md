@@ -19,27 +19,27 @@ now, Expo Android app later. Read this before changing anything.
 
 ## Repo map
 
-| Path | Content |
-|---|---|
-| `src/shared` | `@budgedino/shared`: types, zod schemas, money/date logic |
-| `src/server` | `@budgedino/server`: Fastify API, jobs, connectors |
-| `src/mobile` | Expo Android app (later) |
-| `tests/` | cross-package tests (`*.test.ts` unit, `*.int.test.ts` integration) |
-| `ci/` | scripts (`ci/check.sh`); GitHub requires workflows in `.github/workflows` |
-| `docs/specs/` | living per-area specs ([index](docs/specs/README.md)) |
-| `docs/adr/` | decision records |
-| `docs/architecture.md` | architecture diagram, stack, testing strategy |
+| Path                   | Content                                                                   |
+| ---------------------- | ------------------------------------------------------------------------- |
+| `src/shared`           | `@budgedino/shared`: types, zod schemas, money/date logic                 |
+| `src/server`           | `@budgedino/server`: Fastify API, jobs, connectors                        |
+| `src/mobile`           | Expo Android app (later)                                                  |
+| `tests/`               | cross-package tests (`*.test.ts` unit, `*.int.test.ts` integration)       |
+| `ci/`                  | scripts (`ci/check.sh`); GitHub requires workflows in `.github/workflows` |
+| `docs/specs/`          | living per-area specs ([index](docs/specs/README.md))                     |
+| `docs/adr/`            | decision records                                                          |
+| `docs/architecture.md` | architecture diagram, stack, testing strategy                             |
 
 ## Commands
 
-| Command | Purpose |
-|---|---|
-| `pnpm install` | install (pnpm 12, Node 22+; CI uses `.nvmrc`) |
-| `pnpm lint` | ESLint (typescript-eslint strict) |
-| `pnpm typecheck` | `tsc` in every workspace package |
-| `pnpm test` | unit tests (Vitest `unit` project) |
+| Command                 | Purpose                                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `pnpm install`          | install (pnpm 12, Node 22+; CI uses `.nvmrc`)                                                                |
+| `pnpm lint`             | ESLint (typescript-eslint strict)                                                                            |
+| `pnpm typecheck`        | `tsc` in every workspace package                                                                             |
+| `pnpm test`             | unit tests (Vitest `unit` project)                                                                           |
 | `pnpm test:integration` | integration tests (Vitest `integration` project, `*.int.test.ts`; needs Docker once Testcontainers are used) |
-| `bash ci/check.sh` | everything CI runs (`SKIP_INTEGRATION=1` to skip integration) |
+| `bash ci/check.sh`      | everything CI runs (`SKIP_INTEGRATION=1` to skip integration)                                                |
 
 Toolchain: no Node-26-only APIs (packages declare `engines.node >=22`). TypeScript is pinned to 6.x
 until typescript-eslint supports TS 7.
@@ -52,7 +52,7 @@ until typescript-eslint supports TS 7.
 - Sensitive fields (credentials, PINs, tokens, broker sessions, counterparty, purpose, amounts, balances, holdings, account names/IBANs) are encrypted at application level; the master key never lives in the database.
 - Logs, traces and notification payloads never contain amounts, payees, IBANs or credentials.
 - Every route declares `config.access` (`public` | `member` | `admin`); `buildApp` throws otherwise and attaches the guard itself (never add guards by hand).
-- Adding a GET route requires a `tests/support/route-fixtures.ts` entry for each of its path parameters; the visibility harness (`tests/server/access/visibility.int.test.ts`) probes every registered GET route as another member and fails on a missing entry.
+- Adding a GET route requires a `tests/support/route-fixtures.ts` entry for each of its path parameters; the visibility harness (`tests/server/access/visibility.int.test.ts`) probes every registered GET route as another member and fails on a missing entry. It also requires the owner (member B) to get 2xx from every member/admin GET route, and parameterised routes to return one of B's canaries, so a wrong fixture cannot pass vacuously; a route that cannot satisfy this (e.g. admin-only) needs a commented entry in `OWNER_POSITIVE_CONTROL_EXEMPT` in the same file.
 - Reads of accounts, transactions, splits and balances go through `visibleAccountIds(db, auth)`; repositories require its result.
 - Visibility is enforced on the server; `owner-only` accounts are invisible to everyone but their owner, admins included.
 - Connectors belong to the member who created them.

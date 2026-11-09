@@ -19,7 +19,7 @@ import {
   randomMasterKey,
 } from '../../support/factories.js';
 import { startTestDatabase, type TestDatabase } from '../../support/postgres.js';
-import { resolveRouteUrl } from '../../support/route-fixtures.js';
+import { OWNER_POSITIVE_CONTROL_EXEMPT, resolveRouteUrl } from '../../support/route-fixtures.js';
 
 const CANARY_PAYEE = 'CANARY-PAYEE-OWNERONLY';
 const CANARY_ACCOUNT_NAME = 'CANARY-ACCOUNT-OWNERONLY';
@@ -143,11 +143,21 @@ async function patch(url: string, token: string, payload: unknown) {
   };
 }
 
-/** Every registered GET route, probed as the given member; returns the concatenated bodies. */
-async function sweepAllGetRoutes(token: string): Promise<string> {
-  const routes = app.routeRegistry.filter((r) => r.method === 'GET' && r.access !== 'public');
+interface SweepResult {
+  url: string;
+  hasParams: boolean;
+  access: string;
+  status: number;
+  body: string;
+}
+
+const joined = (results: SweepResult[]) => results.map((r) => r.body).join('\n');
+
+/** Every registered GET route (public ones included), probed as the given member. */
+async function sweepAllGetRoutes(token: string): Promise<SweepResult[]> {
+  const routes = app.routeRegistry.filter((r) => r.method === 'GET');
   expect(routes.length).toBeGreaterThan(0);
-  const bodies: string[] = [];
+  const results: SweepResult[] = [];
   for (const route of routes) {
     const url = resolveRouteUrl(route.url, {
       hiddenAccountId: seed.hiddenAccountId,
@@ -156,12 +166,44 @@ async function sweepAllGetRoutes(token: string): Promise<string> {
     });
     const res = await get(url, token);
     expect(res.status, `${route.url} must not fail`).toBeLessThan(500);
-    bodies.push(res.body);
+    results.push({
+      url: route.url,
+      hasParams: route.url.includes(':'),
+      access: route.access,
+      status: res.status,
+      body: res.body,
+    });
   }
-  return bodies.join('\n');
+  return results;
+}
+
+/**
+ * Positive control, run as the owner (B) while the account is still household-visible: every
+ * member/admin GET route must answer 2xx and every parameterised route must actually return one of
+ * B's canaries. Otherwise a wrong fixture (404) would let a route pass the leak sweep vacuously.
+ */
+async function expectOwnerReachesData() {
+  for (const r of await sweepAllGetRoutes(seed.bToken)) {
+    if (r.access === 'public' || OWNER_POSITIVE_CONTROL_EXEMPT[r.url]) continue;
+    expect(r.status, `${r.url} must answer 2xx for the owner`).toBeGreaterThanOrEqual(200);
+    expect(r.status, `${r.url} must answer 2xx for the owner`).toBeLessThan(300);
+    if (r.hasParams) {
+      const canaries = [
+        seed.hiddenAccountId,
+        ...seed.hiddenTransactionIds,
+        CANARY_ACCOUNT_NAME,
+        CANARY_PAYEE,
+      ];
+      expect(
+        canaries.some((c) => r.body.includes(c)),
+        `${r.url} must return at least one of the owner's canaries (check its route-fixtures entry)`,
+      ).toBe(true);
+    }
+  }
 }
 
 function expectNoLeak(text: string) {
+  expect(text).not.toContain(CANARY_IBAN);
   expect(text).not.toContain(seed.hiddenAccountId);
   for (const id of seed.hiddenTransactionIds) expect(text).not.toContain(id);
   expect(text).not.toContain(CANARY_PAYEE);
@@ -186,20 +228,22 @@ describe('visibility enforcement', () => {
   });
 
   it('owner_only account is invisible to the admin on every GET route', async () => {
+    await expectOwnerReachesData();
     await patch(`/accounts/${seed.hiddenAccountId}`, seed.bToken, { visibility: 'owner_only' });
-    expectNoLeak(await sweepAllGetRoutes(seed.aToken));
+    expectNoLeak(joined(await sweepAllGetRoutes(seed.aToken)));
     // ...but still visible to its owner
     const own = await get('/api/v1/accounts', seed.bToken);
     expect(own.body).toContain(seed.hiddenAccountId);
   });
 
   it('toggling household -> owner_only hides it immediately', async () => {
-    expect(await sweepAllGetRoutes(seed.aToken)).toContain(seed.hiddenAccountId);
+    await expectOwnerReachesData();
+    expect(joined(await sweepAllGetRoutes(seed.aToken))).toContain(seed.hiddenAccountId);
     const res = await patch(`/accounts/${seed.hiddenAccountId}`, seed.bToken, {
       visibility: 'owner_only',
     });
     expect(res.status).toBe(200);
-    expectNoLeak(await sweepAllGetRoutes(seed.aToken));
+    expectNoLeak(joined(await sweepAllGetRoutes(seed.aToken)));
   });
 
   it('visibleAccountIds contains household accounts and own accounts only', async () => {
