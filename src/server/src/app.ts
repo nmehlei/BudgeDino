@@ -31,6 +31,29 @@ import { householdRoutes } from './households/routes.js';
 import { fastifyLoggerOptions } from './observability/logger.js';
 import { safeErrorInfo } from './observability/redact.js';
 
+/**
+ * The categorizer hook run after every sync (API-triggered and scheduled): categorize first; transfer
+ * detection then claims matched pairs (Transfer beats other non-manual sources); budget thresholds last,
+ * since they read the final categories and transfer groups.
+ */
+export function createIngestHook(
+  deps: Pick<AppDeps, 'db' | 'keyring'> & { now: () => Date },
+): (householdId: string, txIds: string[]) => Promise<void> {
+  return async (householdId, txIds) => {
+    await categorizeTransactions(deps.db, deps.keyring, householdId, txIds);
+    await detectTransfers(deps.db, deps.keyring, householdId, txIds);
+    await evaluateAlerts(deps.db, deps.keyring, householdId, deps.now());
+  };
+}
+
+/** Hop counts become proxy-addr's rule (trust the nearest `n` hops); strings are IP/CIDR lists. */
+function toTrustProxy(
+  value: AppDeps['trustProxy'],
+): boolean | string | ((ip: string, hop: number) => boolean) {
+  if (typeof value === 'number') return (_ip, hop) => hop < value;
+  return value ?? false;
+}
+
 export const API_PREFIX = '/api/v1';
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
@@ -51,15 +74,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     registry,
     logger: deps.logger,
     now: clock,
-    onIngested:
-      deps.onIngested ??
-      (async (householdId, txIds) => {
-        // Categorize first; transfer detection then claims matched pairs (Transfer beats other non-manual sources).
-        await categorizeTransactions(deps.db, deps.keyring, householdId, txIds);
-        await detectTransfers(deps.db, deps.keyring, householdId, txIds);
-        // Budget thresholds last: they read the final categories and transfer groups.
-        await evaluateAlerts(deps.db, deps.keyring, householdId, clock());
-      }),
+    onIngested: deps.onIngested ?? createIngestHook({ ...deps, now: clock }),
   });
   const ctx: AppContext = {
     db: deps.db,
@@ -96,7 +111,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   // The pino Logger type differs from FastifyBaseLogger only nominally (msgPrefix); widen once here.
   const app = Fastify({
     ...fastifyLoggerOptions(deps.logger),
-    trustProxy: deps.trustProxy ?? false,
+    trustProxy: toTrustProxy(deps.trustProxy),
     bodyLimit: BODY_LIMIT_BYTES,
   }) as unknown as FastifyInstance;
 

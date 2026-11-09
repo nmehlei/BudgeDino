@@ -28,5 +28,6 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # lint, typecheck, unit, integration (Docker is available on ubuntu-latest)
+      # lint, typecheck, unit, build, OpenAPI drift, integration, e2e, build smoke tests
+      # (Docker is available on ubuntu-latest)
       - run: bash ci/check.sh

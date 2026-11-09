@@ -118,7 +118,15 @@ service name `budgedino-server`. Only HTTP and `pg` instrumentation are enabled:
 route/URL (sensitive query params redacted), status and SQL text with placeholders only
 (`enhancedDatabaseReporting` is off, so query parameter values are never recorded); request/response
 bodies and headers are not captured. No data leaves the server unless the owner configures a
-collector. `startTelemetry` returns `{ enabled, shutdown() }`.
+collector. `startTelemetry` returns `{ enabled, shutdown() }` and is idempotent per process.
+
+**ESM loading (`instrument.ts`).** Under ESM the http/pg instrumentations only patch modules imported
+*after* the `import-in-the-middle` loader hook is registered. `node --import ./dist/instrument.js
+./dist/main.js` (what `pnpm --filter @budgedino/server start` runs) registers the hook and starts the SDK
+before the application modules load; without `OTEL_EXPORTER_OTLP_ENDPOINT` it does nothing at all.
+Started later (no `--import`), the SDK runs but http spans are missing. Test:
+`tests/build/dist.build.test.ts` runs the built server against a mock OTLP collector and asserts http and
+pg spans arrive.
 
 **Trace id handling.** `trace_id`/`span_id` in a log record always come from the active span context
 (hex ids can look like IBANs, so they bypass redaction). Caller-supplied `trace_id`/`span_id` fields
@@ -182,4 +190,4 @@ and gives the IP attempt back.
 masks any `params` key and the `\nparams:` tail of drizzle query-error messages, so bound query values
 (password hashes, token hashes) never reach logs or CLI output. The counters are in memory (fixed window, bounded key count) behind the
 `RateLimiter` interface; this is correct for one server instance, so move it to Postgres before running
-several instances. Behind a reverse proxy set `trustProxy` so the IP key is the client IP.
+several instances. Behind a reverse proxy set `BUDGEDINO_TRUST_PROXY` (hop count or proxy CIDR list; the literal `true` is rejected because it would trust any client-supplied `X-Forwarded-For`) so the IP key is the client IP.

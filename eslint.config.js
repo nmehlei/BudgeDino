@@ -6,6 +6,11 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.strict,
   {
+    // Node build/maintenance scripts
+    files: ['**/*.mjs'],
+    languageOptions: { globals: { URL: 'readonly', console: 'readonly' } },
+  },
+  {
     files: ['**/*.ts'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'error',

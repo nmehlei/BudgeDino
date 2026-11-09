@@ -15,13 +15,67 @@ Status: early development (server foundation). An Android app (Expo) follows.
 
 ## Development
 
-Requires Node 22+ (`.nvmrc` pins the version used in CI) and pnpm 12.
+Requires Node 22+ (`.nvmrc` pins the version used in CI), pnpm 12 and Docker (integration, e2e and build
+tests start a throwaway PostgreSQL with Testcontainers).
 
 ```sh
 pnpm install
-pnpm lint && pnpm typecheck && pnpm test
-bash ci/check.sh   # everything CI runs
+pnpm lint && pnpm typecheck && pnpm test   # unit
+pnpm test:integration                      # Testcontainers Postgres
+pnpm test:e2e                              # whole household slice through the real entry point
+pnpm test:build                            # builds, then smoke-tests dist with plain Node
+pnpm openapi                               # regenerates docs/api/openapi.json (commit it)
+bash ci/check.sh                           # everything CI runs
 ```
+
+Set `SKIP_INTEGRATION=1` to skip the Docker-based suites in `ci/check.sh`.
+
+## Build and run
+
+`pnpm build` bundles the server with esbuild into `src/server/dist` (details in
+[self-hosting.md](docs/specs/self-hosting.md)); it runs on plain Node.
+
+```sh
+cp .env.example .env            # fill in, never commit
+export $(grep -v '^#' .env | xargs)   # or pass the variables your own way
+pnpm build
+node --import ./dist/instrument.js ./dist/main.js   # run from src/server; same as: pnpm --filter @budgedino/server start
+```
+
+`--import ./dist/instrument.js` registers the OpenTelemetry ESM hook before the app loads; it does
+nothing unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set. The server migrates the database on start and
+shuts down gracefully on SIGTERM/SIGINT.
+
+### Environment variables
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `DATABASE_URL` | required | PostgreSQL connection string |
+| `BUDGEDINO_MASTER_KEY` or `BUDGEDINO_MASTER_KEY_FILE` | one required | master key (32 bytes, base64); never both |
+| `PORT` / `HOST` | `8080` / `0.0.0.0` | listen address |
+| `BUDGEDINO_TRUST_PROXY` | off | hop count or proxy IP/CIDR list when behind a reverse proxy (`true` is rejected) |
+| `BUDGEDINO_MAX_CONCURRENT_SYNCS` | `2` | concurrent bank syncs per process |
+| `BUDGEDINO_CONNECTORS` | empty | enabled connector types; `fake` only outside production or with `BUDGEDINO_ALLOW_FAKE=1` |
+| `LOG_LEVEL` | `info` | log level |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` and other `OTEL_*` | unset | telemetry export (off unless the endpoint is set) |
+
+Invalid configuration exits with code 1 and a message naming the variable, never its value.
+
+### CLI
+
+The `budgedino` binary is `src/server/dist/cli.js` (`node src/server/dist/cli.js --help`):
+
+```sh
+budgedino init-key                                   # print a new master key once; confirm you saved it
+budgedino bootstrap --household "Smith family"       # household + one-time admin invite
+budgedino invite --household <id> [--role member]    # further invite tokens
+budgedino rotate-master-key                          # old key from BUDGEDINO_MASTER_KEY, new from BUDGEDINO_NEW_MASTER_KEY
+```
+
+First start: `init-key`, store the key, `bootstrap`, start the server, then register in the app with the
+printed invite token and set up TOTP. A lost master key means lost data; there is no recovery.
+
+The API document is committed at [docs/api/openapi.json](docs/api/openapi.json).
 
 ## License
 

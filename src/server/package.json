@@ -13,9 +13,11 @@
     ".": "./src/index.ts"
   },
   "bin": {
-    "budgedino": "./src/cli.ts"
+    "budgedino": "./dist/cli.js"
   },
   "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "node --import ./dist/instrument.js ./dist/main.js",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
@@ -37,16 +39,19 @@
     "drizzle-orm": "^0.45.4",
     "fastify": "^5.12.8",
     "fastify-type-provider-zod": "^7.0.0",
+    "import-in-the-middle": "3.6.0",
     "otplib": "^13.6.0",
     "pg": "^8.23.1",
     "pg-boss": "12.38.1",
     "pino": "^10.4.0",
+    "temporal-polyfill": "^1.0.8",
     "uuid": "^14.0.3",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
     "@types/pg": "^8.23.1",
-    "drizzle-kit": "^0.31.11"
+    "drizzle-kit": "^0.31.11",
+    "esbuild": "0.28.2"
   }
 }

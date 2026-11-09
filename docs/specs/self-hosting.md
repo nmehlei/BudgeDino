@@ -19,3 +19,32 @@
   task: the CLI generates the key pair, prints what to paste into the Enable Banking portal, and
   verifies). Everything members do day to day happens in the app. **[call]**
 - Documentation: install, Enable Banking registration, key backup/recovery, upgrade, restore.
+
+## Configuration and process (implemented)
+
+Code: `src/server/src/{config.ts,main.ts,instrument.ts}`. Build: `pnpm build` bundles `src/server` with
+esbuild into `src/server/dist` (the sources use bundler-style imports Node cannot run unbundled;
+`@budgedino/shared` is bundled, third-party packages stay external and are installed from `node_modules`;
+`drizzle/` migrations are copied next to the bundle). Run with plain Node:
+`node --import ./dist/instrument.js ./dist/main.js`; the `budgedino` CLI is `node dist/cli.js`.
+
+**Startup order (`main`):** telemetry (a no-op without `OTEL_EXPORTER_OTLP_ENDPOINT`) -> config validation ->
+logger -> master key -> database pool -> `migrate()` -> app -> pg-boss jobs (`sync.tick`, `challenges.expire`,
+`fx.refresh` with the ECB source) -> listen. `SIGTERM`/`SIGINT` shut down gracefully: pg-boss stops, the
+server stops accepting and drains running syncs, the pool closes, telemetry flushes. Invalid configuration
+exits 1 with a message that names variables and rules, never values.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `DATABASE_URL` | required | `postgres://` / `postgresql://` connection string |
+| `BUDGEDINO_MASTER_KEY` or `BUDGEDINO_MASTER_KEY_FILE` | one required | 32 bytes, base64; setting both is an error |
+| `PORT` | `8080` | listen port |
+| `HOST` | `0.0.0.0` | listen address |
+| `BUDGEDINO_TRUST_PROXY` | off | hop count (`1`) or comma-separated proxy IPs/CIDRs; `true` is rejected |
+| `BUDGEDINO_MAX_CONCURRENT_SYNCS` | `2` | process-wide cap on concurrent sync runs (1-20) |
+| `BUDGEDINO_CONNECTORS` | empty | comma list of enabled connector types; `fake` only when `NODE_ENV` is not `production` or `BUDGEDINO_ALLOW_FAKE=1` |
+| `LOG_LEVEL` | `info` | pino level |
+| `OTEL_*` | unset | standard OpenTelemetry variables; telemetry is on only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set |
+
+**OpenAPI.** `docs/api/openapi.json` is generated from the route schemas (`pnpm openapi`) and committed;
+`ci/check.sh` regenerates it and fails when it differs, so API changes always ship with the updated document.

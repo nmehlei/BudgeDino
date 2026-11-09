@@ -16,7 +16,7 @@ export interface AppDeps {
   /** Clock; injectable for tests. */
   now?: () => Date;
   /** Fastify `trustProxy`: set when behind a reverse proxy so `req.ip` (rate limits) is the client IP. */
-  trustProxy?: boolean | string;
+  trustProxy?: boolean | number | string;
   /** Overrides for the in-memory defaults. */
   pendingRegistrations?: PendingRegistrationStore;
   loginEmailLimiter?: RateLimiter;

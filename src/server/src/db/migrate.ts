@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate as drizzleMigrate } from 'drizzle-orm/node-postgres/migrator';
@@ -7,7 +8,11 @@ import * as schema from './schema.js';
 /** Arbitrary constant identifying the BudgeDino migration lock. */
 const MIGRATION_LOCK_KEY = 0x42444d49;
 
-const MIGRATIONS_FOLDER = fileURLToPath(new URL('../../drizzle', import.meta.url));
+/** `src/server/drizzle` seen from the sources (`src/db`) and from the bundle (`dist`). */
+const MIGRATIONS_FOLDER = [
+  fileURLToPath(new URL('../../drizzle', import.meta.url)),
+  fileURLToPath(new URL('../drizzle', import.meta.url)),
+].find((dir) => existsSync(dir)) as string;
 
 /**
  * Applies pending migrations. Serialised across processes with a session-level advisory lock so that

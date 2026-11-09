@@ -152,7 +152,7 @@ Code: `src/server/src/sync/` (`run.ts`, `ingest.ts`, `rate-guard.ts`, `scheduler
   ingest of each account is its own short transaction. The bank reference of each account is stored encrypted
   (`accounts.external_ref_enc`, written at account creation), so a run never calls `listAccounts` (account
   discovery happens after auth).
-- **Concurrency:** at most 2 sync runs per process at once (`setMaxConcurrentSyncs`); further runs wait for a
+- **Concurrency:** at most 2 sync runs per process at once by default (`setMaxConcurrentSyncs`, set from `BUDGEDINO_MAX_CONCURRENT_SYNCS` at startup); further runs wait for a
   slot before taking any DB connection. The pool fails connection waits after 10 s. A lock connection whose
   unlock fails is destroyed, never returned to the pool.
 - **Error streak:** 3 consecutive `error` runs set the connector to `error` (the scheduler skips it) and notify
@@ -184,7 +184,7 @@ Code: `src/server/src/sync/` (`run.ts`, `ingest.ts`, `rate-guard.ts`, `scheduler
 - **Scheduler:** `nextRuns(schedule, timeZone, from)` supports `{times: ['HH:MM']}` (household-local) and
   `{cron}` (evaluated in the household time zone). pg-boss queues: `sync.tick` (every 5 minutes, enqueues due
   `ok` connectors) and `sync.connector` (policy `exclusive`, `singletonKey: connectorId`). `startJobs(deps, ...)`
-  wires them; `onIngested(householdId, txIds)` is called once per run after commit (categorizer hook).
+  wires them (plus `challenges.expire` every minute and, with an `fxSource`, `fx.refresh` daily; the production entry `main.ts` passes the ECB source and the same `onIngested` hook as the API); `onIngested(householdId, txIds)` is called once per run after commit (categorizer hook).
 - **`GET /connectors`:** own connectors with status, `lastSuccessAt`, `lastErrorCode`, `consentExpiresAt`,
   `type`, `experimental`; others' connectors behind household-visible accounts only as
   `{id, type, status, lastSuccessAt}`.

@@ -44,6 +44,11 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
   try {
     const [command, ...rest] = argv;
     switch (command) {
+      case '--help':
+      case '-h':
+      case 'help':
+        out(`${USAGE}\n`);
+        return 0;
       case 'init-key':
         return await initKey(io);
       case 'bootstrap':

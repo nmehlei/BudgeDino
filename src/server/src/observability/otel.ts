@@ -38,6 +38,27 @@ const REDACTED_QUERY_PARAMS = [
  * headers.
  */
 export function startTelemetry(env: Record<string, string | undefined>): Telemetry {
+  // Started once per process: `instrument.ts` (loaded with `node --import`) starts it before the app
+  // modules are imported; `main` then gets the same handle.
+  const existing = (globalThis as Record<symbol, Telemetry | undefined>)[TELEMETRY_KEY];
+  if (existing) return existing;
+  const telemetry = createTelemetry(env);
+  if (!telemetry.enabled) return telemetry;
+  const slot = globalThis as Record<symbol, Telemetry | undefined>;
+  const cached: Telemetry = {
+    enabled: true,
+    shutdown: async () => {
+      slot[TELEMETRY_KEY] = undefined;
+      await telemetry.shutdown();
+    },
+  };
+  slot[TELEMETRY_KEY] = cached;
+  return cached;
+}
+
+const TELEMETRY_KEY = Symbol.for('budgedino.telemetry');
+
+function createTelemetry(env: Record<string, string | undefined>): Telemetry {
   const endpoint = env['OTEL_EXPORTER_OTLP_ENDPOINT']?.trim();
   if (!endpoint) return { enabled: false, shutdown: () => Promise.resolve() };
 
