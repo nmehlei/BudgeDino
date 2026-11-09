@@ -18,7 +18,12 @@
     "test:e2e": "vitest run --project e2e",
     "fints:live": "tsx scripts/fints-live.ts",
     "test:build": "pnpm build && vitest run --project build",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "mobile:test": "pnpm --filter @budgedino/mobile run test",
+    "mobile:lint": "eslint src/mobile",
+    "mobile:typecheck": "pnpm --filter @budgedino/mobile run typecheck",
+    "mobile:android": "APP_VARIANT=development pnpm --filter @budgedino/mobile exec expo run:android --device",
+    "mobile:prebuild": "pnpm --filter @budgedino/mobile exec expo prebuild --platform android --no-install"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -29,8 +34,10 @@
     "@types/node": "^22.20.5",
     "drizzle-orm": "^0.45.4",
     "eslint": "^10.14.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "fast-check": "^4.10.2",
     "fastify": "^5.12.8",
+    "globals": "^17.14.0",
     "prettier": "^3.9.10",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",

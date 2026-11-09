@@ -38,11 +38,13 @@
 ### Task 1: Expo app scaffold in the monorepo
 
 **Files:**
+
 - Create: `src/mobile/` (Expo app via `create-expo-app` template `default` → trimmed), `src/mobile/app.config.ts`, `src/mobile/app/_layout.tsx`, `src/mobile/src/theme.ts`, `src/mobile/tsconfig.json`, `src/mobile/jest.config.js`, `src/mobile/eslint` integration, `.mise.toml` (`java = "21"`)
 - Modify: `pnpm-workspace.yaml` (if needed), root `package.json` scripts, `ci/check.sh`, `AGENTS.md`, `README.md`
 - Test: `src/mobile/src/__tests__/smoke.test.tsx`
 
 **Interfaces:**
+
 - Root scripts: `pnpm mobile:test` (jest), `pnpm mobile:lint`, `pnpm mobile:typecheck`, `pnpm mobile:android` (`expo run:android --device`, picks the attached S22; documented), `pnpm mobile:prebuild`.
 - `app.config.ts`: name BudgeDino, slug budgedino, `android.package = 'app.budgedino'`, plugins for secure-store, local-authentication, notifications, background-task; `usesCleartextTraffic` only when `APP_VARIANT=development`.
 - `theme.ts`: Paper MD3 light/dark themes from one accent (`#2E7D6B`), exported `useAppTheme()`.
@@ -54,10 +56,12 @@
 ### Task 2: Typed API client, session and connectivity
 
 **Files:**
+
 - Create: `src/mobile/src/api/client.ts`, `src/mobile/src/api/errors.ts`, `src/mobile/src/session/session-store.ts`, `src/mobile/src/session/useSession.ts`, `src/mobile/src/cache/secure-cache.ts`
 - Test: `src/mobile/src/api/__tests__/client.test.ts`, `src/mobile/src/session/__tests__/session.test.ts`
 
 **Interfaces:**
+
 - `createApiClient({ baseUrl, getToken, onUnauthorized, fetchImpl? })` → methods mirroring server routes used by the app, each `(input) => Promise<Output>` with zod parse of the response schema from `@budgedino/shared/api` (auth, households, accounts, connectors, challenges, transactions, budgets, home, notifications).
 - `ApiError` union: `{kind:'network'} | {kind:'unauthorized'} | {kind:'rate_limited', retryAfterSec} | {kind:'validation', issues} | {kind:'server', status} | {kind:'schema_mismatch'}`.
 - Session store: server URL + device name in MMKV (non-secret), token in SecureStore; `signOut()` wipes token, query cache and MMKV cache store.
@@ -68,10 +72,12 @@
 ### Task 3: Onboarding — server URL, invite registration with TOTP, login
 
 **Files:**
+
 - Create: `src/mobile/app/(auth)/server.tsx`, `register.tsx`, `register-totp.tsx`, `login.tsx`, `src/mobile/src/auth/*`
 - Test: `src/mobile/app/(auth)/__tests__/*.test.tsx`
 
 **Behaviour:**
+
 - Server screen: URL input (normalises trailing slash, requires `https://` except `http://` allowed in development variant), "Check" calls a public endpoint (add `GET /api/v1/health` → `{ok:true, version}` to the server if none exists, `access:'public'`, with a route-fixtures entry if needed) before continuing.
 - Register: invite token (paste), email, display name, password (min 12, show strength hint), device name prefilled from device model → `POST /auth/register` → TOTP screen shows QR (react-native-qrcode-svg of `totpProvisioningUri`) and a "copy secret" fallback (secret parsed from the URI, shown monospaced, copy to clipboard) → 6-digit code → `/auth/register/confirm` → token stored.
 - Login: email, password, TOTP code → token. Server errors shown generically ("Login failed") — never which factor failed; 429 shows "Too many attempts, try again in N minutes".
@@ -81,10 +87,12 @@
 ### Task 4: Home screen
 
 **Files:**
+
 - Create: `src/mobile/app/(app)/_layout.tsx` (bottom tabs: Home, Transactions, Connections, Settings), `src/mobile/app/(app)/index.tsx`, `src/mobile/src/home/*` (BudgetCard, BreakdownList, SyncStatusBar, PeriodSwitcher), `src/mobile/src/format/money.ts`
 - Test: `src/mobile/src/format/__tests__/money.test.ts`, `src/mobile/src/home/__tests__/*.test.tsx`
 
 **Behaviour:**
+
 - `GET /home?period=current|previous` — period switcher; budget cards: name, `spent / amount`, progress bar (clamp 0–100 %, red when ratio ≥ 1, amber ≥ 0.8), per-budget period label (weekly/monthly); `fxMissing` → small "some foreign amounts couldn't be converted" note.
 - Breakdown list sorted desc with category name and amount; separate income/uncategorizedIncome line.
 - Sync status bar: per connector status chip (ok / needs attention → tap to Connections / error), last sync relative time; pull-to-refresh triggers `POST /connectors/:id/sync` for own ok connectors (429 → toast "already syncing / try again in Ns") then refetches home.
@@ -96,10 +104,12 @@
 ### Task 5: Transactions, recategorization, accounts
 
 **Files:**
+
 - Create: `src/mobile/app/(app)/transactions.tsx`, `src/mobile/app/(app)/transaction/[id].tsx`, `src/mobile/app/(app)/settings/accounts.tsx`, `src/mobile/src/transactions/*`
 - Test: corresponding `__tests__`
 
 **Behaviour:**
+
 - Infinite list (`GET /transactions` cursor), grouped by booking date, pending badge, amount coloured (negative neutral, positive green).
 - Detail: counterparty, purpose, account, category; category picker (categories come from… there is no categories endpoint yet → add `GET /api/v1/categories` (member) on the server returning household categories, with route fixture + test) ; "Always use this for <counterparty>" toggle → `PATCH /transactions/:id {categoryId, applyToCounterparty}`; optimistic update with rollback on error.
 - Settings → Accounts: list own + visible accounts; for own accounts toggles "Private (only me)" and "Counts toward budgets" → `PATCH /accounts/:id`.
@@ -109,10 +119,12 @@
 ### Task 6: Connections and bank challenges
 
 **Files:**
+
 - Create: `src/mobile/app/(app)/connections/index.tsx`, `add.tsx`, `challenge/[id].tsx`, `src/mobile/src/connections/*`
 - Test: `__tests__` incl. `challenge.test.tsx`
 
 **Behaviour:**
+
 - List: own connectors (type/bank, status, last sync, consent expiry), "Sync now", "Reconnect" (for needs_attention/error), others' connectors read-only.
 - Add bank: choose DKB or Comdirect (from a static list matching the server catalog) → user id + PIN (secure text entry, no autofill to clipboard) + "Keep these accounts private" switch (→ `accountDefaults`) → `POST /connectors {type:'fints', config, accountDefaults}`. Also "Demo bank" (`type:'fake'`) shown only when the server reports it (add `GET /api/v1/connectors/types` → enabled connector types; route fixture + test).
 - Challenge screen by kind: `decoupled` — message + spinner + "I've confirmed in my banking app" button; auto-poll every `pollAfterMs` (min 2 s) via `POST /challenges/:id/answer {kind:'decoupled'}`; respects 429 Retry-After; pauses in background (AppState) and resumes on return. `code` — message + numeric input + submit; 422 shows "Invalid input" and keeps the screen. `image` — `data:` URI from `mimeType`+`imageBase64` shown large (zoomable) + code input. `redirect` — not supported by fints; render "unsupported" gracefully. Status `completed` → success screen → Connections; `expired`/`cancelled` → message + "Try again" (reconnect). Cancel button → `DELETE /challenges/:id`.
@@ -123,10 +135,12 @@
 ### Task 7: Notifications, app lock, screen protection
 
 **Files:**
+
 - Create: `src/mobile/src/notifications/poll-task.ts`, `src/mobile/src/notifications/useNotificationPermission.ts`, `src/mobile/src/security/AppLock.tsx`, `src/mobile/src/security/useScreenProtection.ts`, `src/mobile/app/(app)/settings/index.tsx`
 - Test: `__tests__` for each
 
 **Behaviour:**
+
 - Background task `budgedino-notifications` (expo-background-task, minimum interval 15 min): if signed in, `GET /notifications`, schedule a local notification per item (title "BudgeDino", body = server body), then `POST /notifications/ack`; also runs on app foreground. Android channel "Budget & connections".
 - App lock: on cold start and when returning after > 60 s, require `authenticateAsync` (biometric or device credential fallback); failure → stays locked; setting to disable lock (default on).
 - Screen protection on all authenticated screens; Settings: sign out (wipes everything), server URL display, lock toggle, devices list (`GET /auth/sessions`, revoke others).
@@ -136,11 +150,13 @@
 ### Task 8: Local dev loop on the S22, demo seed, Maestro flows
 
 **Files:**
+
 - Create: `docker-compose.dev.yml` (postgres only, port 5433), `src/server/src/dev/seed.ts` + CLI `budgedino dev-seed` (refuses when `NODE_ENV=production`), `docs/guides/run-on-android-device.md`, `src/mobile/maestro/{login,home,connect-demo-bank}.yaml`
 - Modify: root scripts (`pnpm dev:db`, `pnpm dev:server` with fake connector enabled and HOST=0.0.0.0, `pnpm mobile:android`, `pnpm maestro:device`), README, AGENTS.md
 - Test: `tests/server/dev/seed.int.test.ts`
 
 **Behaviour:**
+
 - `dev-seed` creates (idempotently) a demo household, prints a one-time admin invite, and a FakeConnector config template the app's "Demo bank" uses; with `--with-data` it also creates a connected fake connector with ~60 days of realistic German transactions (REWE, EDEKA, DB, Netflix, salary) and two budgets (Groceries 500 € monthly, Eating out 60 € weekly) so the home screen shows real numbers.
 - Guide `run-on-android-device.md` (checklist style): USB debugging on the S22, `adb devices` shows it, `.mise.toml` Java 21, `pnpm dev:db`, `pnpm dev:server`, find Mac LAN IP, `pnpm mobile:android` (first build 5–10 min), enter `http://<lan-ip>:8080` in the app, register with the seed invite, add TOTP to an authenticator, see the demo data; troubleshooting (firewall on port 8080, device unauthorized, Metro on same Wi-Fi).
 - Maestro flows (opt-in, physical device or device farm; never CI): login with seeded user (TOTP via a test-only `BUDGEDINO_DEV_TOTP_SECRET` printed by the seed), home shows "Groceries", connect demo bank with decoupled challenge completes.
@@ -150,5 +166,6 @@
 ---
 
 ## Owner steps (outside CI)
+
 - Connect the S22 via USB with USB debugging enabled, then follow `docs/guides/run-on-android-device.md`.
 - Optional: run the Maestro flows on the S22 (`pnpm maestro:device`).

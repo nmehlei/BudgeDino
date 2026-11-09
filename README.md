@@ -4,7 +4,7 @@ Open-source, self-hostable household finance app. It pulls accounts, transaction
 from banks and brokers automatically, categorizes transactions and shows them against household
 budgets, without recurring manual work. Sensitive data is encrypted at application level.
 
-Status: early development (server foundation). An Android app (Expo) follows.
+Status: early development (server foundation). The Android app (Expo development build) lives in `src/mobile`; `pnpm mobile:android` installs it on a USB-attached phone (JDK 21 via `.mise.toml`, no emulator).
 
 ## Documentation
 

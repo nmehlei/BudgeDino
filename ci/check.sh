@@ -15,6 +15,11 @@ pnpm typecheck
 echo "==> unit tests"
 pnpm test
 
+echo "==> mobile (lint, typecheck, jest; no Android build in CI)"
+pnpm mobile:lint
+pnpm mobile:typecheck
+pnpm mobile:test
+
 echo "==> build"
 pnpm build
 
