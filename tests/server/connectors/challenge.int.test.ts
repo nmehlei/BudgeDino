@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
+import { createRule } from '@budgedino/server/categorization/rules';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '@budgedino/server/app';
 import { expireChallenges } from '@budgedino/server/connectors/challenge-service';
@@ -9,6 +10,7 @@ import type { Connector } from '@budgedino/server/connectors/types';
 import { runSync } from '@budgedino/server/sync/run';
 import {
   accounts,
+  categories,
   challenges,
   connectors,
   notifications,
@@ -38,6 +40,8 @@ let app: FastifyInstance;
 let nowMs: number;
 let aToken: string;
 let bToken: string;
+let householdId: string;
+let bMemberId: string;
 let cancelCalls: number;
 let continueCalls: number;
 let continueDelayMs: number;
@@ -122,9 +126,10 @@ beforeEach(async () => {
     now: () => new Date(nowMs),
   });
   await app.ready();
-  const householdId = await createHousehold(database.db, keyring);
+  householdId = await createHousehold(database.db, keyring);
   const aId = await createTestMember(database.db, keyring, householdId, { role: 'admin' });
   const bId = await createTestMember(database.db, keyring, householdId, { role: 'member' });
+  bMemberId = bId;
   aToken = await createTestSession(database.db, keyring, householdId, aId);
   bToken = await createTestSession(database.db, keyring, householdId, bId);
 });
@@ -295,6 +300,89 @@ describe('connect', () => {
     const res = await connect(bToken, { scenario: 'code', accountRef: MARKER });
     const row = await connectorRow(res.json.connectorId);
     expect(row.configEnc.toString('latin1')).not.toContain(MARKER);
+  });
+});
+
+describe('account defaults (R17)', () => {
+  const fakeTx = {
+    providerId: 'p-1',
+    status: 'booked',
+    bookingDate: '2026-11-05',
+    amountMinor: '-5000',
+    currency: 'EUR',
+    counterparty: 'Supermarket',
+  };
+
+  async function seedBudgetAndRule() {
+    const [cat] = await database.db
+      .insert(categories)
+      .values({ householdId, name: 'Groceries' })
+      .returning();
+    const dk = await keyring.forHousehold(householdId);
+    await createRule(database.db, dk, {
+      householdId,
+      createdBy: bMemberId,
+      match: { counterpartyContains: 'Supermarket' },
+      categoryId: cat?.id ?? '',
+    });
+    const res = await call('POST', '/budgets', aToken, {
+      name: 'Groceries',
+      categoryIds: [cat?.id],
+      periodKind: 'monthly',
+      amount: { minor: '1000', currency: 'EUR' },
+    });
+    expect(res.status, res.body).toBe(201);
+  }
+
+  it('owner_only defaults: the other member never sees the accounts or transactions, no budget alert', async () => {
+    await seedBudgetAndRule();
+    const res = await call('POST', '/connectors', bToken, {
+      type: 'fake',
+      config: { scenario: 'happy', transactions: [fakeTx] },
+      accountDefaults: { visibility: 'owner_only' },
+    });
+    expect(res.status, res.body).toBe(200);
+    await app.ctx.sync.idle();
+
+    const [account] = await database.db.select().from(accounts);
+    expect(account).toMatchObject({ visibility: 'owner_only', countsTowardBudgets: false });
+    const aAccounts = await call('GET', '/accounts', aToken);
+    expect(aAccounts.json.accounts).toEqual([]);
+    const aTx = await call('GET', '/transactions', aToken);
+    expect(aTx.json.transactions).toEqual([]);
+    const bTx = await call('GET', '/transactions', bToken);
+    expect(bTx.json.transactions).toHaveLength(1);
+    const kinds = await database.db.select({ kind: notifications.kind }).from(notifications);
+    expect(kinds.filter((k) => k.kind === 'budget_threshold')).toEqual([]);
+  });
+
+  it('countsTowardBudgets can be given explicitly with owner_only', async () => {
+    const res = await call('POST', '/connectors', bToken, {
+      type: 'fake',
+      config: { scenario: 'happy' },
+      accountDefaults: { visibility: 'owner_only', countsTowardBudgets: true },
+    });
+    expect(res.status, res.body).toBe(200);
+    await app.ctx.sync.idle();
+    const [account] = await database.db.select().from(accounts);
+    expect(account).toMatchObject({ visibility: 'owner_only', countsTowardBudgets: true });
+  });
+
+  it('defaults stay household and counting without accountDefaults', async () => {
+    const res = await connect(bToken, { scenario: 'happy' });
+    expect(res.status).toBe(200);
+    await app.ctx.sync.idle();
+    const [account] = await database.db.select().from(accounts);
+    expect(account).toMatchObject({ visibility: 'household', countsTowardBudgets: true });
+  });
+
+  it('rejects an invalid visibility value with 400', async () => {
+    const res = await call('POST', '/connectors', bToken, {
+      type: 'fake',
+      config: { scenario: 'happy' },
+      accountDefaults: { visibility: 'public' },
+    });
+    expect(res.status).toBe(400);
   });
 });
 

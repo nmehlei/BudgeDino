@@ -30,6 +30,10 @@
   included, gets `404` (indistinguishable from a missing account). Switching to `owner_only` sets
   `countsTowardBudgets=false` unless the request passes `countsTowardBudgets` explicitly. Takes effect
   immediately on every endpoint.
+- **R17:** `POST /connectors` accepts `accountDefaults: { visibility?, countsTowardBudgets? }` (stored plain on
+  the connector). Accounts discovered for that connector start with those values, so an `owner_only` connector's
+  accounts and transactions are never visible to anyone else at any point. `owner_only` without
+  `countsTowardBudgets` defaults to `false`; without `accountDefaults` accounts are `household` and counting.
 - Sessions expire after 90 days idle and 365 days absolute lifetime ([security.md](security.md)).
   **[call]**
 - Enforced by a canary test that probes every registered GET route as another member

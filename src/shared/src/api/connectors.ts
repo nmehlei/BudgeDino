@@ -42,10 +42,21 @@ export const connectorIdParams = z.object({ id: z.uuid() });
 export const syncStartedResponse = z.object({ runId: z.string() });
 export type SyncStartedResponse = z.infer<typeof syncStartedResponse>;
 
+/**
+ * Visibility defaults for the accounts a connector discovers. `owner_only` without `countsTowardBudgets`
+ * means the accounts do not count toward budgets (same rule as `PATCH /accounts/:id`).
+ */
+export const accountDefaults = z.object({
+  visibility: z.enum(['household', 'owner_only']).optional(),
+  countsTowardBudgets: z.boolean().optional(),
+});
+export type AccountDefaults = z.infer<typeof accountDefaults>;
+
 /** `POST /connectors`: `config` is validated per connector type on the server. */
 export const createConnectorRequest = z.object({
   type: z.string().min(1).max(64),
   config: z.record(z.string(), z.json()),
+  accountDefaults: accountDefaults.optional(),
 });
 export type CreateConnectorRequest = z.infer<typeof createConnectorRequest>;
 

@@ -1905,6 +1905,21 @@
                     "additionalProperties": {
                       "$ref": "#/components/schemas/schema0"
                     }
+                  },
+                  "accountDefaults": {
+                    "type": "object",
+                    "properties": {
+                      "visibility": {
+                        "type": "string",
+                        "enum": [
+                          "household",
+                          "owner_only"
+                        ]
+                      },
+                      "countsTowardBudgets": {
+                        "type": "boolean"
+                      }
+                    }
                   }
                 },
                 "required": [

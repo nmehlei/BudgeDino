@@ -105,7 +105,7 @@ injected (no global); `get(type)` throws `UnknownConnectorError`.
 
 Code: `src/server/src/connectors/{routes.ts,challenge-service.ts}`; schemas in `src/shared/src/api/{challenges,connectors}.ts`.
 
-- **Routes (member, owner only; anyone else gets 404):** `POST /connectors {type, config}` -> `{connectorId, challenge?}`
+- **Routes (member, owner only; anyone else gets 404):** `POST /connectors {type, config, accountDefaults?}` -> `{connectorId, challenge?}`
   (config validated by the connector's `configSchema`, unknown type or invalid config = 400, stored encrypted; the connector
   starts as `needs_attention`); `POST /connectors/:id/reconnect` -> `{challenge?}`; `POST /challenges/:id/answer` ->
   `{status, reason?, challenge?}`; `GET /challenges/:id` -> `{status}` (never calls the bank); `DELETE /challenges/:id` cancels.
@@ -138,7 +138,9 @@ Code: `src/server/src/connectors/{routes.ts,challenge-service.ts}`; schemas in `
   used right away.
 - **At most one open challenge per connector;** a new reconnect cancels the previous one (`cancelAuth`).
 - **On `done`:** state stored encrypted, connector `ok`, `consent_expires_at` set, accounts discovered with `listAccounts`
-  (new refs matched by blind index get visibility `household`, counts toward budgets), then a user-present sync is started
+  (new refs matched by blind index get the connector's `accountDefaults`: visibility `household` and counting toward
+  budgets unless `POST /connectors` said otherwise; `owner_only` without `countsTowardBudgets` means not counting),
+  so a member can connect a private bank without its accounts ever being visible to the household. Then a user-present sync is started
   (coalescing applies; a throttled 429 does not fail the connect).
 
 ## Sync engine (implementation summary)

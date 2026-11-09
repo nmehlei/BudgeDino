@@ -116,6 +116,12 @@ export const connectors = pgTable('connectors', {
     .notNull()
     .default('ok'),
   configEnc: bytea('config_enc').notNull(),
+  /** Visibility of newly discovered accounts (plain enums, not sensitive). */
+  defaultVisibility: text('default_visibility', { enum: ['household', 'owner_only'] })
+    .notNull()
+    .default('household'),
+  /** Null = derived from the visibility (household counts, owner_only does not). */
+  defaultCountsTowardBudgets: boolean('default_counts_toward_budgets'),
   stateEnc: bytea('state_enc'),
   /** Bumped by every (re)authentication; a sync run only writes state/status while it is unchanged. */
   stateGeneration: integer('state_generation').notNull().default(0),

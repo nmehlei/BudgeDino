@@ -1,6 +1,11 @@
 import { and, eq, inArray, lte, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import type { ChallengeAnswer, ChallengeStatus, ChallengeView } from '@budgedino/shared';
+import type {
+  AccountDefaults,
+  ChallengeAnswer,
+  ChallengeStatus,
+  ChallengeView,
+} from '@budgedino/shared';
 import { blindIndex, decryptString, encryptField, type DataKey } from '../crypto/index.js';
 import type { Db } from '../db/client.js';
 import { newId } from '../db/ids.js';
@@ -188,7 +193,11 @@ export async function expireChallenges(deps: ChallengeDeps): Promise<number> {
 export interface ChallengeService {
   connect(
     auth: AuthContext,
-    input: { type: string; config: Record<string, unknown> },
+    input: {
+      type: string;
+      config: Record<string, unknown>;
+      accountDefaults?: AccountDefaults | undefined;
+    },
     psuIp: string | undefined,
   ): Promise<{ connectorId: string; challenge?: ChallengeView }>;
   reconnect(
@@ -302,8 +311,10 @@ export function createChallengeService(
         ...(p.iban === undefined ? {} : { iban: p.iban }),
         kind: p.kind,
         currency: p.currency,
-        visibility: 'household',
-        countsTowardBudgets: true,
+        visibility: connector.defaultVisibility,
+        // Unset: household counts, owner_only does not (same rule as PATCH /accounts).
+        countsTowardBudgets:
+          connector.defaultCountsTowardBudgets ?? connector.defaultVisibility === 'household',
       });
     }
   }
@@ -423,6 +434,8 @@ export function createChallengeService(
           type: input.type,
           status: 'needs_attention',
           configEnc: encryptField(dk, JSON.stringify(config), configAad(id)),
+          defaultVisibility: input.accountDefaults?.visibility ?? 'household',
+          defaultCountsTowardBudgets: input.accountDefaults?.countsTowardBudgets ?? null,
         })
         .returning();
       if (!connector) throw new Error('connector insert returned no row');

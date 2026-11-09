@@ -57,6 +57,13 @@
       "when": 1794197426057,
       "tag": "0007_notifications_dedup_key",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794200201920,
+      "tag": "0008_connectors_account_defaults",
+      "breakpoints": true
     }
   ]
 }
