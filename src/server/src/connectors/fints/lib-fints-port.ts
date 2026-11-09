@@ -207,6 +207,9 @@ class LibFintsSession implements FinTSSession {
   }
 
   private statementsResult(r: StatementResponse) {
+    // Our lib-fints patch flags an MT940/CAMT payload that failed to parse (the library would
+    // otherwise report success with zero statements: silent data loss).
+    if ((r as { parseFailed?: boolean }).parseFailed) throw new FinTSPortError('decode');
     return { ...mapResponse(r), transactions: mapStatements(r.statements) };
   }
 

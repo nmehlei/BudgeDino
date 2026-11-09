@@ -1,4 +1,5 @@
 import { inspect } from 'node:util';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FinTSPortError } from '@budgedino/server/connectors/fints/port';
 import {
@@ -180,5 +181,86 @@ describe('LibFintsPort error sanitising', () => {
     const same = { ...info, bpd: { ...info.bpd, url: params.url } };
     port.openFromState(params, serialiseBankingInformation(same), 920);
     expect(seen).toHaveLength(1);
+  });
+});
+
+describe('LibFintsPort statement parse failures (P2-R5)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  type Handler = { handleResponse(r: unknown, c: Record<string, unknown>): void };
+
+  // The interaction classes are not exported by lib-fints; load the patched files by path.
+  async function handlerFor(file: string, ctor: string): Promise<Handler> {
+    const dist = new URL('../../../../src/server/node_modules/lib-fints/dist/', import.meta.url);
+    const target = pathToFileURL(fileURLToPath(new URL(`interactions/${file}`, dist)));
+    const mod = (await import(target.href)) as Record<string, new (...a: unknown[]) => Handler>;
+    const Cls = mod[ctor] as new (...a: unknown[]) => Handler;
+    return new Cls({}, undefined, undefined);
+  }
+
+  const fakeResponse = (segment: unknown) => ({ findAllSegments: () => [segment] });
+
+  it('the patched MT940 interaction flags a payload that does not parse', async () => {
+    const handler = await handlerFor('statementInteractionMT940.js', 'StatementInteractionMT940');
+    const bad: Record<string, unknown> = {};
+    handler.handleResponse(fakeResponse({ bookedTransactions: ':61:garbage-without-60F' }), bad);
+    expect(bad['parseFailed']).toBe(true);
+    const empty: Record<string, unknown> = {};
+    handler.handleResponse(fakeResponse({}), empty);
+    expect(empty['parseFailed']).toBeUndefined();
+    expect(empty['statements']).toEqual([]);
+  });
+
+  it('the patched CAMT interaction flags a payload that does not parse', async () => {
+    const handler = await handlerFor('statementInteractionCAMT.js', 'StatementInteractionCAMT');
+    const bad: Record<string, unknown> = {};
+    handler.handleResponse(fakeResponse({ bookedTransactions: ['<not-camt/>'] }), bad);
+    expect(bad['parseFailed']).toBe(true);
+  });
+
+  const account = {
+    iban: 'DE02120300000000202051',
+    accountNumber: '123',
+    blz: '12345678',
+    accountType: 'CheckingAccount' as const,
+  };
+  const okResponse = {
+    success: true,
+    requiresTan: false,
+    bankAnswers: [],
+    bankingInformationUpdated: false,
+    dialogId: 'd',
+    statements: [],
+  };
+
+  /** Replaces the session's lib-fints client call (the client is the session's private state). */
+  function stubStatements(session: unknown, response: unknown): void {
+    const client = (session as { client: { getAccountStatements: () => Promise<unknown> } }).client;
+    client.getAccountStatements = () => Promise.resolve(response);
+  }
+
+  it('surfaces a parseFailed response as a decode error instead of zero statements', async () => {
+    const session = new LibFintsPort().openFromState(
+      params,
+      serialiseBankingInformation(info),
+      920,
+    );
+    stubStatements(session, { ...okResponse, parseFailed: true });
+    const e = await session.getStatements(account).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(FinTSPortError);
+    expect((e as FinTSPortError).category).toBe('decode');
+  });
+
+  it('still returns genuinely empty statements as success', async () => {
+    const session = new LibFintsPort().openFromState(
+      params,
+      serialiseBankingInformation(info),
+      920,
+    );
+    stubStatements(session, okResponse);
+    await expect(session.getStatements(account)).resolves.toMatchObject({
+      success: true,
+      transactions: [],
+    });
   });
 });

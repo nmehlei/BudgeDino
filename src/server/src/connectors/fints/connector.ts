@@ -12,7 +12,18 @@
  *  4. After sync, a 3-day statements probe on the first checking/credit-card account; if the bank
  *     wants a TAN for it, a second challenge is raised so the user's SCA covers account access
  *     (PSD2 90-day exemption for later unattended fetches).
- *  5. Done: state `{ bankingInformation, tanMethodId, systemId }`, consent expires in 90 days.
+ *  5. Done: state `{ bankingInformation, tanMethodId, systemId, credentials }`, consent expires in
+ *     90 days. The connector interface hands only `state` to `listAccounts`/`fetchTransactions`
+ *     (no config), so the credentials (bank, user id, PIN) travel in the state, which is stored
+ *     encrypted like the config.
+ *
+ * Fetching (unattended, never throws for bank-side problems, never leaves a dialog open):
+ * - `from = since ?? today - 89 days`, clamped to the 89-day SCA-exempt window; `today` is the
+ *   Europe/Berlin calendar date of `ctx.now()` (the bank's calendar).
+ * - TAN demanded or PIN error -> `needs_attention`; any other port error -> `temporary`; a state
+ *   that cannot be opened (corrupt BPD, missing credentials, unknown account) -> `needs_attention`.
+ * - Parse failures (flagged by our lib-fints patch, surfaced as a port `decode` error) are
+ *   `temporary`, never an empty success.
  *
  * The live bank session sits in the in-process dialog registry; the persisted DialogState only
  * carries the opaque handle and bookkeeping. PIN and user id never leave the port call.
@@ -22,6 +33,8 @@
  * - 9940 (TAN entwertet), 9941 (TAN ungueltig): the TAN was rejected.
  * Bank answer text is never put into errors; only the sanitised `tanChallenge` reaches the user.
  */
+import { Temporal } from 'temporal-polyfill';
+import { money } from '@budgedino/shared';
 import type { Json } from '../types.js';
 import {
   ConnectorAuthError,
@@ -33,10 +46,14 @@ import {
   type ConnectorConfig,
   type ConnectorContext,
   type DialogState,
+  type FetchResult,
+  type ProviderAccount,
+  type ConnectorState,
 } from '../types.js';
 import { FINTS_BANKS } from './banks.js';
 import { fintsConfigSchema } from './config.js';
 import type { DialogMeta, FinTSDialogRegistry } from './dialogs.js';
+import { accountRef, mapAccount, mapTx, toMinor } from './map.js';
 import {
   FinTSPortError,
   type FinTSAccount,
@@ -61,6 +78,9 @@ const DIALOG_TTL_MS = 10 * 60_000;
 const CONSENT_MS = 90 * 86_400_000;
 const PROBE_MS = 3 * 86_400_000;
 const MAX_MESSAGE = 200;
+const BANK_TIME_ZONE = 'Europe/Berlin';
+/** Longest unattended look-back: stays inside the PSD2 90-day SCA exemption. */
+const MAX_LOOKBACK_DAYS = 89;
 
 type Step = DialogMeta['step'];
 type ChallengeKindUsed = 'decoupled' | 'code' | 'image';
@@ -72,6 +92,38 @@ interface PersistedDialog {
   attempts: number;
   tanMethodId: number;
 }
+
+interface Credentials {
+  bank: keyof typeof FINTS_BANKS;
+  userId: string;
+  pin: string;
+}
+
+type StoredState = { bankingInformation: unknown; tanMethodId: number; credentials: Credentials };
+
+/** Reads and validates what the done state carries; undefined when unusable. */
+function readState(state: ConnectorState): StoredState | undefined {
+  const { bankingInformation, tanMethodId, credentials } = state;
+  if (typeof tanMethodId !== 'number' || bankingInformation === undefined) return undefined;
+  if (typeof credentials !== 'object' || credentials === null || Array.isArray(credentials))
+    return undefined;
+  const { bank, userId, pin } = credentials;
+  if (typeof bank !== 'string' || !Object.hasOwn(FINTS_BANKS, bank)) return undefined;
+  if (typeof userId !== 'string' || typeof pin !== 'string') return undefined;
+  return {
+    bankingInformation,
+    tanMethodId,
+    credentials: { bank: bank as Credentials['bank'], userId, pin },
+  };
+}
+
+/** A JS Date at host-local midnight of a calendar date (lib-fints reads dates with local getters). */
+const localMidnight = (d: Temporal.PlainDate): Date => new Date(d.year, d.month - 1, d.day);
+
+const bankDate = (instant: Date): Temporal.PlainDate =>
+  Temporal.Instant.fromEpochMilliseconds(instant.getTime())
+    .toZonedDateTimeISO(BANK_TIME_ZONE)
+    .toPlainDate();
 
 const failed = (): Error => new Error('fints_failed');
 
@@ -141,6 +193,8 @@ function readDialog(dialog: DialogState): PersistedDialog | undefined {
 
 export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
   const { port, dialogs, product } = deps;
+  /** Credentials of live auth sessions (in-process only), so the done state can carry them. */
+  const sessionCredentials = new WeakMap<FinTSSession, Credentials>();
 
   const toChallenge = (
     methodKind: FinTSTanKind,
@@ -208,12 +262,15 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
   const finish = (session: FinTSSession, tanMethodId: number, ctx: ConnectorContext): AuthStep => {
     const info = session.bankingInformation();
     const systemId = (info as { systemId?: unknown } | null)?.systemId;
+    const credentials = sessionCredentials.get(session);
+    if (!credentials) throw failed();
     return {
       done: true,
       state: {
         bankingInformation: info as Json,
         tanMethodId,
         systemId: typeof systemId === 'string' ? systemId : null,
+        credentials: { ...credentials },
       },
       consentExpiresAt: new Date(ctx.now().getTime() + CONSENT_MS),
     };
@@ -262,6 +319,33 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
     return probeOutcome(session, acc, await runProbe(session, acc, ctx), tanMethod, 0, ctx);
   };
 
+  const openStored = (stored: StoredState): FinTSSession => {
+    const bank = FINTS_BANKS[stored.credentials.bank];
+    return port.openFromState(
+      {
+        productId: product.id,
+        productVersion: product.version,
+        url: bank.url,
+        blz: bank.blz,
+        userId: stored.credentials.userId,
+        pin: stored.credentials.pin,
+      },
+      stored.bankingInformation,
+      stored.tanMethodId,
+    );
+  };
+
+  /** Best effort: any failure (including a TAN demand) just means no balance this time. */
+  const fetchBalance = async (session: FinTSSession, acc: FinTSAccount) => {
+    try {
+      const b = await session.getBalance(acc);
+      if (!b.success || b.requiresTan || !b.balance) return undefined;
+      return money(toMinor(b.balance.value, b.balance.currency), b.balance.currency);
+    } catch {
+      return undefined;
+    }
+  };
+
   return {
     type: 'fints',
     experimental: false,
@@ -281,6 +365,7 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
         pin: cfg.pin,
       };
       const session = await guard(() => port.openFirstTime(params));
+      sessionCredentials.set(session, { bank: cfg.bank, userId: cfg.userId, pin: cfg.pin });
       const first = await guard(() => session.synchronize());
       checkPinErrors(first);
       if (!first.success || first.requiresTan) throw failed();
@@ -361,12 +446,55 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
       if (typeof handle === 'string') dialogs.drop(handle);
     },
 
-    async listAccounts() {
-      throw new Error('fints listAccounts not implemented');
+    async listAccounts(state): Promise<ProviderAccount[]> {
+      const stored = readState(state);
+      if (!stored) throw failed();
+      return guard(() => openStored(stored).accounts().map(mapAccount));
     },
 
-    async fetchTransactions() {
-      throw new Error('fints fetchTransactions not implemented');
+    async fetchTransactions(state, ref, since, ctx): Promise<FetchResult> {
+      const stored = readState(state);
+      if (!stored) return { ok: false, reason: 'needs_attention', state };
+      const fail = (reason: 'needs_attention' | 'temporary'): FetchResult => ({
+        ok: false,
+        reason,
+        state,
+      });
+      try {
+        const session = openStored(stored);
+        const acc = session.accounts().find((a) => accountRef(a) === ref);
+        if (!acc) return fail('needs_attention');
+        if (acc.accountType === 'SecuritiesAccount') return { ok: true, transactions: [], state };
+
+        const today = bankDate(ctx.now());
+        const earliest = today.subtract({ days: MAX_LOOKBACK_DAYS });
+        let from = since ? bankDate(since) : earliest;
+        if (Temporal.PlainDate.compare(from, earliest) < 0) from = earliest;
+        if (Temporal.PlainDate.compare(from, today) > 0) from = today;
+        const fromDate = localMidnight(from);
+        const r =
+          acc.accountType === 'CreditCardAccount'
+            ? await session.getCreditCardStatements(acc, fromDate)
+            : await session.getStatements(acc, fromDate, localMidnight(today));
+        if (r.bankAnswers.some((a) => PIN_ERROR_CODES.has(a.code))) return fail('needs_attention');
+        // PSD2 SCA renewal: never an interactive dialog from here; the user renews via re-auth.
+        if (r.requiresTan) return fail('needs_attention');
+        if (!r.success) return fail('temporary');
+
+        const currency = acc.currency ?? 'EUR';
+        const transactions = (r.transactions ?? []).map((t) => mapTx(t, currency));
+        const balance = await fetchBalance(session, acc);
+        const next: ConnectorState = r.bankingInformationUpdated
+          ? { ...state, bankingInformation: session.bankingInformation() as Json }
+          : state;
+        const out: FetchResult = { ok: true, transactions, state: next };
+        if (balance) out.balance = balance;
+        return out;
+      } catch (e) {
+        if (e instanceof FinTSPortError)
+          return fail(e.category === 'config' ? 'needs_attention' : 'temporary');
+        throw e;
+      }
     },
   };
 }

@@ -38,7 +38,11 @@ export interface ScriptedScenario {
    */
   refuseReusedTanReference?: boolean;
   /** Fails every statement/credit-card/balance call (Task 5). */
-  statementsFailWith?: 'wrong-pin' | 'server-error';
+  statementsFailWith?: 'wrong-pin' | 'server-error' | 'decode';
+  /** Statement calls report `bankingInformationUpdated` and switch the snapshot to this value. */
+  bankingInformationAfterStatements?: unknown;
+  /** `getBalance` throws a network error (statements are unaffected). */
+  balanceFails?: boolean;
   /** Snapshot returned by `bankingInformation()`; JSON only. */
   bankingInformation?: unknown;
 }
@@ -112,6 +116,7 @@ class ScriptedSession implements FinTSSession {
   private statementsTanGiven = false;
   private syncPending: number;
   private statementsPending: number;
+  private snapshotUpdated = false;
   private firstSyncDone = false;
   private rejections = 0;
 
@@ -248,9 +253,18 @@ class ScriptedSession implements FinTSSession {
     if (this.sc.statementsFailWith === 'wrong-pin')
       return { ...BASE, success: false, bankAnswers: [{ code: 9931, text: 'PIN falsch' }] };
     if (this.sc.statementsFailWith === 'server-error') throw new FinTSPortError('http', 500);
+    if (this.sc.statementsFailWith === 'decode') throw new FinTSPortError('decode');
     if (this.sc.statementsRequireTan && !this.statementsTanGiven)
       return this.tanResponse(this.statementsKind(), this.ref('REF-STMT'));
     return undefined;
+  }
+
+  private statementsOk(
+    transactions: FinTSTx[] | undefined,
+  ): FinTSPortResponse & { transactions: FinTSTx[] } {
+    const updated = this.sc.bankingInformationAfterStatements !== undefined;
+    if (updated) this.snapshotUpdated = true;
+    return { ...BASE, bankingInformationUpdated: updated, transactions: transactions ?? [] };
   }
 
   async getStatements(
@@ -259,7 +273,7 @@ class ScriptedSession implements FinTSSession {
     to?: Date,
   ): Promise<FinTSPortResponse & { transactions?: FinTSTx[] }> {
     this.rec('getStatements', acc, from, to);
-    return this.statementGate() ?? { ...BASE, transactions: this.sc.transactions ?? [] };
+    return this.statementGate() ?? this.statementsOk(this.sc.transactions);
   }
 
   async getStatementsWithTan(
@@ -293,19 +307,21 @@ class ScriptedSession implements FinTSSession {
     from?: Date,
   ): Promise<FinTSPortResponse & { transactions?: FinTSTx[] }> {
     this.rec('getCreditCardStatements', acc, from);
-    return this.statementGate() ?? { ...BASE, transactions: this.sc.creditCardTransactions ?? [] };
+    return this.statementGate() ?? this.statementsOk(this.sc.creditCardTransactions);
   }
 
   async getBalance(
     acc: FinTSAccount,
   ): Promise<FinTSPortResponse & { balance?: { value: number; currency: string } }> {
     this.rec('getBalance', acc);
+    if (this.sc.balanceFails) throw new FinTSPortError('network');
     const gate = this.statementGate();
     if (gate) return gate;
     return this.sc.balance ? { ...BASE, balance: this.sc.balance } : { ...BASE };
   }
 
   bankingInformation(): unknown {
+    if (this.snapshotUpdated) return this.sc.bankingInformationAfterStatements;
     return this.sc.bankingInformation ?? DEFAULT_BANKING_INFORMATION;
   }
 }

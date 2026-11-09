@@ -89,6 +89,12 @@ injected (no global); `get(type)` throws `UnknownConnectorError`.
   poll interval; answer = confirm), `code` (answer = code), `image` (base64 image + `mimeType` `image/png`|`image/jpeg`, plus code entry).
 - **Failure reasons:** `fetchTransactions` never throws for bank-side problems; it returns
   `{ ok: false, reason: 'needs_attention' | 'rate_limited' | 'temporary', retryAfter? }`.
+- **FinTS fetching:** unattended fetches request at most the last 89 days (inside the PSD2 90-day
+  SCA exemption; dates are the Europe/Berlin calendar date). A TAN demand or PIN error on a fetch is
+  `needs_attention` (never an open dialog); network, 5xx and unparseable statements are `temporary`
+  (a parse failure is never reported as an empty success). Because `fetchTransactions` receives only
+  the state, the FinTS state also carries the credentials (bank, user id, PIN), stored encrypted like
+  the config.
 - **Decoupled polling:** `continueAuth` returning `{done:false}` with the same `decoupled` challenge
   means "still pending, poll again after `pollAfterMs`". Terminal failures throw
   `ConnectorAuthError` (`too_many_attempts` | `declined` | `timeout`); a client mistake (wrong answer
