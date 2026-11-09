@@ -99,14 +99,14 @@ Done when: the e-mail is sent and the follow-up reminder exists.
 
 Done when: `BUDGEDINO_CONNECTORS=fints` + the env var start the server without a config error.
 
-## Checkpoint 5 — Verify against DKB (opt-in live test)
+## Checkpoint 5 — Verify against DKB (opt-in live script)
 
 Banks may need days to weeks to accept a new number. If DKB answers with an "unknown product" /
 "Produkt nicht registriert" style message, wait and retry later — nothing is wrong on our side.
 
-- [ ] `FINTS_LIVE_BANK=dkb FINTS_LIVE_USER=… FINTS_LIVE_PIN=… BUDGEDINO_FINTS_PRODUCT_ID=… pnpm test:live`
-      (the test prints only the challenge text, account counts/kinds and a date range — never amounts or names).
+- [ ] `FINTS_LIVE_BANK=dkb FINTS_LIVE_USER=… FINTS_LIVE_PIN=… BUDGEDINO_FINTS_PRODUCT_ID=… pnpm fints:live`
+      (the script prints only the challenge text, TAN medium need and count, account counts/kinds and a date range — never amounts or names).
 - [ ] Approve the request in the DKB app when prompted.
 - [ ] Repeat once for Comdirect if you have an account there.
 
-Done when: the live test reports a successful sync for DKB.
+Done when: the live script reports a successful sync for DKB.

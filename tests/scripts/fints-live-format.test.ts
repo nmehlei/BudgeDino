@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { money } from '@budgedino/shared';
 import type { ProviderAccount, ProviderTransaction } from '@budgedino/server/connectors/types';
-import { formatAccounts, formatChallenge, formatTransactionSummary } from './format';
+import {
+  formatAccounts,
+  formatChallenge,
+  formatTanMedia,
+  formatTransactionSummary,
+} from '../../scripts/fints-live-format';
 
 const accounts: ProviderAccount[] = [
   {
@@ -54,7 +59,7 @@ const FORBIDDEN = [
   'PID-1',
 ];
 
-describe('live test output formatting', () => {
+describe('live script output formatting', () => {
   it('prints only counts, kinds and booking dates', () => {
     const out = [
       formatAccounts(accounts),
@@ -78,5 +83,36 @@ describe('live test output formatting', () => {
     expect(
       formatChallenge({ kind: 'decoupled', message: 'Approve in the app', pollAfterMs: 3000 }),
     ).toBe('challenge: kind=decoupled message="Approve in the app"');
+  });
+});
+
+describe('TAN medium line', () => {
+  const state = (requirement: number, media: string[]) => ({
+    tanMethodId: 940,
+    bankingInformation: {
+      bpd: {
+        supportedTanMethods: [
+          { id: 920, tanMediaRequirement: 0, activeTanMedia: [] },
+          { id: 940, tanMediaRequirement: requirement, activeTanMedia: media },
+        ],
+      },
+    },
+  });
+
+  it('reports the requirement and the count of active media, never their names', () => {
+    const out = formatTanMedia(state(2, ['Max Handy', 'Erika Handy']));
+    expect(out).toBe('tan medium: required, active media 2');
+    expect(out).not.toContain('Handy');
+    expect(formatTanMedia(state(1, ['A']))).toBe('tan medium: optional, active media 1');
+    expect(formatTanMedia(state(0, []))).toBe('tan medium: no, active media 0');
+  });
+
+  it('is unknown without usable banking information', () => {
+    expect(formatTanMedia({ tanMethodId: 1, bankingInformation: null })).toBe(
+      'tan medium: unknown',
+    );
+    expect(formatTanMedia({ tanMethodId: 1, bankingInformation: { bpd: {} } })).toBe(
+      'tan medium: unknown',
+    );
   });
 });
