@@ -1,0 +1,49 @@
+diff --git a/dist/httpClient.js b/dist/httpClient.js
+index 0d87f59aa8a0cec564a8d062d7c0327701e00192..b79fe8ed15f1632893d7a9549408e61f2242af23 100644
+--- a/dist/httpClient.js
++++ b/dist/httpClient.js
+@@ -45,8 +45,6 @@ export class HttpClient {
+                 return responseMessage;
+             }
+             catch (error) {
+-                console.error('Error decoding response message:', error);
+-                console.error('Response Message Content:\n', responseText.split("'").join('\n'));
+                 throw error;
+             }
+         }
+diff --git a/dist/interactions/portfolioInteraction.js b/dist/interactions/portfolioInteraction.js
+index ad209fd6853501c871e03ed9a3d9e3dc67ff27ca..6073e8643c7c5051e32018eeb6200e0b78274be5 100644
+--- a/dist/interactions/portfolioInteraction.js
++++ b/dist/interactions/portfolioInteraction.js
+@@ -56,7 +56,6 @@ export class PortfolioInteraction extends CustomerOrderInteraction {
+                 clientResponse.portfolioStatement = parser.parse();
+             }
+             catch (error) {
+-                console.warn('Failed to parse MT535 portfolio statement:', error);
+                 // Fallback: provide raw data if parsing fails
+                 clientResponse.rawMT535Data = portfolioStatement;
+             }
+diff --git a/dist/interactions/statementInteractionCAMT.js b/dist/interactions/statementInteractionCAMT.js
+index d6874b633ef0ba69c4bcd72491d8bbfb4aae2151..e62fda0998c749442161834213c19fcf5656c2b5 100644
+--- a/dist/interactions/statementInteractionCAMT.js
++++ b/dist/interactions/statementInteractionCAMT.js
+@@ -64,7 +64,6 @@ export class StatementInteractionCAMT extends CustomerOrderInteraction {
+                 clientResponse.statements = allStatements;
+             }
+             catch (error) {
+-                console.warn('CAMT parsing failed:', error);
+                 clientResponse.statements = [];
+             }
+         }
+diff --git a/dist/interactions/statementInteractionMT940.js b/dist/interactions/statementInteractionMT940.js
+index a184982fcf5d13a256e65e7ddf0ef5b988a42965..db5561ce1de722e22f50cd7ea473796deabc71da 100644
+--- a/dist/interactions/statementInteractionMT940.js
++++ b/dist/interactions/statementInteractionMT940.js
+@@ -44,7 +44,6 @@ export class StatementInteractionMT940 extends CustomerOrderInteraction {
+                 clientResponse.statements = parser.parse();
+             }
+             catch (error) {
+-                console.warn('MT940 parsing failed:', error);
+                 clientResponse.statements = [];
+             }
+         }

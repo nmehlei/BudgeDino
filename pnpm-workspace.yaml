@@ -7,3 +7,6 @@ allowBuilds:
   protobufjs: false
   ssh2: false
   cpu-features: false
+
+patchedDependencies:
+  lib-fints@1.5.3: patches/lib-fints@1.5.3.patch

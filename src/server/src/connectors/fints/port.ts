@@ -106,3 +106,21 @@ export interface FinTSPort {
   openFirstTime(p: FinTSBankParams): FinTSSession;
   openFromState(p: FinTSBankParams, bankingInformation: unknown, tanMethodId: number): FinTSSession;
 }
+
+export type FinTSPortErrorCategory =
+  'http' | 'network' | 'decode' | 'unsupported' | 'config' | 'unknown';
+
+/**
+ * The only error the port surfaces. lib-fints errors embed bank response bodies, account numbers
+ * and IBANs, so the message is fixed per category and the original error is neither kept as `cause`
+ * nor otherwise referenced.
+ */
+export class FinTSPortError extends Error {
+  constructor(
+    readonly category: FinTSPortErrorCategory,
+    readonly status?: number,
+  ) {
+    super(`FinTS ${category} error`);
+    this.name = 'FinTSPortError';
+  }
+}

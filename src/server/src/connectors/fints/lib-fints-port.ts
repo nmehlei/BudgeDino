@@ -9,14 +9,15 @@ import {
   type Transaction,
 } from 'lib-fints';
 import { accountRef, classifyTanMethod } from './map.js';
-import type {
-  FinTSAccount,
-  FinTSBankParams,
-  FinTSPort,
-  FinTSPortResponse,
-  FinTSSession,
-  FinTSTanMethod,
-  FinTSTx,
+import {
+  FinTSPortError,
+  type FinTSAccount,
+  type FinTSBankParams,
+  type FinTSPort,
+  type FinTSPortResponse,
+  type FinTSSession,
+  type FinTSTanMethod,
+  type FinTSTx,
 } from './port.js';
 
 /** JSON-safe deep copy: Dates become ISO strings; nothing else is altered. */
@@ -118,6 +119,51 @@ function mapStatements(statements: readonly unknown[] | undefined): FinTSTx[] {
   return out;
 }
 
+/** Maps any lib-fints/fetch failure to a sanitised {@link FinTSPortError}; never copies text from it. */
+function sanitise(e: unknown): FinTSPortError {
+  if (e instanceof FinTSPortError) return e;
+  const msg = e instanceof Error ? e.message : '';
+  const http = /^Request failed with status code (\d{3})/.exec(msg);
+  if (http) return new FinTSPortError('http', Number(http[1]));
+  if (e instanceof TypeError && /fetch failed/i.test(msg)) return new FinTSPortError('network');
+  const code = (e as { code?: unknown } | null)?.code;
+  if (typeof code === 'string' && /^(E[A-Z]+|UND_ERR.*)$/.test(code)) {
+    return new FinTSPortError('network');
+  }
+  if (/not supported|unsupported|not available|does not support/i.test(msg)) {
+    return new FinTSPortError('unsupported');
+  }
+  if (/decod|pars|unexpected|invalid segment|segment/i.test(msg)) {
+    return new FinTSPortError('decode');
+  }
+  return new FinTSPortError('unknown');
+}
+
+async function guard<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    throw sanitise(e);
+  }
+}
+
+function sync<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch (e) {
+    throw sanitise(e);
+  }
+}
+
+/** Constructors validate configuration (URL, product id, TAN method), so any failure is `config`. */
+function configure<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch {
+    throw new FinTSPortError('config');
+  }
+}
+
 class LibFintsSession implements FinTSSession {
   constructor(private readonly client: FinTSClient) {}
 
@@ -128,79 +174,101 @@ class LibFintsSession implements FinTSSession {
   private resolve(acc: FinTSAccount): BankAccount {
     const list = this.client.config.bankingInformation.upd?.bankAccounts ?? [];
     const found = list.find((a) => accountRef(mapAccount(a)) === accountRef(acc));
-    if (!found) throw new Error('Account not found in the bank account list');
+    if (!found) throw new FinTSPortError('config');
     return found;
   }
 
-  async synchronize() {
-    const r = await this.client.synchronize();
-    return { ...mapResponse(r), bankingInformation: this.snapshot() };
+  synchronize() {
+    return guard(async () => {
+      const r = await this.client.synchronize();
+      return { ...mapResponse(r), bankingInformation: this.snapshot() };
+    });
   }
 
-  async synchronizeWithTan(ref: string, tan?: string) {
-    const r = await this.client.synchronizeWithTan(ref, tan);
-    return { ...mapResponse(r), bankingInformation: this.snapshot() };
+  synchronizeWithTan(ref: string, tan?: string) {
+    return guard(async () => {
+      const r = await this.client.synchronizeWithTan(ref, tan);
+      return { ...mapResponse(r), bankingInformation: this.snapshot() };
+    });
   }
 
   selectTanMethod(id: number): void {
-    this.client.selectTanMethod(id);
+    sync(() => this.client.selectTanMethod(id));
   }
 
   availableTanMethods(): FinTSTanMethod[] {
-    return this.client.config.availableTanMethods.map(mapTan);
+    return sync(() => this.client.config.availableTanMethods.map(mapTan));
   }
 
   accounts(): FinTSAccount[] {
-    return (this.client.config.bankingInformation.upd?.bankAccounts ?? []).map(mapAccount);
+    return sync(() =>
+      (this.client.config.bankingInformation.upd?.bankAccounts ?? []).map(mapAccount),
+    );
   }
 
   private statementsResult(r: StatementResponse) {
     return { ...mapResponse(r), transactions: mapStatements(r.statements) };
   }
 
-  async getStatements(acc: FinTSAccount, from?: Date, to?: Date) {
-    return this.statementsResult(
-      await this.client.getAccountStatements(this.resolve(acc), from, to),
+  getStatements(acc: FinTSAccount, from?: Date, to?: Date) {
+    return guard(async () =>
+      this.statementsResult(await this.client.getAccountStatements(this.resolve(acc), from, to)),
     );
   }
 
-  async getStatementsWithTan(ref: string, tan?: string) {
+  getStatementsWithTan(ref: string, tan?: string) {
     // The pending interaction decides between account and credit card statements.
-    return this.statementsResult(await this.client.getAccountStatementsWithTan(ref, tan));
-  }
-
-  async getCreditCardStatements(acc: FinTSAccount, from?: Date) {
-    return this.statementsResult(
-      await this.client.getCreditCardStatements(this.resolve(acc), from),
+    return guard(async () =>
+      this.statementsResult(await this.client.getAccountStatementsWithTan(ref, tan)),
     );
   }
 
-  async getBalance(acc: FinTSAccount) {
-    const r: AccountBalanceResponse = await this.client.getAccountBalance(this.resolve(acc));
-    const out: FinTSPortResponse & { balance?: { value: number; currency: string } } =
-      mapResponse(r);
-    if (r.balance) out.balance = { value: r.balance.balance, currency: r.balance.currency };
-    return out;
+  getCreditCardStatements(acc: FinTSAccount, from?: Date) {
+    return guard(async () =>
+      this.statementsResult(await this.client.getCreditCardStatements(this.resolve(acc), from)),
+    );
+  }
+
+  getBalance(acc: FinTSAccount) {
+    return guard(async () => {
+      const r: AccountBalanceResponse = await this.client.getAccountBalance(this.resolve(acc));
+      const out: FinTSPortResponse & { balance?: { value: number; currency: string } } =
+        mapResponse(r);
+      if (r.balance) out.balance = { value: r.balance.balance, currency: r.balance.currency };
+      return out;
+    });
   }
 
   bankingInformation(): unknown {
-    return this.snapshot();
+    return sync(() => this.snapshot());
   }
+}
+
+export interface LibFintsPortOptions {
+  /**
+   * Called with the BLZ (no other data) when the BPD stored from an earlier sync names a different
+   * URL than the catalog; the catalog URL is used regardless.
+   */
+  onUrlMismatch?: (blz: string) => void;
 }
 
 /** Production {@link FinTSPort} over `lib-fints`. Debug output is never enabled and nothing is logged. */
 export class LibFintsPort implements FinTSPort {
+  constructor(private readonly options: LibFintsPortOptions = {}) {}
+
   openFirstTime(p: FinTSBankParams): FinTSSession {
-    const config = FinTSConfig.forFirstTimeUse(
-      p.productId,
-      p.productVersion,
-      p.url,
-      p.blz,
-      p.userId,
-      p.pin,
-    );
-    config.debugEnabled = false;
-    return new LibFintsSession(new FinTSClient(config));
+    return configure(() => {
+      const config = FinTSConfig.forFirstTimeUse(
+        p.productId,
+        p.productVersion,
+        p.url,
+        p.blz,
+        p.userId,
+        p.pin,
+      );
+      config.debugEnabled = false;
+      return new LibFintsSession(new FinTSClient(config));
+    });
   }
 
   openFromState(
@@ -208,21 +276,26 @@ export class LibFintsPort implements FinTSPort {
     bankingInformation: unknown,
     tanMethodId: number,
   ): FinTSSession {
-    // The stored BPD carries the URL the bank reported at sync time; our catalog is authoritative
-    // (banks migrate endpoints), so pin it. lib-fints resolves the URL from the BPD first.
-    const stored = bankingInformation as BankingInformation;
-    const info: BankingInformation = stored.bpd
-      ? { ...stored, bpd: { ...stored.bpd, url: p.url } }
-      : stored;
-    const config = FinTSConfig.fromBankingInformation(
-      p.productId,
-      p.productVersion,
-      info,
-      p.userId,
-      p.pin,
-      tanMethodId,
-    );
-    config.debugEnabled = false;
-    return new LibFintsSession(new FinTSClient(config));
+    const stored = bankingInformation as BankingInformation | null;
+    // lib-fints reads the endpoint from the stored BPD. Without it there is no usable state.
+    if (!stored || typeof stored !== 'object' || !stored.bpd) throw new FinTSPortError('config');
+    // Security: the PIN is sent to this URL, and the BPD (bank-announced, stored from a response)
+    // must not be able to redirect it, so the operator-controlled catalog URL always wins.
+    // Cost: bank-announced endpoint migrations are ignored; the catalog must be kept up to date.
+    if (stored.bpd.url !== undefined && stored.bpd.url !== p.url)
+      this.options.onUrlMismatch?.(p.blz);
+    const info: BankingInformation = { ...stored, bpd: { ...stored.bpd, url: p.url } };
+    return configure(() => {
+      const config = FinTSConfig.fromBankingInformation(
+        p.productId,
+        p.productVersion,
+        info,
+        p.userId,
+        p.pin,
+        tanMethodId,
+      );
+      config.debugEnabled = false;
+      return new LibFintsSession(new FinTSClient(config));
+    });
   }
 }

@@ -162,6 +162,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  lib-fints@1.5.3: 6908709613c5191f9aacd851498ce42835482f289919b4cff4aae4156d8d56ca
+
 importers:
 
   .:
@@ -270,7 +273,7 @@ importers:
         version: 3.6.0
       lib-fints:
         specifier: ^1.5.3
-        version: 1.5.3
+        version: 1.5.3(patch_hash=6908709613c5191f9aacd851498ce42835482f289919b4cff4aae4156d8d56ca)
       otplib:
         specifier: ^13.6.0
         version: 13.6.0
@@ -4473,7 +4476,7 @@ snapshots:
       prelude-ls: 1.2.1
       type-check: 0.4.0
 
-  lib-fints@1.5.3:
+  lib-fints@1.5.3(patch_hash=6908709613c5191f9aacd851498ce42835482f289919b4cff4aae4156d8d56ca):
     dependencies:
       fast-xml-parser: 5.12.0
 
