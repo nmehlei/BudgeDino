@@ -40,6 +40,9 @@ function decode(raw: string): Buffer {
   const value = raw.trim();
   if (!BASE64.test(value)) throw new MasterKeyError('Master key is not valid base64');
   const bytes = Buffer.from(value, 'base64');
+  if (bytes.toString('base64') !== value) {
+    throw new MasterKeyError('Master key is not canonical base64');
+  }
   if (bytes.length !== KEY_BYTES) {
     throw new MasterKeyError(`Master key must be exactly ${KEY_BYTES} bytes (base64-encoded)`);
   }

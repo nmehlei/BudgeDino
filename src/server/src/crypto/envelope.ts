@@ -1,10 +1,4 @@
-import {
-  createCipheriv,
-  createDecipheriv,
-  createHmac,
-  hkdfSync,
-  randomBytes,
-} from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes } from 'node:crypto';
 import { masterKeyBytes, type MasterKey } from './master-key.js';
 
 const VERSION = 0x01;
@@ -47,13 +41,18 @@ function subkey(dk: DataKey, label: string): Buffer {
   return Buffer.from(hkdfSync('sha256', raw(dk), Buffer.alloc(0), label, 32));
 }
 
-/**
- * AAD = table|column|rowId. Length-prefixing is not needed for the spec'd format but separator
- * ambiguity must not allow cross-binding, so components are joined with `|` after escaping.
- */
+const esc = (s: string) => s.replaceAll('\\', '\\\\').replaceAll('|', '\\|');
+
+/** AAD = version byte || UTF-8 of the (escaped, `|`-joined) components, so the version is authenticated. */
+function aadOf(...components: string[]): Buffer {
+  return Buffer.concat([
+    Buffer.from([VERSION]),
+    Buffer.from(components.map(esc).join('|'), 'utf8'),
+  ]);
+}
+
 function encodeAad(aad: FieldAad): Buffer {
-  const esc = (s: string) => s.replaceAll('\\', '\\\\').replaceAll('|', '\\|');
-  return Buffer.from(`${esc(aad.table)}|${esc(aad.column)}|${esc(aad.rowId)}`, 'utf8');
+  return aadOf(aad.table, aad.column, aad.rowId);
 }
 
 function seal(key: Buffer, plaintext: Buffer, aad: Buffer): Buffer {
@@ -83,15 +82,20 @@ export function generateDataKey(): DataKey {
   return newDataKey(randomBytes(32));
 }
 
-/** Wraps with AES-256-GCM under the master key directly; AAD = master key id. */
-export function wrapDataKey(master: MasterKey, dk: DataKey): Buffer {
-  return seal(masterKeyBytes(master), raw(dk), Buffer.from(master.id, 'utf8'));
+/** Wraps with AES-256-GCM under the master key directly; AAD = version || master key id || householdId. */
+export function wrapDataKey(master: MasterKey, dk: DataKey, householdId: string): Buffer {
+  return seal(masterKeyBytes(master), raw(dk), aadOf(master.id, householdId));
 }
 
-export function unwrapDataKey(master: MasterKey, wrapped: Buffer): DataKey {
-  return newDataKey(
-    open(masterKeyBytes(master), wrapped, Buffer.from(master.id, 'utf8'), 'wrapped data key'),
+export function unwrapDataKey(master: MasterKey, wrapped: Buffer, householdId: string): DataKey {
+  const bytes = open(
+    masterKeyBytes(master),
+    wrapped,
+    aadOf(master.id, householdId),
+    'wrapped data key',
   );
+  if (bytes.length !== 32) throw new Error('Unwrapped data key has an invalid length');
+  return newDataKey(bytes);
 }
 
 export function encryptField(dk: DataKey, plaintext: string | Buffer, aad: FieldAad): Buffer {
@@ -109,5 +113,7 @@ export function decryptString(dk: DataKey, blob: Buffer, aad: FieldAad): string 
 
 /** HMAC-SHA256 (hex) under a per-purpose HKDF subkey; for dedup keys and exact-match lookups. */
 export function blindIndex(dk: DataKey, purpose: string, value: string): string {
-  return createHmac('sha256', subkey(dk, `idx:${purpose}`)).update(value, 'utf8').digest('hex');
+  return createHmac('sha256', subkey(dk, `idx:${purpose}`))
+    .update(value, 'utf8')
+    .digest('hex');
 }

@@ -44,27 +44,29 @@ describe('field encryption', () => {
     for (const index of [1, 13, 29]) {
       const blob = encryptField(dk, 'secret', aad);
       blob[index] = (blob[index] ?? 0) ^ 0xff;
-      expect(() => decryptField(dk, blob, aad)).toThrow();
+      expect(() => decryptField(dk, blob, aad)).toThrow(/authentication/);
     }
   });
 
   it('rejects AAD of another row, column or table', () => {
     const dk = generateDataKey();
     const blob = encryptField(dk, 'secret', aad);
-    expect(() => decryptField(dk, blob, { ...aad, rowId: 'row-2' })).toThrow();
-    expect(() => decryptField(dk, blob, { ...aad, column: 'payee' })).toThrow();
-    expect(() => decryptField(dk, blob, { ...aad, table: 'accounts' })).toThrow();
+    expect(() => decryptField(dk, blob, { ...aad, rowId: 'row-2' })).toThrow(/authentication/);
+    expect(() => decryptField(dk, blob, { ...aad, column: 'payee' })).toThrow(/authentication/);
+    expect(() => decryptField(dk, blob, { ...aad, table: 'accounts' })).toThrow(/authentication/);
   });
 
   it('does not allow separator ambiguity in AAD', () => {
     const dk = generateDataKey();
     const blob = encryptField(dk, 's', { table: 'a|b', column: 'c', rowId: 'd' });
-    expect(() => decryptField(dk, blob, { table: 'a', column: 'b|c', rowId: 'd' })).toThrow();
+    expect(() => decryptField(dk, blob, { table: 'a', column: 'b|c', rowId: 'd' })).toThrow(
+      /authentication/,
+    );
   });
 
   it('rejects the wrong data key', () => {
     const blob = encryptField(generateDataKey(), 'secret', aad);
-    expect(() => decryptField(generateDataKey(), blob, aad)).toThrow();
+    expect(() => decryptField(generateDataKey(), blob, aad)).toThrow(/authentication/);
   });
 
   it('rejects unknown versions and short blobs with a clear error', () => {
@@ -89,25 +91,35 @@ describe('data key wrapping', () => {
     const master = loadMasterKey(masterEnv());
     const dk = generateDataKey();
     const blob = encryptField(dk, 'secret', aad);
-    const unwrapped = unwrapDataKey(master, wrapDataKey(master, dk));
+    const unwrapped = unwrapDataKey(master, wrapDataKey(master, dk, 'h1'), 'h1');
     expect(decryptString(unwrapped, blob, aad)).toBe('secret');
   });
 
   it('fails to unwrap with a different master key', () => {
-    const wrapped = wrapDataKey(loadMasterKey(masterEnv()), generateDataKey());
-    expect(() => unwrapDataKey(loadMasterKey(masterEnv()), wrapped)).toThrow();
+    const wrapped = wrapDataKey(loadMasterKey(masterEnv()), generateDataKey(), 'h1');
+    expect(() => unwrapDataKey(loadMasterKey(masterEnv()), wrapped, 'h1')).toThrow(
+      /authentication/,
+    );
   });
 
   it('rejects tampered, short and unknown-version wrapped keys', () => {
     const master = loadMasterKey(masterEnv());
-    const wrapped = wrapDataKey(master, generateDataKey());
+    const wrapped = wrapDataKey(master, generateDataKey(), 'h1');
     const tampered = Buffer.from(wrapped);
     tampered[tampered.length - 1] = (tampered[tampered.length - 1] ?? 0) ^ 1;
-    expect(() => unwrapDataKey(master, tampered)).toThrow();
-    expect(() => unwrapDataKey(master, wrapped.subarray(0, 10))).toThrow(/too short/i);
+    expect(() => unwrapDataKey(master, tampered, 'h1')).toThrow(/authentication/);
+    expect(() => unwrapDataKey(master, wrapped.subarray(0, 10), 'h1')).toThrow(/too short/i);
     const v = Buffer.from(wrapped);
     v[0] = 9;
-    expect(() => unwrapDataKey(master, v)).toThrow(/unsupported.*version/i);
+    expect(() => unwrapDataKey(master, v, 'h1')).toThrow(/unsupported.*version/i);
+  });
+});
+
+describe('data key wrapping binding', () => {
+  it('rejects unwrapping for a different household', () => {
+    const master = loadMasterKey(masterEnv());
+    const wrapped = wrapDataKey(master, generateDataKey(), 'household-A');
+    expect(() => unwrapDataKey(master, wrapped, 'household-B')).toThrow(/authentication/);
   });
 });
 
@@ -151,6 +163,17 @@ describe('loadMasterKey', () => {
     expect(message).not.toContain(value);
   });
 
+  it('rejects non-canonical base64 (whitespace inside, wrong padding, url-safe alphabet)', () => {
+    const good = randomBytes(32).toString('base64');
+    expect(() =>
+      loadMasterKey({ BUDGEDINO_MASTER_KEY: `${good.slice(0, 10)}\n${good.slice(10)}` }),
+    ).toThrow(MasterKeyError);
+    expect(() => loadMasterKey({ BUDGEDINO_MASTER_KEY: good.slice(0, -1) })).toThrow(
+      MasterKeyError,
+    );
+    expect(loadMasterKey({ BUDGEDINO_MASTER_KEY: `  ${good}\n` }).id).toMatch(/^[0-9a-f]{8}$/);
+  });
+
   it('rejects missing, malformed, and ambiguous configuration', () => {
     expect(() => loadMasterKey({})).toThrow(MasterKeyError);
     expect(() => loadMasterKey({ BUDGEDINO_MASTER_KEY: '!!not base64!!' })).toThrow(MasterKeyError);
@@ -168,7 +191,7 @@ describe('opaque keys', () => {
     const bytes = randomBytes(32);
     const master = loadMasterKey(masterEnv(bytes));
     const dk = generateDataKey();
-    const unwrapped = unwrapDataKey(master, wrapDataKey(master, dk));
+    const unwrapped = unwrapDataKey(master, wrapDataKey(master, dk, 'h1'), 'h1');
     const dump = [master, dk, unwrapped]
       .flatMap((k) => [JSON.stringify(k), inspect(k, { depth: 5, showHidden: true }), String(k)])
       .join('\n');

@@ -9,6 +9,7 @@ disk, database dumps or backups, curious hosting provider, network attackers, lo
 leakage via logs and telemetry, and other household members for `owner-only` accounts.
 
 Measures **[call]**:
+
 - **Application-level envelope encryption** of sensitive fields: bank credentials and PINs, aggregator
   keys and tokens, broker sessions, transaction details (counterparty, purpose, amounts), balances and
   holdings. A per-household data key encrypts the data; a master key (env var / file / Docker secret,
@@ -51,10 +52,17 @@ ciphertext`, AES-256-GCM with a random 12-byte IV. Unknown versions and blobs sh
 rejected with a clear error that contains no plaintext or key material.
 
 **AAD.**
-- Field: `table|column|rowId` (UTF-8; `\` and `|` inside a component are backslash-escaped so
+The version byte is itself authenticated: every AAD starts with it (`AAD = 0x01 || components`).
+
+- Field: `0x01 || table|column|rowId` (UTF-8; `\` and `|` inside a component are backslash-escaped so
   components cannot be shifted across separators). A blob decrypts only for the row and column it was
   written for.
-- Wrapped data key: the master key id.
+- Wrapped data key: `0x01 || master key id | householdId` (same escaping). A wrapped key only unwraps for the
+  household it was wrapped for, so rows in `household_keys` cannot be swapped between households. The
+  unwrapped plaintext must be exactly 32 bytes.
+
+**Master key encoding.** Base64 must be canonical: after trimming, `decode` then `encode` must reproduce the
+input, and the decoded length must be 32 bytes. Anything else is rejected.
 
 **Blind index.** `HMAC-SHA256(subkey "idx:<purpose>", value)` as lowercase hex; deterministic per data
 key and purpose, used for dedup keys and exact-match lookups only.
