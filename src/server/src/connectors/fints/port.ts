@@ -28,10 +28,13 @@ export interface FinTSAccount {
   product?: string;
 }
 
-/** Projection of lib-fints statement `Transaction` (amounts are JS floats, dates local-midnight). */
+/**
+ * Projection of lib-fints statement `Transaction` (amounts are JS floats). Dates are the bank's
+ * calendar days as `YYYY-MM-DD`, decided per source by the port (never guessed from a Date).
+ */
 export interface FinTSTx {
-  valueDate: Date;
-  entryDate: Date;
+  bookingDate: string;
+  valueDate?: string;
   amount: number;
   bookingText?: string;
   purpose?: string;

@@ -1,4 +1,3 @@
-import { Temporal } from 'temporal-polyfill';
 import { currencyExponent, money } from '@budgedino/shared';
 import type { AccountKind, ProviderAccount, ProviderTransaction } from '../types.js';
 import type { FinTSAccount, FinTSTanKind, FinTSTanMethod, FinTSTx } from './port.js';
@@ -19,36 +18,21 @@ export function toMinor(amount: number, currency: string): bigint {
 const pad = (n: number, w = 2) => String(n).padStart(w, '0');
 
 /**
- * Calendar date (YYYY-MM-DD) of a date produced by a lib-fints parser. Parsers differ:
- * - MT940, HKKKU/DKKKU credit card: host-local midnight (`new Date(y, m, d)`);
- * - CAMT date-only values: host-local noon (`new Date('YYYY-MM-DDT12:00:00')`, `new Date(y,m,d,12)`);
- * - CAMT values with a time or UTC offset: a true instant, whose day is the bank's (Europe/Berlin).
- * Local getters are right for the first two (host-independent); the instant form is told apart by
- * not being local midnight or noon and is read in the bank's time zone.
+ * Calendar date of a Date a lib-fints parser built with local constructors (`new Date(y, m, d)`:
+ * MT940, credit card). Not for CAMT, whose dates the port reads from the raw strings.
  */
 export function toIsoDate(d: Date): string {
-  const localTod =
-    d.getHours() * 3_600_000 +
-    d.getMinutes() * 60_000 +
-    d.getSeconds() * 1000 +
-    d.getMilliseconds();
-  if (localTod === 0 || localTod === 12 * 3_600_000) {
-    return `${pad(d.getFullYear(), 4)}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  }
-  return Temporal.Instant.fromEpochMilliseconds(d.getTime())
-    .toZonedDateTimeISO('Europe/Berlin')
-    .toPlainDate()
-    .toString();
+  return `${pad(d.getFullYear(), 4)}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 export function mapTx(tx: FinTSTx, currency: string): ProviderTransaction {
   const out: ProviderTransaction = {
     providerId: null,
     status: 'booked',
-    bookingDate: toIsoDate(tx.entryDate),
-    valueDate: toIsoDate(tx.valueDate),
+    bookingDate: tx.bookingDate,
     amount: money(toMinor(tx.amount, currency), currency),
   };
+  if (tx.valueDate) out.valueDate = tx.valueDate;
   if (tx.remoteName) out.counterparty = tx.remoteName;
   const remote = tx.remoteAccountNumber?.replace(/\s+/g, '').toUpperCase();
   if (remote && IBAN_RE.test(remote)) out.counterpartyIban = remote;

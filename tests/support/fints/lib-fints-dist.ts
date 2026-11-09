@@ -31,4 +31,9 @@ export async function withTimeZone<T>(tz: string, fn: () => Promise<T> | T): Pro
   }
 }
 
-export const TEST_ZONES = ['Europe/Berlin', 'Pacific/Kiritimati', 'America/Los_Angeles'] as const;
+export const TEST_ZONES = [
+  'UTC',
+  'Europe/Berlin',
+  'Pacific/Kiritimati',
+  'America/Los_Angeles',
+] as const;

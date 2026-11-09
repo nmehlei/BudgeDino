@@ -8,7 +8,7 @@ import {
   type StatementResponse,
   type Transaction,
 } from 'lib-fints';
-import { accountRef, classifyTanMethod } from './map.js';
+import { accountRef, classifyTanMethod, toIsoDate } from './map.js';
 import {
   FinTSPortError,
   type FinTSAccount,
@@ -73,8 +73,25 @@ function mapResponse(r: ClientResponse): FinTSPortResponse {
   return out;
 }
 
+const RAW_DAY = /^(\d{4})-(\d{2})-(\d{2})/;
+const RAW_COMPACT = /^(\d{4})(\d{2})(\d{2})$/;
+
+/**
+ * CAMT: the bank's written calendar day, whatever the offset or time (our patch keeps the raw
+ * string). Other sources, or an unparsable raw value: the parser's local-constructor Date.
+ */
+function day(raw: string | undefined, fallback: Date): string {
+  const m = raw ? (RAW_DAY.exec(raw) ?? RAW_COMPACT.exec(raw)) : null;
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : toIsoDate(fallback);
+}
+
 function mapTransaction(t: Transaction): FinTSTx {
-  const out: FinTSTx = { valueDate: t.valueDate, entryDate: t.entryDate, amount: t.amount };
+  const raw = t as Transaction & { bookingDateRaw?: string; valueDateRaw?: string };
+  const out: FinTSTx = {
+    bookingDate: day(raw.bookingDateRaw, t.entryDate),
+    valueDate: day(raw.valueDateRaw, t.valueDate),
+    amount: t.amount,
+  };
   if (t.bookingText) out.bookingText = t.bookingText;
   if (t.purpose) out.purpose = t.purpose;
   if (t.remoteBankId) out.remoteBankId = t.remoteBankId;
@@ -105,8 +122,8 @@ function mapStatements(statements: readonly unknown[] | undefined): FinTSTx[] {
   for (const s of statements ?? []) {
     if (isCreditCardEntry(s)) {
       const tx: FinTSTx = {
-        valueDate: s.valueDate,
-        entryDate: s.transactionDate,
+        bookingDate: toIsoDate(s.transactionDate),
+        valueDate: toIsoDate(s.valueDate),
         amount: s.amount,
       };
       if (s.purpose) tx.purpose = s.purpose;

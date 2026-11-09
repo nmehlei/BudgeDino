@@ -12,19 +12,19 @@ Sources (checked 2026-11-09): [Produktregistrierung](https://www.fints.org/de/he
 
 ## What we know
 
-| Topic | Fact | Source |
-|---|---|---|
-| Cost | Free ("momentan kostenfrei") | FAQ 1 |
-| What gets registered | The *application* a user recognises by name — i.e. "BudgeDino", not lib-fints | FAQ 4 |
-| Libraries | A registered library/kernel ID may only be used internally for testing — so we must not reuse lib-fints' or anyone else's ID | FAQ 4 |
-| Categories | PC/macOS software · Banking-App · Web-Client · **Web-Server** · FinTS library/kernel | FAQ 3 |
-| Versions | Register once per product, not per version; the version is still sent on every dialog | FAQ 6 |
-| How it's used | The number goes into the `Produktbezeichnung` element of every dialog initialisation | Registration page |
-| Form | PDF form on the registration page, filled completely, sent "im Original" to `registrierung@hbci-zka.de` | Registration page |
-| E-mail | Usually only **one** e-mail address per manufacturer; a generic/role address is recommended | FAQ 8 |
-| Turnaround | Typically 10–15 working days; can be longer | FAQ 10 |
-| Bank rollout | Reports of 0–8+ weeks until all bank servers know a new ID | fints (Dart) notes |
-| Sharing | Using or passing on someone else's ID is reported to violate the terms | community issues |
+| Topic                | Fact                                                                                                                         | Source             |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| Cost                 | Free ("momentan kostenfrei")                                                                                                 | FAQ 1              |
+| What gets registered | The _application_ a user recognises by name — i.e. "BudgeDino", not lib-fints                                                | FAQ 4              |
+| Libraries            | A registered library/kernel ID may only be used internally for testing — so we must not reuse lib-fints' or anyone else's ID | FAQ 4              |
+| Categories           | PC/macOS software · Banking-App · Web-Client · **Web-Server** · FinTS library/kernel                                         | FAQ 3              |
+| Versions             | Register once per product, not per version; the version is still sent on every dialog                                        | FAQ 6              |
+| How it's used        | The number goes into the `Produktbezeichnung` element of every dialog initialisation                                         | Registration page  |
+| Form                 | PDF form on the registration page, filled completely, sent "im Original" to `registrierung@hbci-zka.de`                      | Registration page  |
+| E-mail               | Usually only **one** e-mail address per manufacturer; a generic/role address is recommended                                  | FAQ 8              |
+| Turnaround           | Typically 10–15 working days; can be longer                                                                                  | FAQ 10             |
+| Bank rollout         | Reports of 0–8+ weeks until all bank servers know a new ID                                                                   | fints (Dart) notes |
+| Sharing              | Using or passing on someone else's ID is reported to violate the terms                                                       | community issues   |
 
 **Open question for the DK** (ask in the cover e-mail, see below): may self-hosted installations of an
 open-source product run by other people use the manufacturer's registration number, and may it appear
@@ -44,17 +44,17 @@ Done when: you can fill "Hersteller" name, postal address and contact e-mail wit
 
 Suggested values (adjust freely):
 
-| Field (as expected on the form) | Value |
-|---|---|
-| Produktname | BudgeDino |
-| Produktkategorie | **Web-Server** (the server talks to the banks on the users' behalf; the Android app only talks to the server) |
-| Kurzbeschreibung | Open-source, self-hostable household finance manager; read-only account information (balances, transactions) via FinTS PIN/TAN incl. decoupled TAN; no payments. |
-| Unterstützte Geschäftsvorfälle | Kontoumsätze (HKKAZ/HKCAZ), Kreditkartenumsätze (DKKKU), Saldo (via Umsätze), Synchronisation (HKSYN), TAN (HKTAN, inkl. decoupled); **keine Zahlungsaufträge** |
-| Sicherheitsverfahren | PIN/TAN (PSD2-konform, inkl. Decoupled) |
-| FinTS-Version | 3.0 |
-| Verwendete Bibliothek | lib-fints (LGPL-2.1-or-later) |
-| Produktversion (sent at runtime, not registered) | `1.0` → env `BUDGEDINO_FINTS_PRODUCT_VERSION` |
-| Website / Repository | the GitHub repo URL once public (private for now — give the project homepage if you have one, or leave blank) |
+| Field (as expected on the form)                  | Value                                                                                                                                                            |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Produktname                                      | BudgeDino                                                                                                                                                        |
+| Produktkategorie                                 | **Web-Server** (the server talks to the banks on the users' behalf; the Android app only talks to the server)                                                    |
+| Kurzbeschreibung                                 | Open-source, self-hostable household finance manager; read-only account information (balances, transactions) via FinTS PIN/TAN incl. decoupled TAN; no payments. |
+| Unterstützte Geschäftsvorfälle                   | Kontoumsätze (HKKAZ/HKCAZ), Kreditkartenumsätze (DKKKU), Saldo (via Umsätze), Synchronisation (HKSYN), TAN (HKTAN, inkl. decoupled); **keine Zahlungsaufträge**  |
+| Sicherheitsverfahren                             | PIN/TAN (PSD2-konform, inkl. Decoupled)                                                                                                                          |
+| FinTS-Version                                    | 3.0                                                                                                                                                              |
+| Verwendete Bibliothek                            | lib-fints (LGPL-2.1-or-later)                                                                                                                                    |
+| Produktversion (sent at runtime, not registered) | `1.0` → env `BUDGEDINO_FINTS_PRODUCT_VERSION`                                                                                                                    |
+| Website / Repository                             | the GitHub repo URL once public (private for now — give the project homepage if you have one, or leave blank)                                                    |
 
 Done when: every field on the PDF has a value or a deliberate "n/a".
 
@@ -62,7 +62,7 @@ Done when: every field on the PDF has a value or a deliberate "n/a".
 
 - [ ] Download the current PDF from the [registration page](https://www.fints.org/de/hersteller/produktregistrierung)
       (the form changes occasionally — always use the current one).
-- [ ] Leave the *Produktregistrierungsnummer* field **empty** (new application; FAQ 5).
+- [ ] Leave the _Produktregistrierungsnummer_ field **empty** (new application; FAQ 5).
 - [ ] Fill every field; sign if the form asks for a signature ("im Original").
 - [ ] Send it to `registrierung@hbci-zka.de` with the cover e-mail below.
 - [ ] Add a reminder for **+15 working days** to follow up if nothing arrived.

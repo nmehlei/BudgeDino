@@ -61,8 +61,8 @@ const CARD_REF = '4111:01:12030000';
 const DEPOT_REF = '777:00:12030000';
 
 const tx = (over: Partial<FinTSTx> = {}): FinTSTx => ({
-  valueDate: new Date(2026, 10, 3),
-  entryDate: new Date(2026, 10, 2),
+  valueDate: '2026-11-03',
+  bookingDate: '2026-11-02',
   amount: -12.5,
   purpose: 'Coffee',
   remoteName: 'Cafe',

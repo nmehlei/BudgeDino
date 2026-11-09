@@ -72,8 +72,8 @@ describe('toIsoDate', () => {
 
 describe('mapTx', () => {
   const base: FinTSTx = {
-    valueDate: new Date(2026, 10, 16),
-    entryDate: new Date(2026, 10, 15),
+    valueDate: '2026-11-16',
+    bookingDate: '2026-11-15',
     amount: -12.34,
     remoteName: 'REWE',
     purpose: 'Einkauf',

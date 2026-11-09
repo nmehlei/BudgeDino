@@ -80,7 +80,7 @@ const MAX_TAN_ATTEMPTS = 3;
 const DECOUPLED_POLL_MS = 3000;
 const DIALOG_TTL_MS = 10 * 60_000;
 const CONSENT_MS = 90 * 86_400_000;
-const PROBE_MS = 3 * 86_400_000;
+const PROBE_DAYS = 3;
 const MAX_MESSAGE = 200;
 const BANK_TIME_ZONE = 'Europe/Berlin';
 /** Longest unattended look-back: stays inside the PSD2 90-day SCA exemption. */
@@ -270,11 +270,12 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
   const accountKey = (a: FinTSAccount): string => a.iban ?? a.accountNumber;
 
   const runProbe = (session: FinTSSession, acc: FinTSAccount, ctx: ConnectorContext) => {
-    const from = new Date(ctx.now().getTime() - PROBE_MS);
+    const today = bankDate(ctx.now());
+    const from = wireDate(today.subtract({ days: PROBE_DAYS }));
     return guard(() =>
       acc.accountType === 'CreditCardAccount'
         ? session.getCreditCardStatements(acc, from)
-        : session.getStatements(acc, from, ctx.now()),
+        : session.getStatements(acc, from, wireDate(today)),
     );
   };
 

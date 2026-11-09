@@ -1,3 +1,17 @@
+diff --git a/dist/camtParser.js b/dist/camtParser.js
+index 0dc004208e765f6ea5d017ab443df886020f6bc4..1304b2d76b053d41875900e4f6ab2f7a5ae057ef 100644
+--- a/dist/camtParser.js
++++ b/dist/camtParser.js
+@@ -310,6 +310,9 @@ export class CamtParser {
+             return {
+                 valueDate: parsedValueDate,
+                 entryDate,
++                // Patch: the bank's written dates, exact (no time zone guessing).
++                bookingDateRaw: bookingDate || undefined,
++                valueDateRaw: valueDate || bookingDate || undefined,
+                 fundsCode: bkTxCd.domainCode || creditDebitInd || '',
+                 amount,
+                 transactionType: bkTxCd.familyCode || '',
 diff --git a/dist/httpClient.js b/dist/httpClient.js
 index 0d87f59aa8a0cec564a8d062d7c0327701e00192..b79fe8ed15f1632893d7a9549408e61f2242af23 100644
 --- a/dist/httpClient.js
