@@ -37,7 +37,7 @@ interface StoredEntry extends FinTSDialogEntry {
  * bytes, base64url-encoded. Lost on restart by design: a pending TAN is then re-requested.
  */
 export class FinTSDialogRegistry {
-  private readonly entries = new Map<string, StoredEntry>();
+  readonly #entries = new Map<string, StoredEntry>();
   private readonly ttlMs: number;
   private readonly max: number;
   private readonly now: () => Date;
@@ -50,13 +50,13 @@ export class FinTSDialogRegistry {
 
   put(session: FinTSSession, meta: DialogMeta): string {
     this.sweep();
-    while (this.entries.size >= this.max) {
-      const oldest = this.entries.keys().next();
+    while (this.#entries.size >= this.max) {
+      const oldest = this.#entries.keys().next();
       if (oldest.done) break;
-      this.entries.delete(oldest.value);
+      this.#entries.delete(oldest.value);
     }
     const handle = randomBytes(32).toString('base64url');
-    this.entries.set(handle, {
+    this.#entries.set(handle, {
       session,
       meta,
       expiresAtMs: this.now().getTime() + this.ttlMs,
@@ -67,7 +67,7 @@ export class FinTSDialogRegistry {
   /** Returns the dialog and removes it; a dialog can be resumed only once. */
   take(handle: string): FinTSDialogEntry | undefined {
     const entry = this.live(handle);
-    this.entries.delete(handle);
+    this.#entries.delete(handle);
     return entry;
   }
 
@@ -77,27 +77,36 @@ export class FinTSDialogRegistry {
   }
 
   drop(handle: string): void {
-    this.entries.delete(handle);
+    this.#entries.delete(handle);
   }
 
   /** Removes every expired dialog. */
   sweep(): void {
     const nowMs = this.now().getTime();
-    for (const [handle, entry] of this.entries) {
-      if (nowMs >= entry.expiresAtMs) this.entries.delete(handle);
+    for (const [handle, entry] of this.#entries) {
+      if (nowMs >= entry.expiresAtMs) this.#entries.delete(handle);
     }
   }
 
   /** Drops every dialog, for shutdown. */
   clear(): void {
-    this.entries.clear();
+    this.#entries.clear();
+  }
+
+  /** Keeps live sessions (and their credentials) out of JSON.stringify and util.inspect output. */
+  toJSON(): { type: 'FinTSDialogRegistry'; size: number } {
+    return { type: 'FinTSDialogRegistry', size: this.#entries.size };
+  }
+
+  [Symbol.for('nodejs.util.inspect.custom')](): string {
+    return `FinTSDialogRegistry{size: ${this.#entries.size}}`;
   }
 
   private live(handle: string): FinTSDialogEntry | undefined {
-    const entry = this.entries.get(handle);
+    const entry = this.#entries.get(handle);
     if (!entry) return undefined;
     if (this.now().getTime() >= entry.expiresAtMs) {
-      this.entries.delete(handle);
+      this.#entries.delete(handle);
       return undefined;
     }
     return { session: entry.session, meta: entry.meta };

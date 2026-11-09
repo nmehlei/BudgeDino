@@ -1,3 +1,4 @@
+import { inspect } from 'node:util';
 import { describe, expect, it } from 'vitest';
 import type { FinTSSession } from '@budgedino/server/connectors/fints/port';
 import { FinTSDialogRegistry, type DialogMeta } from '@budgedino/server/connectors/fints/dialogs';
@@ -125,5 +126,14 @@ describe('FinTSDialogRegistry', () => {
     expect(registry2.peek(oldest)).toBeDefined();
     registry2.put(fakeSession('overflow'), meta);
     expect(registry2.peek(oldest)).toBeUndefined();
+  });
+
+  it('does not leak sessions through inspect or JSON', () => {
+    const registry = new FinTSDialogRegistry({ now: clock().now });
+    registry.put({ canary: 'SESSION-CANARY-91' } as unknown as FinTSSession, meta);
+
+    expect(inspect(registry, { depth: 10, showHidden: true })).toBe('FinTSDialogRegistry{size: 1}');
+    expect(JSON.stringify(registry)).not.toContain('SESSION-CANARY-91');
+    expect(`${inspect(registry)}${JSON.stringify(registry)}`).not.toContain('SESSION-CANARY-91');
   });
 });
