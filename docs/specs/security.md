@@ -160,8 +160,8 @@ registrations are lost on server restart (the invitee registers again; the invit
 is stored. One session per device login (device name stored encrypted); listed and revoked per device
 (`GET /auth/sessions`, `DELETE /auth/sessions/:id`, own sessions only). Revoked sessions and sessions of
 disabled members are rejected with the generic 401. `last_seen_at` is updated at most once per minute.
-There is no idle/absolute expiry in P1 (revocation is the control). Every route declares
-`config.access` (`public` | `member` | `admin`); `requireMember`/`requireAdmin` guard the others.
+Sessions expire after 90 days without use (`last_seen_at`, idle timeout) and 365 days after creation (absolute lifetime, `created_at`); constants in `src/server/src/auth/session-policy.ts`. Expired sessions get the same generic 401 as an invalid token. **[call]** Every route declares
+`config.access` (`public` | `member` | `admin`); an `onRoute` hook in `buildApp` aborts startup when it is missing and attaches the guard for `member`/`admin` routes in `onRequest` (before body parsing and validation, so anonymous callers get 401, never 400).
 
 **No user enumeration.** Unknown email, wrong password, missing/wrong/replayed TOTP code and disabled
 member all return the identical `401 {"error":"invalid_credentials"}` body; an argon2 verification

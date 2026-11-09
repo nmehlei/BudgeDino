@@ -5,6 +5,7 @@ import { newId } from '../db/ids.js';
 import { members, sessions } from '../db/schema.js';
 import type { AuthContext } from '../deps.js';
 import type { Keyring } from '../households/keyring.js';
+import { ABSOLUTE_SESSION_LIFETIME_MS, IDLE_SESSION_TIMEOUT_MS } from './session-policy.js';
 import { hashToken, newToken } from './tokens.js';
 
 const LAST_SEEN_GRANULARITY_MS = 60_000;
@@ -49,6 +50,7 @@ export async function authenticateSession(
       memberId: sessions.memberId,
       revokedAt: sessions.revokedAt,
       lastSeenAt: sessions.lastSeenAt,
+      createdAt: sessions.createdAt,
       householdId: members.householdId,
       role: members.role,
       disabledAt: members.disabledAt,
@@ -57,6 +59,10 @@ export async function authenticateSession(
     .innerJoin(members, eq(sessions.memberId, members.id))
     .where(eq(sessions.tokenHash, hashToken(token)));
   if (!row || row.revokedAt || row.disabledAt) return null;
+  // Expired sessions are indistinguishable from invalid tokens (same null -> same 401).
+  const nowMs = now.getTime();
+  if (nowMs - row.createdAt.getTime() > ABSOLUTE_SESSION_LIFETIME_MS) return null;
+  if (nowMs - (row.lastSeenAt ?? row.createdAt).getTime() > IDLE_SESSION_TIMEOUT_MS) return null;
 
   const stale =
     !row.lastSeenAt || now.getTime() - row.lastSeenAt.getTime() >= LAST_SEEN_GRANULARITY_MS;

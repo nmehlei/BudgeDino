@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { visibleAccountIds } from '@budgedino/server/access/visibility';
 import { Keyring } from '@budgedino/server/households/keyring';
 import { createAccount, getAccount } from '@budgedino/server/repositories/accounts';
 import { getMember } from '@budgedino/server/repositories/members';
@@ -71,7 +72,8 @@ async function seed() {
     counterparty: CANARIES.payee,
     purpose: CANARIES.purpose,
   });
-  return { householdId, memberId, accountId, transactionId, dk };
+  const scope = await visibleAccountIds(database.db, { memberId, householdId });
+  return { householdId, memberId, accountId, transactionId, dk, scope };
 }
 
 describe('encryption at rest', () => {
@@ -90,24 +92,24 @@ describe('encryption at rest', () => {
   });
 
   it('round-trips encrypted fields through the repositories', async () => {
-    const { memberId, accountId, transactionId, dk } = await seed();
+    const { memberId, accountId, transactionId, dk, scope } = await seed();
 
     expect(await getMember(database.db, dk, memberId)).toMatchObject({
       email: CANARIES.email,
       displayName: CANARIES.displayName,
     });
-    expect(await getAccount(database.db, dk, accountId)).toMatchObject({
+    expect(await getAccount(database.db, dk, scope, accountId)).toMatchObject({
       name: CANARIES.accountName,
       iban: CANARIES.iban,
       balanceMinor: 1_234_567n,
     });
-    expect(await getTransaction(database.db, dk, transactionId)).toMatchObject({
+    expect(await getTransaction(database.db, dk, scope, transactionId)).toMatchObject({
       amountMinor: 987_654n,
       counterparty: CANARIES.payee,
       purpose: CANARIES.purpose,
       bookingDate: '2026-11-01',
     });
-    expect(await listTransactions(database.db, dk, accountId)).toHaveLength(1);
+    expect(await listTransactions(database.db, dk, scope, accountId)).toHaveLength(1);
   });
 
   it('rejects a duplicate dedup key within an account', async () => {
@@ -125,7 +127,7 @@ describe('encryption at rest', () => {
   });
 
   it('does not decrypt a ciphertext copied into another row (AAD binding)', async () => {
-    const { accountId, dk } = await seed();
+    const { accountId, dk, scope } = await seed();
     const { rows } = await database.pool.query<{ id: string }>('select id from transactions');
     const first = rows[0]?.id as string;
     const second = await createTransaction(database.db, dk, {
@@ -140,6 +142,6 @@ describe('encryption at rest', () => {
       'update transactions set amount_enc = (select amount_enc from transactions where id = $1) where id = $2',
       [first, second],
     );
-    await expect(getTransaction(database.db, dk, second)).rejects.toThrow(/authentication/);
+    await expect(getTransaction(database.db, dk, scope, second)).rejects.toThrow(/authentication/);
   });
 });

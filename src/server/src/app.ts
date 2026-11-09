@@ -8,10 +8,12 @@ import {
   validatorCompiler,
 } from 'fastify-type-provider-zod';
 import { VERSION } from '@budgedino/shared';
+import { adminGuard, memberGuard } from './auth/guard.js';
 import { InMemoryPendingRegistrationStore } from './auth/pending.js';
 import { InMemoryRateLimiter } from './auth/rate-limit.js';
+import { accountRoutes } from './accounts/routes.js';
 import { authRoutes } from './auth/routes.js';
-import type { AppContext, AppDeps } from './deps.js';
+import type { AppContext, AppDeps, RouteRegistryEntry } from './deps.js';
 import { HttpError } from './http/errors.js';
 import { householdRoutes } from './households/routes.js';
 import { fastifyLoggerOptions } from './observability/logger.js';
@@ -64,6 +66,28 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   app.decorate('ctx', ctx);
   app.decorateRequest('auth', null);
 
+  // Fail closed: a route without `config.access` aborts startup, and the guard for member/admin routes
+  // is attached here (never by hand). Guards run in `onRequest`, i.e. before body parsing and
+  // validation, so unauthenticated callers get 401 without any request data being processed.
+  const routeRegistry: RouteRegistryEntry[] = [];
+  app.decorate('routeRegistry', routeRegistry);
+  app.addHook('onRoute', (routeOptions) => {
+    const methods = [routeOptions.method].flat();
+    const access = routeOptions.config?.access;
+    if (access !== 'public' && access !== 'member' && access !== 'admin') {
+      throw new Error(
+        `Route ${methods.join(',')} ${routeOptions.url} must declare config.access ('public' | 'member' | 'admin')`,
+      );
+    }
+    for (const method of methods) {
+      routeRegistry.push({ method, url: routeOptions.url, access });
+    }
+    if (access === 'public') return;
+    const guard = access === 'admin' ? adminGuard : memberGuard;
+    const existing = routeOptions.onRequest;
+    routeOptions.onRequest = [guard, ...(existing ? [existing].flat() : [])];
+  });
+
   // Error bodies are built from fixed strings only: never from request data or parser messages
   // (a JSON parse error message can contain a snippet of the body).
   app.setErrorHandler((err, req, reply) => {
@@ -104,10 +128,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   });
 
   void app.register(
-    (api, _opts, done) => {
+    async (api) => {
       authRoutes(api);
+      accountRoutes(api);
       householdRoutes(api);
-      done();
     },
     { prefix: API_PREFIX },
   );

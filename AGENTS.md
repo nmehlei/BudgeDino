@@ -51,6 +51,9 @@ until typescript-eslint supports TS 7.
 - Read-only bank access; no payment initiation.
 - Sensitive fields (credentials, PINs, tokens, broker sessions, counterparty, purpose, amounts, balances, holdings, account names/IBANs) are encrypted at application level; the master key never lives in the database.
 - Logs, traces and notification payloads never contain amounts, payees, IBANs or credentials.
+- Every route declares `config.access` (`public` | `member` | `admin`); `buildApp` throws otherwise and attaches the guard itself (never add guards by hand).
+- Adding a GET route requires a `tests/support/route-fixtures.ts` entry for each of its path parameters; the visibility harness (`tests/server/access/visibility.int.test.ts`) probes every registered GET route as another member and fails on a missing entry.
+- Reads of accounts, transactions, splits and balances go through `visibleAccountIds(db, auth)`; repositories require its result.
 - Visibility is enforced on the server; `owner-only` accounts are invisible to everyone but their owner, admins included.
 - Connectors belong to the member who created them.
 - Budgets: `weekly` = ISO Mon–Sun, `monthly` = calendar month, in the household timezone (default `Europe/Berlin`); no rollover; base currency EUR by default.

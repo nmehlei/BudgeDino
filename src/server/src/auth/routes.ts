@@ -16,7 +16,6 @@ import { members } from '../db/schema.js';
 import { HttpError, invalidCredentials, inviteInvalid } from '../http/errors.js';
 import { findValidInvite, consumeInvite } from '../households/invites.js';
 import { createMember, decryptTotpSecret, normalizeEmail } from '../repositories/members.js';
-import { memberGuard } from './guard.js';
 import { hashPassword, verifyAgainstDummy, verifyPassword } from './passwords.js';
 import { createSession, listSessions, revokeSession } from './sessions.js';
 import { hashToken } from './tokens.js';
@@ -226,7 +225,6 @@ export function authRoutes(app: FastifyInstance): void {
     '/auth/sessions',
     {
       config: { access: 'member' },
-      preHandler: memberGuard,
       schema: {
         tags: ['auth'],
         security,
@@ -235,7 +233,7 @@ export function authRoutes(app: FastifyInstance): void {
     },
     async (req) => {
       const auth = req.auth;
-      if (!auth) throw new Error('unreachable: memberGuard authenticates');
+      if (!auth) throw new Error('unreachable: the access hook authenticates');
       const list = await listSessions(app.ctx.db, app.ctx.keyring, auth);
       return {
         sessions: list.map((s) => ({
@@ -253,7 +251,6 @@ export function authRoutes(app: FastifyInstance): void {
     '/auth/sessions/:id',
     {
       config: { access: 'member' },
-      preHandler: memberGuard,
       schema: {
         tags: ['auth'],
         security,
@@ -263,7 +260,7 @@ export function authRoutes(app: FastifyInstance): void {
     },
     async (req, reply) => {
       const auth = req.auth;
-      if (!auth) throw new Error('unreachable: memberGuard authenticates');
+      if (!auth) throw new Error('unreachable: the access hook authenticates');
       const revoked = await revokeSession(app.ctx.db, auth, req.params.id, app.ctx.now());
       if (!revoked) throw new HttpError(404, 'not_found', 'Session not found');
       return reply.code(204).send(null);

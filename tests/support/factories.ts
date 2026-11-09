@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { createSession } from '@budgedino/server/auth/sessions';
 import { loadMasterKey, type MasterKey } from '@budgedino/server/crypto';
 import type { Db } from '@budgedino/server/db/client';
 import { newId } from '@budgedino/server/db/ids';
@@ -36,6 +37,23 @@ export async function createTestMember(
     displayName: overrides.displayName ?? `Member ${counter}`,
     passwordHash: 'argon2id$test',
   });
+}
+
+/** Creates a session for a member and returns its bearer token. */
+export async function createTestSession(
+  db: Db,
+  keyring: Keyring,
+  householdId: string,
+  memberId: string,
+  now: Date = new Date(),
+): Promise<string> {
+  const session = await createSession(db, keyring, {
+    memberId,
+    householdId,
+    deviceName: 'Test device',
+    now,
+  });
+  return session.token;
 }
 
 export async function createTestConnector(

@@ -19,6 +19,22 @@
 - Admins are **not** exempt from visibility: an `owner-only` account is invisible to everyone but its
   owner, admins included. **[call]**
 
+## Visibility enforcement and accounts API
+
+- `visibleAccountIds(db, auth)` is the single gate: accounts of the caller's household with
+  `visibility='household'`, plus every account the caller owns. Repository reads of accounts,
+  transactions, splits and balances require its result, so no route can read them unfiltered.
+- `GET /accounts` lists the visible accounts with decrypted `name`, masked IBAN (`•••• 3000`: last 4
+  characters) and balance. These are never returned to members who may not see the account.
+- `PATCH /accounts/:id` `{ visibility?, countsTowardBudgets? }` is owner only; anyone else, admins
+  included, gets `404` (indistinguishable from a missing account). Switching to `owner_only` sets
+  `countsTowardBudgets=false` unless the request passes `countsTowardBudgets` explicitly. Takes effect
+  immediately on every endpoint.
+- Sessions expire after 90 days idle and 365 days absolute lifetime ([security.md](security.md)).
+  **[call]**
+- Enforced by a canary test that probes every registered GET route as another member
+  (`tests/server/access/visibility.int.test.ts`, fixtures in `tests/support/route-fixtures.ts`).
+
 ## Related
 
 - Budget inclusion of accounts (`countsTowardBudgets`): [budgets.md](budgets.md)

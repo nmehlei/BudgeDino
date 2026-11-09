@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { visibleAccountIds } from '@budgedino/server/access/visibility';
 import { masterBlindIndex } from '@budgedino/server/crypto';
 import { householdKeys, members } from '@budgedino/server/db/schema';
 import { Keyring } from '@budgedino/server/households/keyring';
@@ -67,8 +68,10 @@ describe('Keyring', () => {
       await createHousehold(database.db, keyring, 'two'),
     ];
     const accountIds: string[] = [];
+    const memberIds: string[] = [];
     for (const householdId of householdIds) {
       const memberId = await createTestMember(database.db, keyring, householdId);
+      memberIds.push(memberId);
       const connectorId = await createTestConnector(database.db, keyring, householdId, memberId);
       accountIds.push(
         await createAccount(database.db, await keyring.forHousehold(householdId), {
@@ -92,9 +95,14 @@ describe('Keyring', () => {
     // Cold keyring with the new master reads everything.
     const fresh = new Keyring(database.db, newMaster);
     for (const [i, householdId] of householdIds.entries()) {
+      const scope = await visibleAccountIds(database.db, {
+        memberId: memberIds[i] as string,
+        householdId,
+      });
       const account = await getAccount(
         database.db,
         await fresh.forHousehold(householdId),
+        scope,
         accountIds[i] as string,
       );
       expect(account.name).toBe(`Account of ${householdId}`);

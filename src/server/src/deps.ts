@@ -40,9 +40,18 @@ export interface AuthContext {
   sessionId: string;
 }
 
+export interface RouteRegistryEntry {
+  method: string;
+  /** Full registered URL including the API prefix, with `:param` placeholders. */
+  url: string;
+  access: AccessLevel;
+}
+
 declare module 'fastify' {
   interface FastifyInstance {
     ctx: AppContext;
+    /** Every registered route; used by the visibility harness to enumerate GET routes. */
+    routeRegistry: RouteRegistryEntry[];
   }
   interface FastifyRequest {
     auth: AuthContext | null;
