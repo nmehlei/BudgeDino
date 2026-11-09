@@ -100,3 +100,40 @@ injected (no global); `get(type)` throws `UnknownConnectorError`.
 - Config, state and dialog are opaque JSON (stored encrypted); dialog state never leaves the server.
 - `FakeConnector` (scenarios in its file header) and the reusable `runConnectorContract` suite
   (`tests/server/connectors/contract.ts`) back all sync/challenge tests and future connectors.
+
+## Sync engine (implementation summary)
+
+Code: `src/server/src/sync/` (`run.ts`, `ingest.ts`, `rate-guard.ts`, `scheduler.ts`, `jobs.ts`, `routes.ts`).
+
+- **`runSync(connectorId, trigger, ctx)`** runs one connector inside a transaction holding a
+  `pg_advisory_xact_lock` on the connector id, so scheduled and user-triggered runs never interleave state
+  writes. Connector state (`connectors.state_enc`, encrypted) is persisted after **every** `FetchResult`,
+  successful or not. Accounts store only a blind index of the bank reference, so the references come from
+  `listAccounts` and are matched to existing accounts (bank accounts BudgeDino does not know yet are ignored;
+  discovery happens after auth).
+- **Cursor:** `since` = latest booked `booking_date` of the account minus 7 days (late bookings), or `null` on
+  the first sync.
+- **Triggers:** `schedule` runs only touch `ok` connectors and count against `maxUnattendedPerDay`
+  (rolling 24 h over `sync_runs`; runs the guard or a status check skipped do not count). The 5th run is
+  recorded with `outcome='rate_limited'`. `user` runs (`POST /connectors/:id/sync`, owner only, 202 `{runId}`)
+  are not counted and pass `userPresent: true` plus the request IP as `psuIp`.
+- **Outcomes** (`sync_runs.outcome`): `ok`, `needs_attention`, `temporary`, `bank_rate_limited`,
+  `rate_limited`, `skipped`, `error`. `connectors.last_error_code` holds only stable codes
+  (`needs_attention`, `bank_temporary`, `bank_rate_limited`, `unknown_connector`, `sync_failed`), never a bank
+  or exception message.
+- **needs_attention:** the connector flips to `needs_attention` and the owner gets one
+  `connector_attention` notification (encrypted body naming only the connector type, no amounts, payees or
+  IBANs). Only the transition notifies, so there is one notification while it stays in that state. The server
+  never starts a dialog on its own.
+- **Ingest dedup:** identity = provider id, else sha256 of `bookingDate|amount|currency|counterpartyIban|purpose`
+  (identical content twice in one batch keeps two rows). Pending to booked: a booked transaction without a
+  match takes over a pending row of the same account when the counterparty blind index is equal, the amount is
+  within 25 % of the pending amount and it is booked 0 to 7 days after the pending date; the row keeps its id and
+  category. Pending rows older than 14 days that a fetch no longer reports are deleted (stale pre-auths).
+- **Scheduler:** `nextRuns(schedule, timeZone, from)` supports `{times: ['HH:MM']}` (household-local) and
+  `{cron}` (evaluated in the household time zone). pg-boss queues: `sync.tick` (every 5 minutes, enqueues due
+  `ok` connectors) and `sync.connector` (policy `exclusive`, `singletonKey: connectorId`). `startJobs(deps, ...)`
+  wires them; `onIngested(householdId, txIds)` is called once per run after commit (categorizer hook).
+- **`GET /connectors`:** own connectors with status, `lastSuccessAt`, `lastErrorCode`, `consentExpiresAt`,
+  `type`, `experimental`; others' connectors behind household-visible accounts only as
+  `{id, type, status, lastSuccessAt}`.

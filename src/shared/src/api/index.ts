@@ -4,3 +4,4 @@ export * from './households';
 export * from './accounts';
 export * from './accounts';
 export * from './challenges';
+export * from './connectors';

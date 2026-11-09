@@ -1,5 +1,7 @@
 import type { MasterKey } from './crypto/index.js';
 import type { Db } from './db/client.js';
+import type { ConnectorRegistry } from './connectors/registry.js';
+import type { SyncService } from './sync/service.js';
 import type { Keyring } from './households/keyring.js';
 import type { PendingRegistrationStore } from './auth/pending.js';
 import type { RateLimiter } from './auth/rate-limit.js';
@@ -18,6 +20,10 @@ export interface AppDeps {
   pendingRegistrations?: PendingRegistrationStore;
   loginEmailLimiter?: RateLimiter;
   loginIpLimiter?: RateLimiter;
+  /** Bank connectors available to this server; default none. */
+  registry?: ConnectorRegistry;
+  /** Categorizer hook, called after each sync with inserted/updated transaction ids; default no-op. */
+  onIngested?: (householdId: string, txIds: string[]) => Promise<void>;
 }
 
 /** Resolved dependencies handed to route handlers via `app.ctx`. */
@@ -29,6 +35,8 @@ export interface AppContext {
   pendingRegistrations: PendingRegistrationStore;
   loginEmailLimiter: RateLimiter;
   loginIpLimiter: RateLimiter;
+  registry: ConnectorRegistry;
+  sync: SyncService;
 }
 
 export type AccessLevel = 'public' | 'member' | 'admin';

@@ -1,0 +1,48 @@
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
+import { createFakeConnector } from '@budgedino/server/connectors/fake/fake-connector';
+import { createConnectorRegistry } from '@budgedino/server/connectors/registry';
+import { syncRuns } from '@budgedino/server/db/schema';
+import { Keyring } from '@budgedino/server/households/keyring';
+import { createLogger } from '@budgedino/server/observability/logger';
+import { startJobs, type JobsHandle } from '@budgedino/server/sync/jobs';
+import { createHousehold, createTestMember, randomMasterKey } from '../../support/factories.js';
+import { startTestDatabase, type TestDatabase } from '../../support/postgres.js';
+import { seedFakeConnector } from '../../support/sync.js';
+
+let database: TestDatabase;
+let jobs: JobsHandle | undefined;
+
+beforeAll(async () => {
+  database = await startTestDatabase();
+}, 120_000);
+afterAll(async () => {
+  await jobs?.stop();
+  await database.stop();
+});
+
+it('smoke: pg-boss starts against the DB and runs a queued sync.connector job', async () => {
+  const keyring = new Keyring(database.db, randomMasterKey());
+  const householdId = await createHousehold(database.db, keyring);
+  const memberId = await createTestMember(database.db, keyring, householdId);
+  const { connectorId } = await seedFakeConnector(database.db, keyring, householdId, memberId);
+
+  jobs = await startJobs(
+    {
+      db: database.db,
+      keyring,
+      registry: createConnectorRegistry([createFakeConnector()]),
+      logger: createLogger({ level: 'silent' }),
+      now: () => new Date(),
+      onIngested: async () => {},
+    },
+    { connectionString: database.container.getConnectionUri(), pollingIntervalSeconds: 0.5 },
+  );
+  await jobs.enqueueConnector(connectorId);
+  await vi.waitFor(
+    async () => {
+      const runs = await database.db.select().from(syncRuns);
+      expect(runs.map((r) => r.outcome)).toContain('ok');
+    },
+    { timeout: 30_000, interval: 250 },
+  );
+}, 60_000);

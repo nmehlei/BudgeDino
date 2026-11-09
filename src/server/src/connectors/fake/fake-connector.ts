@@ -35,6 +35,7 @@ import {
   type Json,
   type ProviderAccount,
   type ProviderTransaction,
+  type RateLimitPolicy,
 } from '../types.js';
 
 export type FakeScenario =
@@ -106,12 +107,21 @@ const CODE_CHALLENGE: Challenge = { kind: 'code', message: 'Enter the fake TAN',
 
 const dateOnly = (d: Date): string => d.toISOString().slice(0, 10);
 
-export function createFakeConnector(): Connector {
+export interface FakeConnectorOptions {
+  /** Overrides the rate limit policy (default: no cap, every 4 hours); lets sync tests exercise the guard. */
+  rateLimit?: Partial<RateLimitPolicy>;
+}
+
+export function createFakeConnector(options: FakeConnectorOptions = {}): Connector {
   return {
     type: 'fake',
     experimental: false,
     challengeKinds: ['redirect', 'decoupled', 'code', 'image'],
-    rateLimit: { maxUnattendedPerDay: null, defaultSchedule: { cron: '0 */4 * * *' } },
+    rateLimit: {
+      maxUnattendedPerDay: null,
+      defaultSchedule: { cron: '0 */4 * * *' },
+      ...options.rateLimit,
+    },
 
     async startAuth(config, ctx) {
       const scenario = readScenario(config);

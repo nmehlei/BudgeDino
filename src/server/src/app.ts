@@ -11,6 +11,9 @@ import { VERSION } from '@budgedino/shared';
 import { adminGuard, memberGuard } from './auth/guard.js';
 import { InMemoryPendingRegistrationStore } from './auth/pending.js';
 import { InMemoryRateLimiter } from './auth/rate-limit.js';
+import { createConnectorRegistry } from './connectors/registry.js';
+import { createSyncService } from './sync/service.js';
+import { syncRoutes } from './sync/routes.js';
 import { accountRoutes } from './accounts/routes.js';
 import { authRoutes } from './auth/routes.js';
 import type { AppContext, AppDeps, RouteRegistryEntry } from './deps.js';
@@ -32,6 +35,7 @@ const BODY_LIMIT_BYTES = 64 * 1024;
  */
 export function buildApp(deps: AppDeps): FastifyInstance {
   const clock = deps.now ?? (() => new Date());
+  const registry = deps.registry ?? createConnectorRegistry([]);
   const ctx: AppContext = {
     db: deps.db,
     keyring: deps.keyring,
@@ -52,6 +56,15 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         windowMs: LOGIN_WINDOW_MS,
         now: () => clock().getTime(),
       }),
+    registry,
+    sync: createSyncService({
+      db: deps.db,
+      keyring: deps.keyring,
+      registry,
+      logger: deps.logger,
+      now: clock,
+      onIngested: deps.onIngested ?? (async () => {}),
+    }),
   };
 
   // The pino Logger type differs from FastifyBaseLogger only nominally (msgPrefix); widen once here.
@@ -65,6 +78,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   app.setSerializerCompiler(serializerCompiler);
   app.decorate('ctx', ctx);
   app.decorateRequest('auth', null);
+  app.addHook('onClose', async () => {
+    await ctx.sync.idle();
+  });
 
   // Fail closed: a route without `config.access` aborts startup, and the guard for member/admin routes
   // is attached here (never by hand). Guards run in `onRequest`, i.e. before body parsing and
@@ -132,6 +148,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       authRoutes(api);
       accountRoutes(api);
       householdRoutes(api);
+      syncRoutes(api);
     },
     { prefix: API_PREFIX },
   );
