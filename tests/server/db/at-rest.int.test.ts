@@ -24,6 +24,7 @@ const CANARIES = {
   purpose: 'CANARY-PURPOSE',
   externalRef: 'CANARY-EXTREF',
   amount: '987654',
+  balance: '1234567',
 };
 
 let database: TestDatabase;
@@ -81,6 +82,10 @@ describe('encryption at rest', () => {
     expect(dump).toContain('COPY public.transactions'); // sanity: the dump really contains the data
     for (const canary of Object.values(CANARIES)) {
       expect(dump, `dump must not contain ${canary}`).not.toContain(canary);
+      // pg_dump prints bytea as hex (\\x4341...), so plaintext written into a bytea column
+      // must be detected in its hex form as well.
+      const hex = Buffer.from(canary, 'utf8').toString('hex');
+      expect(dump.toLowerCase(), `dump must not contain hex of ${canary}`).not.toContain(hex);
     }
   });
 
