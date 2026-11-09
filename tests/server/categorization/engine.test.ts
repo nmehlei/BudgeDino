@@ -133,6 +133,27 @@ describe('categorize', () => {
     expect(categorize(tx({ amountMinor: -5000n, purpose: 'Gehalt' }), ctx()).source).toBe('none');
   });
 
+  it('treats salary credits as Income even from merchant-named employers', () => {
+    const pos = (over: Partial<DecryptedTx>) => tx({ amountMinor: 300000n, ...over });
+    expect(
+      categorize(pos({ counterparty: 'DEUTSCHE BAHN AG', purpose: 'Gehalt 10/2026' }), ctx())
+        .categoryId,
+    ).toBe('cat-income');
+    expect(categorize(pos({ counterparty: 'Lidl', purpose: 'GEHALT NETTO' }), ctx())).toEqual({
+      categoryId: 'cat-income',
+      source: 'heuristic',
+    });
+    expect(
+      categorize(pos({ counterparty: 'REWE Markt GmbH', mcc: '5411', purpose: 'Lohn' }), ctx())
+        .categoryId,
+    ).toBe('cat-income');
+    expect(categorize(pos({ counterparty: 'Salary Corp' }), ctx()).categoryId).toBe('cat-income');
+    // negative REWE payment still Groceries
+    expect(categorize(tx({ counterparty: 'REWE', purpose: 'Gehalt' }), ctx()).categoryId).toBe(
+      'cat-groceries',
+    );
+  });
+
   it('matches rule fields case-insensitively and requires all of them', () => {
     const t = tx({
       counterparty: 'Stadtwerke Berlin',

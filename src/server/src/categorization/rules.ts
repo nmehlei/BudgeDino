@@ -137,18 +137,22 @@ interface Candidate {
 
 /**
  * Categorizes `candidates` (never `manual` ones or transfer-group members); returns the ones changed.
- * A row keeps its existing category when nothing matches any more (a booked update of a pending row
- * keeps what it had); only rows without a category end up `none`.
+ * With `onlyUncategorized` (ingest, R16) rows that already have a category keep it, e.g. a booked update
+ * of a pending row; explicit recategorization (rule creation) passes false. A row never loses a category
+ * because nothing matches any more.
  */
 async function apply(
   db: Db,
   ctx: CategorizeContext,
   candidates: readonly Candidate[],
+  onlyUncategorized: boolean,
 ): Promise<Candidate[]> {
   const changed: Candidate[] = [];
   for (const c of candidates) {
     const { tx } = c;
     if (tx.categorySource === 'manual' || tx.transferGroupId !== null) continue;
+    // R16: ingest only categorizes new rows and rows without a category; updates keep theirs.
+    if (onlyUncategorized && tx.categorySource !== 'none' && tx.categoryId !== null) continue;
     const result = categorize(tx, ctx);
     if (result.categoryId === null && tx.categoryId !== null) continue;
     if (result.categoryId === tx.categoryId && result.source === tx.categorySource) continue;
@@ -175,6 +179,7 @@ export async function categorizeTransactions(
     db,
     ctx,
     rows.map((r) => ({ accountId: r.accountId, tx: toTransaction(dk, r.tx) })),
+    true,
   );
 }
 
@@ -201,6 +206,7 @@ export async function recategorizeCounterparty(
     db,
     ctx,
     rows.map((r) => ({ accountId: r.accountId, tx: toTransaction(dk, r.tx) })),
+    false,
   );
   return changed.map((c) => ({ id: c.tx.id, accountId: c.accountId }));
 }

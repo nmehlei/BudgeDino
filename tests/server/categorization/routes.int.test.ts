@@ -374,3 +374,56 @@ describe('ingest wiring', () => {
     expect(transfers[0]?.transferGroupId).toBe(transfers[1]?.transferGroupId);
   });
 });
+
+describe('ingest updates (R16)', () => {
+  it('keeps an existing category on a booked update; categorizes rows that had none', async () => {
+    const { ingest } = await import('@budgedino/server/sync/ingest');
+    const { createRule, categorizeTransactions } =
+      await import('@budgedino/server/categorization/rules');
+    const { money } = await import('@budgedino/shared');
+    const mk = (providerId: string, status: 'pending' | 'booked', counterparty: string) =>
+      ({
+        providerId,
+        status,
+        bookingDate: '2026-11-05',
+        amount: money(-1_500n, 'EUR'),
+        counterparty,
+      }) as never;
+    const run = async (txs: never[]) => {
+      const res = await ingest(database.db, dk, aAccount, txs);
+      await categorizeTransactions(database.db, keyring, householdId, [
+        ...res.inserted,
+        ...res.updated,
+      ]);
+      return res;
+    };
+    const first = await run([
+      mk('k1', 'pending', 'REWE Markt'),
+      mk('k2', 'pending', 'Unbekannt GmbH'),
+    ]);
+    const [rewe, unknown] = first.inserted as [string, string];
+    expect(await row(rewe)).toMatchObject({
+      categoryId: cat['Groceries'],
+      categorySource: 'heuristic',
+    });
+    expect((await row(unknown)).categorySource).toBe('none');
+
+    const member = (await database.db.select().from(connectors))[0]?.ownerMemberId as string;
+    await createRule(database.db, dk, {
+      householdId,
+      createdBy: member,
+      match: { counterpartyContains: 'rewe' },
+      categoryId: cat['Eating out'] as string,
+    });
+    const second = await run([mk('k1', 'booked', 'REWE Markt'), mk('k2', 'booked', 'REWE Markt')]);
+    expect(second.updated.sort()).toEqual([rewe, unknown].sort());
+    expect(await row(rewe)).toMatchObject({
+      categoryId: cat['Groceries'],
+      categorySource: 'heuristic',
+    });
+    expect(await row(unknown)).toMatchObject({
+      categoryId: cat['Eating out'],
+      categorySource: 'rule',
+    });
+  });
+});

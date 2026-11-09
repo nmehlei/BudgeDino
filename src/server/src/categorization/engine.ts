@@ -162,6 +162,16 @@ export function sortRules(rules: readonly Rule[]): Rule[] {
 }
 
 function heuristic(tx: DecryptedTx, h: Heuristics): string | null {
+  // Salary first: employers may carry merchant names (Deutsche Bahn, REWE) and MCC codes.
+  if (
+    tx.amountMinor > 0n &&
+    h.incomeCategoryId &&
+    [tx.counterparty, tx.purpose].some(
+      (f) => f !== null && SALARY_KEYWORDS.some((k) => wordMatch(f, k)),
+    )
+  ) {
+    return h.incomeCategoryId;
+  }
   if (tx.mcc !== null) {
     const byMcc = h.mcc.get(tx.mcc);
     if (byMcc) return byMcc;
@@ -171,15 +181,6 @@ function heuristic(tx: DecryptedTx, h: Heuristics): string | null {
     for (const entry of h.keywords) {
       if (wordMatch(field, entry.keyword)) return entry.categoryId;
     }
-  }
-  const purpose = tx.purpose;
-  if (
-    tx.amountMinor > 0n &&
-    h.incomeCategoryId &&
-    purpose !== null &&
-    SALARY_KEYWORDS.some((k) => wordMatch(purpose, k))
-  ) {
-    return h.incomeCategoryId;
   }
   return null;
 }

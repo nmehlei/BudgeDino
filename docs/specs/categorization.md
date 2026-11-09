@@ -29,8 +29,9 @@ its source (`rule` / `learned` / `heuristic` / `manual` / `none`) are stored on 
   matches. A new rule gets a priority above all existing ones.
 - **Learned**: `counterparty_bidx` -> category of the most recent `manual` categorization in the household
   (`transactions.category_set_at`). Only manual categorizations teach.
-- **Salary**: a positive amount whose purpose contains LOHN / GEHALT / SALARY (word boundary) -> Income.
-  Any other positive amount without a match stays uncategorized.
+- **Salary**: a positive amount whose counterparty or purpose contains LOHN / GEHALT / SALARY (word
+  boundary) -> Income, checked *before* MCC and merchant keywords (an employer such as "Deutsche Bahn AG"
+  must not turn a salary into Transport). Any other positive amount without a match stays uncategorized.
 
 ### Heuristic tables
 
@@ -47,8 +48,9 @@ household's categories by (default) name; renamed categories simply drop out.
 ### When it runs
 
 `categorize` runs on ingest (`onIngested`) for inserted/updated transactions, skipping `manual` ones and
-transfer-group members. A booked update of a pending row keeps its category when nothing matches any more;
-only rows without a category become `none`.
+transfer-group members. **R16:** only new rows and rows without a category (`none`) are categorized; an
+update of a row that already has a category (e.g. pending -> booked) keeps it, even if rules changed in
+between. Rules created with `applyToCounterparty` recategorize history explicitly.
 
 ### Corrections: `PATCH /transactions/:id`
 
