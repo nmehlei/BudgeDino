@@ -84,6 +84,23 @@ describe('logger', () => {
       context.disable();
     });
 
+    it('keeps IBAN-looking trace and span ids verbatim', () => {
+      const cap = capture();
+      const log = createLogger({ destination: cap.stream });
+      const traceId = 'ab120123456789abcdef0123456789ab';
+      const spanId = 'cd340123456789ab';
+      const tracer = new TracerProvider({
+        idGenerator: { generateTraceId: () => traceId, generateSpanId: () => spanId },
+      }).getTracer('t');
+      tracer.startActiveSpan('op', (span) => {
+        log.info('inside');
+        span.end();
+      });
+      const rec = JSON.parse(cap.text()) as Record<string, unknown>;
+      expect(rec['trace_id']).toBe(traceId);
+      expect(rec['span_id']).toBe(spanId);
+    });
+
     it('includes trace_id and span_id inside an active span', () => {
       const provider = new TracerProvider();
       const tracer = provider.getTracer('test');

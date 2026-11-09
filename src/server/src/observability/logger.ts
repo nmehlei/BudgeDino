@@ -54,7 +54,13 @@ export function createLogger(options: CreateLoggerOptions = {}): Logger {
         const o: Record<string, unknown> = { ...obj };
         if ('req' in o) o['req'] = serializeReq(o['req'] as RawRequest);
         if ('res' in o) o['res'] = serializeRes(o['res'] as RawReply);
-        return asRecord(redact(o));
+        // Trace ids are hex and can look like an IBAN; keep them out of redaction.
+        const { trace_id, span_id, ...rest } = o;
+        return {
+          ...asRecord(redact(rest)),
+          ...(trace_id === undefined ? {} : { trace_id }),
+          ...(span_id === undefined ? {} : { span_id }),
+        };
       },
       bindings: (bindings) => asRecord(redact(bindings)),
     },
