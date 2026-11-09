@@ -43,10 +43,6 @@ export function createLogger(options: CreateLoggerOptions = {}): Logger {
   const config: LoggerOptions = {
     level: options.level ?? 'info',
     serializers: { req: serializeReq, res: serializeRes },
-    mixin() {
-      const ctx = trace.getActiveSpan()?.spanContext();
-      return ctx && isSpanContextValid(ctx) ? { trace_id: ctx.traceId, span_id: ctx.spanId } : {};
-    },
     formatters: {
       // pino runs formatters.log before serializers, so req/res are reduced to their safe
       // subset here first (the serializers are idempotent and run again afterwards).
@@ -54,15 +50,15 @@ export function createLogger(options: CreateLoggerOptions = {}): Logger {
         const o: Record<string, unknown> = { ...obj };
         if ('req' in o) o['req'] = serializeReq(o['req'] as RawRequest);
         if ('res' in o) o['res'] = serializeRes(o['res'] as RawReply);
-        // Trace ids are hex and can look like an IBAN; keep them out of redaction.
-        // Only values equal to the active span context are trusted; caller-supplied ones are redacted.
+        // Caller-supplied trace_id/span_id are always dropped; inside an active span the span's
+        // own ids are set (hex ids can look like an IBAN, so they bypass redaction).
+        delete o['trace_id'];
+        delete o['span_id'];
         const ctx = trace.getActiveSpan()?.spanContext();
-        const active = ctx && isSpanContextValid(ctx) ? ctx : undefined;
-        const { trace_id, span_id, ...rest } = o;
-        const redacted = asRecord(redact({ ...rest, trace_id, span_id }));
-        if (active && trace_id === active.traceId) redacted['trace_id'] = trace_id;
-        if (active && span_id === active.spanId) redacted['span_id'] = span_id;
-        return redacted;
+        return {
+          ...asRecord(redact(o)),
+          ...(ctx && isSpanContextValid(ctx) ? { trace_id: ctx.traceId, span_id: ctx.spanId } : {}),
+        };
       },
       bindings: (bindings) => asRecord(redact(bindings)),
     },

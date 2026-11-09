@@ -101,22 +101,21 @@ describe('logger', () => {
       expect(rec['span_id']).toBe(spanId);
     });
 
-    it('redacts caller-supplied trace_id, outside and inside a span', () => {
+    it('drops caller-supplied trace_id/span_id; active span ids always win', () => {
       const cap = capture();
       const log = createLogger({ destination: cap.stream });
-      log.info({ trace_id: IBAN }, 'outside');
-      expect(cap.text()).not.toContain(IBAN);
+      log.info({ trace_id: IBAN, span_id: IBAN }, 'outside');
+      const out = JSON.parse(cap.lines[0] ?? '{}') as Record<string, unknown>;
+      expect('trace_id' in out).toBe(false);
+      expect('span_id' in out).toBe(false);
       const tracer = new TracerProvider().getTracer('t');
       tracer.startActiveSpan('op', (span) => {
-        log.info({ trace_id: IBAN, span_id: IBAN }, 'inside');
+        log.info({ trace_id: IBAN, span_id: 'DE89' }, 'inside');
         const sc = span.spanContext();
         const rec = JSON.parse(cap.lines[1] ?? '{}') as Record<string, unknown>;
-        expect(rec['trace_id']).toBe('[iban]');
-        expect(rec['span_id']).toBe('[iban]');
-        log.info('plain');
-        const rec2 = JSON.parse(cap.lines[2] ?? '{}') as Record<string, unknown>;
-        expect(rec2['trace_id']).toBe(sc.traceId);
-        expect(rec2['span_id']).toBe(sc.spanId);
+        expect(rec['trace_id']).toBe(sc.traceId);
+        expect(rec['span_id']).toBe(sc.spanId);
+        expect(cap.lines[1]).not.toContain('DE89');
         span.end();
       });
       expect(cap.text()).not.toContain(IBAN);

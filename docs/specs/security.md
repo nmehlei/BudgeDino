@@ -115,8 +115,8 @@ route/URL (sensitive query params redacted), status and SQL text with placeholde
 bodies and headers are not captured. No data leaves the server unless the owner configures a
 collector. `startTelemetry` returns `{ enabled, shutdown() }`.
 
-**Trace id handling.** `trace_id`/`span_id` are logged verbatim only when they equal the active span
-context (hex ids can look like IBANs); caller-supplied values under those keys are redacted like any
-other string. The IBAN pattern is deliberately case-insensitive (a lowercase IBAN is still an IBAN;
-leaking one is worse than mangling a lowercase hex id), so correlation ids must come from the span
-context, not from ad-hoc log fields.
+**Trace id handling.** `trace_id`/`span_id` in a log record always come from the active span context
+(hex ids can look like IBANs, so they bypass redaction). Caller-supplied `trace_id`/`span_id` fields
+are discarded and never logged; outside a span the keys are absent. The IBAN pattern is deliberately
+case-insensitive (a lowercase IBAN is still an IBAN; leaking one is worse than mangling a lowercase
+hex id).
