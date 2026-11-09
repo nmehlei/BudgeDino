@@ -39,7 +39,8 @@
   and in the household base currency (else 422). The amount is stored encrypted; the name is plaintext.
 - **Home** (`GET /home?period=current|previous|<key>`, member): budgets (household-wide, identical for
   every member), a **breakdown** over the viewer's *visible* accounts only (spending categories, transfers
-  and income excluded, refunds netted, largest first) plus `income` separately, and `sync` (own connectors
+  and income excluded, refunds netted, largest first; rows with net spent <= 0 omitted; uncategorized positive
+  amounts excluded) plus `income` and `uncategorizedIncome` separately, and `sync` (own connectors
   in full, others' only when they back household-visible accounts). The headline period is monthly for
   `current`/`previous` and of the key's kind for `2026-11` / `2026-W46`; budgets of the other kind are
   evaluated for their own period at that moment (each budget view carries its `period`). An

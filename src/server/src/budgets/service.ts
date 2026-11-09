@@ -395,13 +395,16 @@ export function toView(b: Budget, period: Period, result: SpentResult): BudgetVi
 export interface Breakdown {
   breakdown: { categoryId: string | null; name: string; spent: Money }[];
   income: Money;
+  /** Positive amounts without a category (deposits not yet classified); not part of the breakdown. */
+  uncategorizedIncome: Money;
   fxMissing: boolean;
 }
 
 /**
  * Where the money went, over the caller's visible accounts only: spending categories (not income, not
  * transfer; transfer-grouped transactions are excluded), largest first, refunds netted into their category.
- * Income is reported separately.
+ * Categories whose net spent is zero or negative are omitted. Income is reported separately, and so are
+ * uncategorized positive amounts (`uncategorizedIncome`) so they cannot distort the Uncategorized row.
  */
 export async function breakdownFor(
   db: Db,
@@ -426,11 +429,16 @@ export async function breakdownFor(
 
   const spending = new Map<string | null, SpendEntry[]>();
   const incomeEntries: SpendEntry[] = [];
+  const uncategorizedIncomeEntries: SpendEntry[] = [];
   for (const e of entries) {
     const cat = e.categoryId === null ? undefined : byId.get(e.categoryId);
     if (cat?.isTransfer) continue;
     if (cat?.isIncome) {
       incomeEntries.push(e);
+      continue;
+    }
+    if (!cat && e.amount.minor > 0n) {
+      uncategorizedIncomeEntries.push(e);
       continue;
     }
     const key = cat ? cat.id : null;
@@ -442,7 +450,7 @@ export async function breakdownFor(
   for (const [categoryId, list] of spending) {
     const r = await spentOf(list, base, fx);
     fxMissing ||= r.fxMissing;
-    if (r.total === 0n) continue;
+    if (r.total <= 0n) continue;
     breakdown.push({
       categoryId,
       name: categoryId === null ? 'Uncategorized' : (byId.get(categoryId)?.name ?? 'Uncategorized'),
@@ -458,5 +466,12 @@ export async function breakdownFor(
   );
   const inc = await spentOf(incomeEntries, base, fx);
   fxMissing ||= inc.fxMissing;
-  return { breakdown, income: money(-inc.total, base), fxMissing };
+  const unc = await spentOf(uncategorizedIncomeEntries, base, fx);
+  fxMissing ||= unc.fxMissing;
+  return {
+    breakdown,
+    income: money(-inc.total, base),
+    uncategorizedIncome: money(-unc.total, base),
+    fxMissing,
+  };
 }

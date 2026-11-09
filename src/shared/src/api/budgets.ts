@@ -78,6 +78,8 @@ export const homeResponse = z.object({
   ),
   /** Income over the viewer's visible accounts; refunds are not income. */
   income: moneyJson,
+  /** Positive amounts without a category; excluded from the breakdown. */
+  uncategorizedIncome: moneyJson,
   fxMissing: z.boolean(),
   sync: z.array(connectorInfo),
 });

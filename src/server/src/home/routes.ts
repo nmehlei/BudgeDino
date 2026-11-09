@@ -55,6 +55,7 @@ export function homeRoutes(app: FastifyInstance): void {
         budgets: budgets.views,
         breakdown: breakdown.breakdown.map((b) => ({ ...b, spent: toJSON(b.spent) })),
         income: toJSON(breakdown.income),
+        uncategorizedIncome: toJSON(breakdown.uncategorizedIncome),
         fxMissing: budgets.fxMissing || breakdown.fxMissing,
         sync,
       };

@@ -12,6 +12,7 @@ interface HomeView {
   budgets: { name: string; period: { key: string }; spent: Money; ratio: string }[];
   breakdown: { categoryId: string | null; name: string; spent: Money }[];
   income: Money;
+  uncategorizedIncome: Money;
   sync: Record<string, unknown>[];
 }
 
@@ -92,6 +93,21 @@ describe('GET /home', () => {
     for (const qs of ['?period=2026-13', '?period=foo', '?period=2026-W54', '?period=2026-W00']) {
       expect((await getHome(w.aToken, qs)).status, qs).toBe(400);
     }
+  });
+
+  it('keeps uncategorized inflows and net refunds out of the breakdown', async () => {
+    await w.add(w.aAccount, -3_000n, '2026-11-02', null);
+    await w.add(w.aAccount, 10_000n, '2026-11-03', null); // uncategorized deposit: not a negative spend
+    await w.add(w.aAccount, -1_000n, '2026-11-04', 'Shopping');
+    await w.add(w.aAccount, 2_000n, '2026-11-05', 'Shopping'); // refund exceeds spend: net <= 0
+    await w.add(w.aAccount, -4_000n, '2026-11-05', 'Transport');
+    const { home } = await getHome(w.aToken);
+    expect(home.breakdown.map((b) => [b.name, b.spent.minor])).toEqual([
+      ['Transport', '4000'],
+      ['Uncategorized', '3000'],
+    ]);
+    expect(home.uncategorizedIncome).toEqual({ minor: '10000', currency: 'EUR' });
+    expect(home.income).toEqual({ minor: '0', currency: 'EUR' });
   });
 
   it('breakdown only covers the viewers visible accounts; budgets count every counting account', async () => {

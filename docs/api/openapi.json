@@ -3974,6 +3974,22 @@
                       ],
                       "additionalProperties": false
                     },
+                    "uncategorizedIncome": {
+                      "type": "object",
+                      "properties": {
+                        "minor": {
+                          "type": "string"
+                        },
+                        "currency": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "minor",
+                        "currency"
+                      ],
+                      "additionalProperties": false
+                    },
                     "fxMissing": {
                       "type": "boolean"
                     },
@@ -4106,6 +4122,7 @@
                     "budgets",
                     "breakdown",
                     "income",
+                    "uncategorizedIncome",
                     "fxMissing",
                     "sync"
                   ],
