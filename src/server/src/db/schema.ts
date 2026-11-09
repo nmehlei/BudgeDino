@@ -296,17 +296,26 @@ export const challenges = pgTable('challenges', {
   createdAt: createdAt(),
 });
 
-export const notifications = pgTable('notifications', {
-  id: id(),
-  householdId: uuid('household_id')
-    .notNull()
-    .references(() => households.id, { onDelete: 'cascade' }),
-  memberId: uuid('member_id').references(() => members.id, { onDelete: 'cascade' }),
-  kind: text('kind').notNull(),
-  bodyEnc: bytea('body_enc'),
-  createdAt: createdAt(),
-  deliveredAt: ts('delivered_at'),
-});
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: id(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    memberId: uuid('member_id').references(() => members.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    bodyEnc: bytea('body_enc'),
+    /**
+     * Idempotency key (e.g. `budget:<id>:<period key>:80`); unique per member, so a re-evaluation can
+     * never create a second notification. Null for notifications that need no dedup.
+     */
+    dedupKey: text('dedup_key'),
+    createdAt: createdAt(),
+    deliveredAt: ts('delivered_at'),
+  },
+  (t) => [uniqueIndex('notifications_member_dedup').on(t.memberId, t.dedupKey)],
+);
 
 export const fxRates = pgTable(
   'fx_rates',

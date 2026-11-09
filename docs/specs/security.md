@@ -81,6 +81,10 @@ because the row id is part of each field's AAD.
   account external reference, transaction dedup key, counterparty).
 - Amounts and balances are encrypted as decimal strings of integer minor units.
 - **Plaintext by design:** dates, currency codes, enums, foreign keys, `mcc`, household timezone.
+- **Budget names are plaintext [call]:** like category names they are generic labels, and the
+  `"<name> reached 80%"` notification body is built from them. Budget amounts (`amount_minor_enc`) and
+  notification bodies (`body_enc`) are encrypted; `notifications.dedup_key` (`budget:<id>:<period>:<pct>`,
+  ids and a percentage only) is plaintext. FX reference rates (`fx_rates`) are public data, plaintext.
 - **Category names are plaintext [call]:** they are generic labels ("Groceries"), not personal data, and
   keeping them readable keeps budget and category queries simple. Revisit if users put sensitive text
   into custom category names.

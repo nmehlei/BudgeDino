@@ -15,3 +15,47 @@
 - No rollover in v1; history of past periods is kept and viewable. **[call]**
 - Notification at 80% and 100% usage (configurable), delivered per [security.md](security.md)
   (notifications, no push service in v1). **[call]**
+
+## Computation (implemented in `src/server/src/budgets`)
+
+- **Spent** = −Σ(amounts) of the matching transactions in the budget's categories, over **all** household
+  accounts with `countsTowardBudgets`, regardless of who asks and of visibility, booked **and** pending,
+  excluding transactions with a `transfer_group_id`. Inflows in a budget category (refunds) therefore
+  reduce spent; the raw value may be negative. A refund is never income.
+- The API returns raw `spent` (Money) plus `ratio = max(0, spent) / amount` as a 4-decimal string
+  (`"0.6800"`), and `fxMissing`.
+- **Splits:** a transaction with splits contributes only its split parts, each by its own category; the
+  parent category is ignored.
+- **Periods:** `weekly` = ISO Mon–Sun, `monthly` = calendar month in the household timezone; booking dates
+  are compared as local dates (`from` inclusive, `to` exclusive). No rollover.
+- **FX:** non-base-currency amounts are converted at the ECB reference rate of the booking date or the
+  latest earlier one (`fx_rates`, refreshed daily by the `fx.refresh` job from the ECB 90-day XML; the
+  source is injected, `EcbFxSource` in production). Rates stay decimal strings; conversion is exact
+  integer arithmetic with banker's (half-even) rounding to minor units; non-EUR bases use cross rates.
+  A transaction without a rate on or before its date is **excluded** and the budget carries
+  `fxMissing: true` (never an error, never a guess).
+- **API:** `GET /budgets` (member; current period), `POST/PATCH/DELETE /budgets` (admin; DELETE archives).
+  `categoryIds` must belong to the household and be neither income nor transfer, `amount` must be positive
+  and in the household base currency (else 422). The amount is stored encrypted; the name is plaintext.
+- **Home** (`GET /home?period=current|previous|<key>`, member): budgets (household-wide, identical for
+  every member), a **breakdown** over the viewer's *visible* accounts only (spending categories, transfers
+  and income excluded, refunds netted, largest first) plus `income` separately, and `sync` (own connectors
+  in full, others' only when they back household-visible accounts). The headline period is monthly for
+  `current`/`previous` and of the key's kind for `2026-11` / `2026-W46`; budgets of the other kind are
+  evaluated for their own period at that moment (each budget view carries its `period`). An
+  `owner_only` account that counts toward budgets moves everyone's budget totals but never appears in
+  another member's breakdown.
+
+## Alerts and notification polling
+
+- After each ingest (after categorization and transfer detection) the household's budgets are evaluated
+  for the **current** period. Reaching 80% / 100% of the amount creates one `budget_threshold`
+  notification per active member, per budget, per threshold, per period key. Idempotency is a unique
+  `(member_id, dedup_key)` index with `dedup_key = budget:<budgetId>:<periodKey>:<threshold>`; refunds
+  that dip below a threshold and cross it again in the same period do not notify twice.
+- Body: `"<budget name> reached 80%"` — budget names are plaintext by design; **no amounts, no
+  transactions**, so nothing from an `owner_only` account can leak. Both thresholds notify when one ingest
+  jumps past both.
+- `GET /notifications?since=<cursor>&limit<=100` returns the caller's own pending (not yet acknowledged)
+  notifications, oldest first, with an opaque keyset cursor (`nextCursor`; unchanged when nothing new).
+  `POST /notifications/ack {ids}` marks the caller's own ids delivered; other ids are ignored silently.

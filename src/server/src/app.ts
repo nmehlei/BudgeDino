@@ -19,6 +19,10 @@ import { syncRoutes } from './sync/routes.js';
 import { categorizationRoutes } from './categorization/routes.js';
 import { categorizeTransactions } from './categorization/rules.js';
 import { detectTransfers } from './categorization/transfers.js';
+import { budgetRoutes } from './budgets/routes.js';
+import { evaluateAlerts } from './budgets/alerts.js';
+import { homeRoutes } from './home/routes.js';
+import { notificationRoutes } from './notifications/routes.js';
 import { accountRoutes } from './accounts/routes.js';
 import { authRoutes } from './auth/routes.js';
 import type { AppContext, AppDeps, RouteRegistryEntry } from './deps.js';
@@ -53,6 +57,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         // Categorize first; transfer detection then claims matched pairs (Transfer beats other non-manual sources).
         await categorizeTransactions(deps.db, deps.keyring, householdId, txIds);
         await detectTransfers(deps.db, deps.keyring, householdId, txIds);
+        // Budget thresholds last: they read the final categories and transfer groups.
+        await evaluateAlerts(deps.db, deps.keyring, householdId, clock());
       }),
   });
   const ctx: AppContext = {
@@ -174,6 +180,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       householdRoutes(api);
       syncRoutes(api);
       connectorRoutes(api);
+      budgetRoutes(api);
+      homeRoutes(api);
+      notificationRoutes(api);
     },
     { prefix: API_PREFIX },
   );

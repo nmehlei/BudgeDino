@@ -8,10 +8,76 @@ import {
   syncStartedResponse,
   type ConnectorInfo,
 } from '@budgedino/shared';
+import type { ConnectorRegistry } from '../connectors/registry.js';
+import type { Db } from '../db/client.js';
 import { accounts, connectors } from '../db/schema.js';
+import type { AuthContext } from '../deps.js';
 import { HttpError } from '../http/errors.js';
 
 const iso = (d: Date | null) => (d === null ? null : d.toISOString());
+
+/**
+ * Connectors the caller may see: their own in full, plus others' connectors that back at least one
+ * household-visible account (id, type, status, lastSuccessAt only). Shared with `GET /home`.
+ */
+export async function listConnectorInfos(
+  db: Db,
+  registry: ConnectorRegistry,
+  auth: Pick<AuthContext, 'memberId' | 'householdId'>,
+): Promise<ConnectorInfo[]> {
+  // Own connectors, plus others' connectors that back at least one household-visible account.
+  const rows = await db
+    .select()
+    .from(connectors)
+    .where(
+      and(
+        eq(connectors.householdId, auth.householdId),
+        or(
+          eq(connectors.ownerMemberId, auth.memberId),
+          exists(
+            db
+              .select({ one: accounts.id })
+              .from(accounts)
+              .where(
+                and(
+                  eq(accounts.connectorId, connectors.id),
+                  eq(accounts.visibility, 'household'),
+                  ne(accounts.ownerMemberId, auth.memberId),
+                ),
+              ),
+          ),
+        ),
+      ),
+    )
+    .orderBy(connectors.createdAt, connectors.id);
+  const experimental = (type: string) => {
+    try {
+      return registry.get(type).experimental;
+    } catch {
+      return false;
+    }
+  };
+  return rows.map((c) =>
+    c.ownerMemberId === auth.memberId
+      ? {
+          id: c.id,
+          type: c.type,
+          status: c.status,
+          isOwner: true,
+          experimental: experimental(c.type),
+          lastSuccessAt: iso(c.lastSuccessAt),
+          lastErrorCode: c.lastErrorCode,
+          consentExpiresAt: iso(c.consentExpiresAt),
+        }
+      : {
+          id: c.id,
+          type: c.type,
+          status: c.status,
+          isOwner: false,
+          lastSuccessAt: iso(c.lastSuccessAt),
+        },
+  );
+}
 
 export function syncRoutes(app: FastifyInstance): void {
   const r = app.withTypeProvider<ZodTypeProvider>();
@@ -30,60 +96,7 @@ export function syncRoutes(app: FastifyInstance): void {
     async (req) => {
       const auth = req.auth;
       if (!auth) throw new Error('unreachable: the access hook authenticates');
-      const { db, registry } = app.ctx;
-      // Own connectors, plus others' connectors that back at least one household-visible account.
-      const rows = await db
-        .select()
-        .from(connectors)
-        .where(
-          and(
-            eq(connectors.householdId, auth.householdId),
-            or(
-              eq(connectors.ownerMemberId, auth.memberId),
-              exists(
-                db
-                  .select({ one: accounts.id })
-                  .from(accounts)
-                  .where(
-                    and(
-                      eq(accounts.connectorId, connectors.id),
-                      eq(accounts.visibility, 'household'),
-                      ne(accounts.ownerMemberId, auth.memberId),
-                    ),
-                  ),
-              ),
-            ),
-          ),
-        )
-        .orderBy(connectors.createdAt, connectors.id);
-      const experimental = (type: string) => {
-        try {
-          return registry.get(type).experimental;
-        } catch {
-          return false;
-        }
-      };
-      const list: ConnectorInfo[] = rows.map((c) =>
-        c.ownerMemberId === auth.memberId
-          ? {
-              id: c.id,
-              type: c.type,
-              status: c.status,
-              isOwner: true,
-              experimental: experimental(c.type),
-              lastSuccessAt: iso(c.lastSuccessAt),
-              lastErrorCode: c.lastErrorCode,
-              consentExpiresAt: iso(c.consentExpiresAt),
-            }
-          : {
-              id: c.id,
-              type: c.type,
-              status: c.status,
-              isOwner: false,
-              lastSuccessAt: iso(c.lastSuccessAt),
-            },
-      );
-      return { connectors: list };
+      return { connectors: await listConnectorInfos(app.ctx.db, app.ctx.registry, auth) };
     },
   );
 

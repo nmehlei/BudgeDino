@@ -5,7 +5,12 @@ import { createConnectorRegistry } from '@budgedino/server/connectors/registry';
 import { challenges, syncRuns } from '@budgedino/server/db/schema';
 import { Keyring } from '@budgedino/server/households/keyring';
 import { createLogger } from '@budgedino/server/observability/logger';
-import { CHALLENGES_EXPIRE_QUEUE, startJobs, type JobsHandle } from '@budgedino/server/sync/jobs';
+import {
+  CHALLENGES_EXPIRE_QUEUE,
+  FX_REFRESH_QUEUE,
+  startJobs,
+  type JobsHandle,
+} from '@budgedino/server/sync/jobs';
 import {
   createHousehold,
   createTestChallenge,
@@ -91,4 +96,36 @@ it('the challenges.expire job expires challenges past their TTL', async () => {
     },
     { timeout: 30_000, interval: 250 },
   );
+}, 60_000);
+
+it('the fx.refresh job stores the rates of the injected source, and runs once at startup', async () => {
+  const keyring = new Keyring(database.db, randomMasterKey());
+  await jobs?.stop();
+  jobs = await startJobs(
+    {
+      db: database.db,
+      keyring,
+      registry: createConnectorRegistry([createFakeConnector()]),
+      logger: createLogger({ level: 'silent' }),
+      now: () => new Date(),
+      onIngested: async () => {},
+    },
+    {
+      connectionString: database.container.getConnectionUri(),
+      pollingIntervalSeconds: 0.5,
+      fxSource: {
+        fetchRates: async () => [{ date: '2026-11-09', currency: 'USD', ratePerEur: '1.0800' }],
+      },
+    },
+  );
+  await vi.waitFor(
+    async () => {
+      const { rows } = await database.pool.query<{ rate_per_eur: string }>(
+        `select rate_per_eur from fx_rates where currency = 'USD' and date = '2026-11-09'`,
+      );
+      expect(rows[0]?.rate_per_eur).toBe('1.0800');
+    },
+    { timeout: 30_000, interval: 250 },
+  );
+  expect(FX_REFRESH_QUEUE).toBe('fx.refresh');
 }, 60_000);

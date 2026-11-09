@@ -3,14 +3,19 @@ import { PgBoss } from 'pg-boss';
 import { connectors, households, syncRuns } from '../db/schema.js';
 import { safeErrorInfo } from '../observability/redact.js';
 import { expireChallenges } from '../connectors/challenge-service.js';
+import type { FxSource } from '../fx/ecb.js';
+import { refreshFxRates } from '../fx/service.js';
 import { runSync, type SyncDeps } from './run.js';
 import { occurrencesBetween } from './scheduler.js';
 
 export const SYNC_CONNECTOR_QUEUE = 'sync.connector';
 export const SYNC_TICK_QUEUE = 'sync.tick';
 export const CHALLENGES_EXPIRE_QUEUE = 'challenges.expire';
+export const FX_REFRESH_QUEUE = 'fx.refresh';
 const EXPIRE_CRON = '* * * * *';
 const TICK_CRON = '*/5 * * * *';
+/** ECB publishes around 16:00 CET; refresh once a day after that (and once at startup). */
+const FX_REFRESH_CRON = '30 17 * * *';
 const DAY_MS = 86_400_000;
 
 /**
@@ -58,6 +63,8 @@ export interface JobsOptions {
   connectionString: string;
   /** pg-boss worker polling interval (seconds, >= 0.5); default 2. */
   pollingIntervalSeconds?: number;
+  /** Exchange-rate source; when given, the daily `fx.refresh` job is registered (production: EcbFxSource). */
+  fxSource?: FxSource;
 }
 
 export interface JobsHandle {
@@ -70,7 +77,8 @@ export interface JobsHandle {
 /**
  * Starts pg-boss: `sync.tick` every 5 minutes enqueues due connectors as `sync.connector` jobs
  * (policy `exclusive` + `singletonKey: connectorId`: one queued or active job per connector).
- * `challenges.expire` runs every minute and expires abandoned connect challenges.
+ * `challenges.expire` runs every minute and expires abandoned connect challenges. With `options.fxSource`,
+ * `fx.refresh` fetches the ECB rates daily.
  */
 export async function startJobs(deps: SyncDeps, options: JobsOptions): Promise<JobsHandle> {
   const boss = new PgBoss({ connectionString: options.connectionString });
@@ -100,6 +108,18 @@ export async function startJobs(deps: SyncDeps, options: JobsOptions): Promise<J
   });
   await boss.schedule(SYNC_TICK_QUEUE, TICK_CRON);
   await boss.schedule(CHALLENGES_EXPIRE_QUEUE, EXPIRE_CRON);
+
+  const fxSource = options.fxSource;
+  if (fxSource) {
+    await boss.createQueue(FX_REFRESH_QUEUE, { policy: 'short' });
+    await boss.work(FX_REFRESH_QUEUE, { pollingIntervalSeconds: polling }, async () => {
+      const count = await refreshFxRates(deps.db, fxSource);
+      deps.logger.info({ rates: count }, 'fx rates refreshed');
+    });
+    await boss.schedule(FX_REFRESH_QUEUE, FX_REFRESH_CRON);
+    // A fresh install has no rates until the first scheduled run; fetch right away (at most once an hour).
+    await boss.send(FX_REFRESH_QUEUE, {}, { singletonSeconds: 3600 });
+  }
 
   return { boss, enqueueConnector, stop: () => boss.stop({ graceful: true }) };
 }
