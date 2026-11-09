@@ -38,8 +38,12 @@ now, Expo Android app later. Read this before changing anything.
 | `pnpm lint`             | ESLint (typescript-eslint strict)                                                                            |
 | `pnpm typecheck`        | `tsc` in every workspace package                                                                             |
 | `pnpm test`             | unit tests (Vitest `unit` project)                                                                           |
-| `pnpm test:integration` | integration tests (Vitest `integration` project, `*.int.test.ts`; needs Docker once Testcontainers are used) |
-| `bash ci/check.sh`      | everything CI runs (`SKIP_INTEGRATION=1` to skip integration)                                                |
+| `pnpm test:integration` | integration tests (Vitest `integration` project, `*.int.test.ts`; **needs Docker**, Testcontainers Postgres) |
+| `pnpm test:e2e`         | end-to-end household slice through the real entry point (needs Docker)                                       |
+| `pnpm test:build`       | builds, then smoke-tests `dist` with plain Node (needs Docker)                                               |
+| `pnpm build`            | esbuild bundle of the server into `src/server/dist`                                                          |
+| `pnpm openapi`          | builds and regenerates `docs/api/openapi.json`; commit the result (CI fails on drift)                        |
+| `bash ci/check.sh`      | everything CI runs (`SKIP_INTEGRATION=1` skips the Docker-based suites: integration, e2e, build smoke)       |
 
 Toolchain: no Node-26-only APIs (packages declare `engines.node >=22`). TypeScript is pinned to 6.x
 until typescript-eslint supports TS 7.
