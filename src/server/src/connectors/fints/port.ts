@@ -73,8 +73,8 @@ export interface FinTSPortResponse {
   bankAnswers: { code: number; text: string }[];
   bankingInformationUpdated: boolean;
   /**
-   * The bank rejected the dialog initialisation itself (HKIDN/HKVVB); the order never ran. lib-fints
-   * then returns the init response as the order's result.
+   * The dialog initialisation did not complete (rejected, or it demanded a TAN); the order never
+   * ran. lib-fints then returns the init response as the order's result.
    */
   initFailed?: boolean;
 }

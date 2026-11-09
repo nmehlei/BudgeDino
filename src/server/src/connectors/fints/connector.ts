@@ -398,6 +398,7 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
     entry: FinTSDialogEntry,
     tan: string | undefined,
     ctx: ConnectorContext,
+    progress: { accepted: boolean },
   ): Promise<AuthStep> => {
     const { session, meta } = entry;
     const method = session.availableTanMethods().find((m) => m.id === d.tanMethodId);
@@ -413,6 +414,7 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
         ? session.getCreditCardStatementsWithTan(meta.tanReference, tan)
         : session.getStatementsWithTan(meta.tanReference, tan);
     });
+    progress.accepted = true;
     checkPinErrors(r);
 
     const extra: Pick<DialogMeta, 'accountRef' | 'probe'> = {};
@@ -502,17 +504,19 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
       if (tan === '') throw new InvalidAnswerError();
       const entry = dialogs.take(d.handle);
       if (!entry) throw new ConnectorAuthError('timeout');
+      const progress = { accepted: false };
       try {
-        return await resume(d, entry, tan, ctx);
+        return await resume(d, entry, tan, ctx, progress);
       } catch (e) {
         // Terminal outcomes (declined, too many attempts, bank logic failure) end the dialog. A
-        // transient failure (network, 5xx, decode) keeps the session under the same handle, so
-        // the client's retry reaches it.
+        // transient failure of the continuation call itself (network, 5xx, decode) keeps the
+        // session under the same handle, so the client's retry reaches it. Once the bank accepted
+        // the TAN its reference is used up: a later failure (probe, TAN medium) ends the dialog.
         const terminal =
           e instanceof ConnectorAuthError ||
           e instanceof InvalidAnswerError ||
           (e instanceof FailedError && e.terminal);
-        if (!terminal) dialogs.restore(d.handle, entry);
+        if (!terminal && !progress.accepted) dialogs.restore(d.handle, entry);
         throw e;
       }
     },

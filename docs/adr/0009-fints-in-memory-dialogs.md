@@ -20,7 +20,7 @@ FinTS 3.0 PIN/TAN to DKB and Comdirect. Two properties of the library shape the 
 - **In-process dialog registry.** Live lib-fints sessions are held in a process-wide `FinTSDialogRegistry`
   (`src/server/src/connectors/fints/dialogs.ts`). The persisted `DialogState` carries only an opaque handle
   (32 random bytes, base64url) plus non-secret bookkeeping (kind, step, attempts, TAN method id). An entry
-  is taken once while it is resumed and put back under the same handle (`restore`) when the bank call fails
+  is taken once while it is resumed and put back under the same handle (`restore`) when the TAN continuation call itself fails
   transiently (network, 5xx, decode), so a client retry reaches the same session. The challenge the client
   sees expires after 10 minutes (`expiresAt`); the registry itself keeps an entry for at most 15 minutes
   (restoring gives a fresh registry lifetime), is capped (oldest evicted), swept every 60 s by an unref'd
@@ -32,8 +32,8 @@ FinTS 3.0 PIN/TAN to DKB and Comdirect. Two properties of the library shape the 
 - **Patched, unmodified otherwise.** `lib-fints` is used as published except for the pnpm patch
   `patches/lib-fints@1.5.3.patch` (registered in `pnpm-workspace.yaml`). It removes the console dumps of bank
   responses, surfaces parse failures (`parseFailed`, mapped to a `decode` port error and then `temporary`),
-  keeps the raw CAMT date strings (P2-R9), and flags an order result that is really the rejected dialog
-  init response (`initFailed`, which lib-fints otherwise returns indistinguishably). The patch is published in this repository, which satisfies
+  keeps the raw CAMT date strings (P2-R9), and flags an order result that is really the dialog init
+  response (dialog initialisation did not complete: rejected or demanded a TAN) (`initFailed`, which lib-fints otherwise returns indistinguishably). The patch is published in this repository, which satisfies
   the LGPL's source-availability requirement for the modified library. Because the repository is AGPL-3.0,
   the combination is licence-compatible (see ADR 0008). **The patch must be regenerated (`pnpm patch`) on
   every lib-fints upgrade**; the version in the patch file name pins it.
@@ -58,7 +58,7 @@ FinTS 3.0 PIN/TAN to DKB and Comdirect. Two properties of the library shape the 
 - Horizontal scaling is not supported for FinTS (a second instance cannot resume the first one's dialog).
 - A bank endpoint migration needs a catalog update before syncs work again, as the announced BPD URL is
   ignored.
-- Fetches treat a rejected dialog init (`initFailed`) and answer codes 9930-9942 and 3938 as
+- Fetches treat an incomplete dialog init (`initFailed`: rejected or TAN demanded) and answer codes 9930-9942 and 3938 as
   `needs_attention`, so scheduled runs stop instead of repeating a request that may lock the access.
 - A required TAN medium is selected after the SCA sync (the single active medium; with several, the first:
   the user cannot choose yet) and its name is kept in the connector state.

@@ -131,9 +131,10 @@ Connection config (encrypted): `{bank, userId, pin, tanMethodId?}`. State: `{ban
   reference keeps the pending one. Wrong PIN or locked access (answer codes 9910, 9931, 9942, 3938) is `declined`;
   a rejected TAN allows up to 3 attempts; any other failure is a generic `fints_failed` (502). Bank text never reaches
   errors; only the sanitised TAN challenge message does.
-- **Transient errors keep the challenge:** a network, 5xx or decode failure while answering a challenge puts the live
+- **Transient errors keep the challenge:** a network, 5xx or decode failure of the TAN continuation call puts the live
   bank session back under the same handle, so a retry (after the 503) continues the same dialog. Terminal outcomes
-  (declined, too many attempts, bank logic failure, corrupt config) end it.
+  (declined, too many attempts, bank logic failure, corrupt config) end it, and so does any failure after the bank
+  accepted the TAN (probe, TAN medium): its reference is used up, the user reconnects.
 - **Statement support:** `listAccounts` skips accounts for which the bank offers no statements (account HKKAZ/HKCAZ or
   card HKKKU/DKKKU); depots stay listed. A credit card without card statements but with account statements is fetched
   via the account path. A fetch on an account without support is an empty success.

@@ -570,6 +570,22 @@ describe('FinTS authentication: transient errors keep the dialog', () => {
     finished(await connector.continueAuth(rt(first.dialog), { kind: 'decoupled' }, ctx));
   });
 
+  it('a failure after the bank accepted the TAN ends the dialog (no restore)', async () => {
+    const { connector, dialogs } = setup({
+      syncRequiresTan: 'decoupled',
+      accounts: [CHECKING],
+      statementsFailWith: 'network',
+    });
+    const first = pending(await connector.startAuth(rt(config), ctx));
+    await expect(
+      connector.continueAuth(rt(first.dialog), { kind: 'decoupled' }, ctx),
+    ).rejects.toThrow('fints_failed');
+    expect(JSON.stringify(dialogs)).toContain('"size":0');
+    await expect(
+      connector.continueAuth(rt(first.dialog), { kind: 'decoupled' }, ctx),
+    ).rejects.toMatchObject({ name: 'ConnectorAuthError', reason: 'timeout' });
+  });
+
   it('a terminal outcome still ends the dialog', async () => {
     const { connector } = setup({
       tanMethods: [pushTan],

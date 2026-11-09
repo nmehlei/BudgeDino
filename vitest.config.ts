@@ -41,6 +41,7 @@ export default defineConfig({
         resolve: { alias },
         test: {
           name: 'integration',
+          maxWorkers: 3,
           include: ['tests/**/*.int.test.ts', 'src/**/*.int.test.ts'],
         },
       },
