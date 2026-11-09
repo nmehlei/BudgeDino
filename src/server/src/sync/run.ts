@@ -39,6 +39,8 @@ export interface SyncDeps {
   now: () => Date;
   /** Called once per run, after commit, with every inserted and updated transaction id (categorizer hook). */
   onIngested: (householdId: string, txIds: string[]) => Promise<void>;
+  /** Test/metrics hook: fired when a run takes or gives back its connector lock connection. */
+  onLockHeld?: (event: 'acquired' | 'released') => void;
 }
 
 export interface RunSyncOptions {
@@ -99,9 +101,7 @@ export async function runSync(
   const { db, logger } = deps;
   const runId = options.runId ?? (await createSyncRun(db, connectorId, trigger, deps.now()));
   const ingested: string[] = [];
-  const lockClient = await db.$client.connect();
-  try {
-    await lockClient.query('select pg_advisory_lock(hashtextextended($1, 0))', [connectorId]);
+  return withConnectorLock(deps, connectorId, async () => {
     try {
       const result = await executeRun(deps, connectorId, trigger, runId, options, ingested);
       await callHook(deps, result.householdId, result.fetched ? ingested : null, connectorId);
@@ -119,11 +119,81 @@ export async function runSync(
         if (row) await callHook(deps, row.householdId, ingested, connectorId);
       }
       return { runId, outcome: 'error' };
+    }
+  });
+}
+
+/** Counting semaphore: callers beyond the limit wait without holding any resource. */
+class Semaphore {
+  private active = 0;
+  private readonly waiters: (() => void)[] = [];
+  constructor(public limit: number) {}
+  async acquire(): Promise<void> {
+    if (this.active < this.limit) {
+      this.active += 1;
+      return;
+    }
+    await new Promise<void>((resolve) => this.waiters.push(resolve));
+  }
+  release(): void {
+    const next = this.waiters.shift();
+    if (next)
+      next(); // hand the slot over
+    else this.active -= 1;
+  }
+}
+
+export const DEFAULT_MAX_CONCURRENT_SYNCS = 2;
+const syncSlots = new Semaphore(DEFAULT_MAX_CONCURRENT_SYNCS);
+
+/**
+ * Process-wide cap on concurrent sync runs. Each run holds one pool connection for its advisory lock and
+ * needs another for its queries, so the cap must stay well below the pool size.
+ */
+export function setMaxConcurrentSyncs(limit: number): void {
+  if (!Number.isInteger(limit) || limit < 1) throw new RangeError('limit must be an integer >= 1');
+  syncSlots.limit = limit;
+}
+
+/**
+ * Runs `fn` while holding the session-level advisory lock of the connector on a dedicated connection.
+ * Waits for a concurrency slot before taking any connection. If the lock cannot be taken or released
+ * cleanly, the connection is destroyed instead of returned to the pool, so a possibly still locked
+ * session is never reused.
+ */
+export async function withConnectorLock<T>(
+  deps: Pick<SyncDeps, 'db' | 'logger' | 'onLockHeld'>,
+  connectorId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  await syncSlots.acquire();
+  try {
+    const client = await deps.db.$client.connect();
+    let destroy = false;
+    try {
+      try {
+        await client.query('select pg_advisory_lock(hashtextextended($1, 0))', [connectorId]);
+      } catch (err) {
+        destroy = true;
+        throw err;
+      }
+      deps.onLockHeld?.('acquired');
+      try {
+        return await fn();
+      } finally {
+        try {
+          await client.query('select pg_advisory_unlock(hashtextextended($1, 0))', [connectorId]);
+        } catch (err) {
+          destroy = true;
+          deps.logger.error({ connectorId, error: safeErrorInfo(err) }, 'advisory unlock failed');
+        }
+        deps.onLockHeld?.('released');
+      }
     } finally {
-      await lockClient.query('select pg_advisory_unlock(hashtextextended($1, 0))', [connectorId]);
+      client.release(destroy);
     }
   } finally {
-    lockClient.release();
+    syncSlots.release();
   }
 }
 

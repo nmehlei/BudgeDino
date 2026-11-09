@@ -112,6 +112,9 @@ Code: `src/server/src/sync/` (`run.ts`, `ingest.ts`, `rate-guard.ts`, `scheduler
   ingest of each account is its own short transaction. The bank reference of each account is stored encrypted
   (`accounts.external_ref_enc`, written at account creation), so a run never calls `listAccounts` (account
   discovery happens after auth).
+- **Concurrency:** at most 2 sync runs per process at once (`setMaxConcurrentSyncs`); further runs wait for a
+  slot before taking any DB connection. The pool fails connection waits after 10 s. A lock connection whose
+  unlock fails is destroyed, never returned to the pool.
 - **Error streak:** 3 consecutive `error` runs set the connector to `error` (the scheduler skips it) and notify
   the owner once; a successful user run restores `ok`.
 - **User syncs:** a request while a run of that connector is queued or active (no outcome, started < 15 min ago)

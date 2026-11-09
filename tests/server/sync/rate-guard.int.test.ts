@@ -232,3 +232,35 @@ describe('durable state, account refs, error streak', () => {
     expect(c?.status).toBe('ok');
   });
 });
+
+describe('concurrency cap', () => {
+  it('runs more concurrent syncs (different connectors) than the cap without exceeding it', async () => {
+    const connectorIds: string[] = [];
+    for (let i = 0; i < 8; i++) {
+      const { connectorId } = await seedFakeConnector(database.db, keyring, householdId, ownerId, {
+        accountRef: `ref-${i}`,
+      });
+      connectorIds.push(connectorId);
+    }
+    let held = 0;
+    let peak = 0;
+    const d: SyncDeps = {
+      ...deps(),
+      onLockHeld: (event) => {
+        held += event === 'acquired' ? 1 : -1;
+        peak = Math.max(peak, held);
+      },
+    };
+    const fake = registry.get('fake');
+    const spy = vi.spyOn(fake, 'fetchTransactions').mockImplementation(async (state) => {
+      await new Promise((r) => setTimeout(r, 50));
+      return { ok: true, transactions: [], state };
+    });
+    const results = await Promise.all(connectorIds.map((id) => runSync(d, id, 'user')));
+    spy.mockRestore();
+    expect(results.map((r) => r.outcome)).toEqual(connectorIds.map(() => 'ok'));
+    expect(peak).toBeGreaterThanOrEqual(1);
+    expect(peak).toBeLessThanOrEqual(2);
+    expect(held).toBe(0);
+  });
+});
