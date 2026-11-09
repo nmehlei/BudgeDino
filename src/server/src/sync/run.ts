@@ -55,6 +55,11 @@ export interface RunSyncResult {
   outcome: SyncOutcome;
 }
 
+/** Generation of the connector row a run loaded; the guard for every connector write of that run. */
+interface RunGeneration {
+  value: number;
+}
+
 /** Stable, value-free codes stored in `connectors.last_error_code` / `sync_runs.error_code`. */
 const ERROR_CODES = {
   needs_attention: 'needs_attention',
@@ -101,17 +106,9 @@ export async function runSync(
   const { db, logger } = deps;
   const runId = options.runId ?? (await createSyncRun(db, connectorId, trigger, deps.now()));
   const ingested: string[] = [];
-  return withConnectorLock(deps, connectorId, async () => {
-    // Authentication does not take this lock; the generation read here guards every write of this run.
-    const [current] = await db
-      .select({ generation: connectors.stateGeneration })
-      .from(connectors)
-      .where(eq(connectors.id, connectorId));
-    const generation = current?.generation ?? -1;
-    await db
-      .update(syncRuns)
-      .set({ connectorGeneration: generation })
-      .where(eq(syncRuns.id, runId));
+  const generation: RunGeneration = { value: -1 };
+  let superseded = false;
+  const result = await withConnectorLock<RunSyncResult>(deps, connectorId, async () => {
     try {
       const result = await executeRun(
         deps,
@@ -122,13 +119,14 @@ export async function runSync(
         ingested,
         generation,
       );
+      superseded = result.superseded;
       await callHook(deps, result.householdId, result.fetched ? ingested : null, connectorId);
       return { runId, outcome: result.outcome };
     } catch (err) {
       const code =
         err instanceof UnknownConnectorError ? ERROR_CODES.unknown_connector : ERROR_CODES.failed;
       logger.error({ connectorId, runId, error: safeErrorInfo(err) }, 'sync failed');
-      await recordError(deps, connectorId, runId, code, generation);
+      await recordError(deps, connectorId, runId, code, generation.value);
       if (ingested.length > 0) {
         const [row] = await db
           .select({ householdId: connectors.householdId })
@@ -139,7 +137,20 @@ export async function runSync(
       return { runId, outcome: 'error' };
     }
   });
+  // A run superseded by a re-authentication that a post-connect sync had coalesced onto: nothing used the new
+  // auth yet, so one fresh user-present run follows (after the lock is released; the throttle does not apply).
+  if (superseded) {
+    const [flag] = await db
+      .select({ followUp: syncRuns.followUp })
+      .from(syncRuns)
+      .where(eq(syncRuns.id, runId));
+    if (flag?.followUp) await runSync(deps, connectorId, 'user', pickPsuIp(options));
+  }
+  return result;
 }
+
+const pickPsuIp = (options: RunSyncOptions): RunSyncOptions =>
+  options.psuIp === undefined ? {} : { psuIp: options.psuIp };
 
 /** Counting semaphore: callers beyond the limit wait without holding any resource. */
 class Semaphore {
@@ -291,6 +302,8 @@ interface RunDone {
   householdId: string;
   /** True when at least one fetch succeeded (the ingest hook is then called). */
   fetched: boolean;
+  /** A re-authentication replaced the connector state while the run was in flight; the run wrote nothing. */
+  superseded: boolean;
 }
 
 async function executeRun(
@@ -300,22 +313,29 @@ async function executeRun(
   runId: string,
   options: RunSyncOptions,
   ingested: string[],
-  generation: number,
+  generation: RunGeneration,
 ): Promise<RunDone> {
   const { db } = deps;
   const now = deps.now();
   const [connector] = await db.select().from(connectors).where(eq(connectors.id, connectorId));
   if (!connector) throw new Error('Connector not found');
+  // One row read gives both the state this run works on and the generation that guards its writes.
+  generation.value = connector.stateGeneration;
+  await db
+    .update(syncRuns)
+    .set({ connectorGeneration: connector.stateGeneration })
+    .where(eq(syncRuns.id, runId));
   const finish = async (
     outcome: SyncOutcome,
     fetched: boolean,
     errorCode?: string,
+    wasSuperseded = false,
   ): Promise<RunDone> => {
     await db
       .update(syncRuns)
       .set({ outcome, errorCode: errorCode ?? null, finishedAt: deps.now() })
       .where(eq(syncRuns.id, runId));
-    return { outcome, householdId: connector.householdId, fetched };
+    return { outcome, householdId: connector.householdId, fetched, superseded: wasSuperseded };
   };
 
   // Scheduled runs only touch healthy connectors; a user may retry one that needs attention or errored.
@@ -347,7 +367,10 @@ async function executeRun(
   let state = decryptConnectorState(dk, connectorId, connector.stateEnc);
   // Committed immediately (own statement): a later failure in this run must not lose rotated state.
   // A (re)authentication bumps `state_generation`; this run then must not overwrite its newer state or status.
-  const unchanged = and(eq(connectors.id, connectorId), eq(connectors.stateGeneration, generation));
+  const unchanged = and(
+    eq(connectors.id, connectorId),
+    eq(connectors.stateGeneration, generation.value),
+  );
   let superseded = false;
   const persistState = async (next: ConnectorState | undefined) => {
     if (next === undefined) return;
@@ -404,12 +427,14 @@ async function executeRun(
     });
   }
 
-  if (superseded) return finish('skipped', ingested.length > 0);
+  if (superseded) return finish('skipped', ingested.length > 0, undefined, true);
   if (failure === null) {
-    await db
+    const marked = await db
       .update(connectors)
       .set({ status: 'ok', lastSuccessAt: now, lastErrorCode: null })
-      .where(unchanged);
+      .where(unchanged)
+      .returning({ id: connectors.id });
+    if (marked.length === 0) return finish('skipped', true, undefined, true);
     return finish('ok', true);
   }
 
@@ -419,12 +444,24 @@ async function executeRun(
       : failure.reason === 'rate_limited'
         ? (['bank_rate_limited', ERROR_CODES.bank_rate_limited] as const)
         : (['temporary', ERROR_CODES.temporary] as const);
-  await db.update(connectors).set({ lastErrorCode: errorCode }).where(unchanged);
+  const marked = await db
+    .update(connectors)
+    .set({ lastErrorCode: errorCode })
+    .where(unchanged)
+    .returning({ id: connectors.id });
+  if (marked.length === 0) return finish('skipped', ingested.length > 0, undefined, true);
   if (outcome === 'needs_attention' && connector.status !== 'needs_attention') {
-    await db.transaction(async (tx) => {
-      await tx.update(connectors).set({ status: 'needs_attention' }).where(unchanged);
+    const flipped = await db.transaction(async (tx) => {
+      const rows = await tx
+        .update(connectors)
+        .set({ status: 'needs_attention' })
+        .where(unchanged)
+        .returning({ id: connectors.id });
+      if (rows.length === 0) return false;
       await notifyAttention(tx, dk, connector, `${connector.type} needs your attention`);
+      return true;
     });
+    if (!flipped) return finish('skipped', ingested.length > 0, undefined, true);
   }
   return finish(outcome, ingested.length > 0, errorCode);
 }

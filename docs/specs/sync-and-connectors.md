@@ -131,6 +131,11 @@ Code: `src/server/src/connectors/{routes.ts,challenge-service.ts}`; schemas in `
   started with (`sync_runs.connector_generation`) and only writes state, status, `last_error_code` or the error-streak
   `error` flip while that generation is current (a superseded run logs, writes nothing, notifies nobody and ends
   `skipped`, or `error` when it crashed). A reconnect resets the error streak: only runs of the current generation count.
+  The generation comes from the same row read as the state the run works on. A guarded write that matches no row (also
+  the `needs_attention` flip and its notification, and the success update) ends the run `skipped`, never notifies. If a
+  post-connect sync request had coalesced onto a run that ends superseded (`sync_runs.follow_up`), one fresh user-present
+  run follows immediately after it (the 2-minute throttle does not apply to that follow-up), so the new authentication is
+  used right away.
 - **At most one open challenge per connector;** a new reconnect cancels the previous one (`cancelAuth`).
 - **On `done`:** state stored encrypted, connector `ok`, `consent_expires_at` set, accounts discovered with `listAccounts`
   (new refs matched by blind index get visibility `household`, counts toward budgets), then a user-present sync is started

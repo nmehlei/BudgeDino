@@ -16,7 +16,11 @@ export interface SyncService {
    * (user or scheduled) is already queued or active, that run's id is returned instead (coalescing).
    * Throws a 429 HttpError with Retry-After when the previous user run started less than 2 minutes ago.
    */
-  startUserRun(connectorId: string, psuIp: string | undefined): Promise<string>;
+  startUserRun(
+    connectorId: string,
+    psuIp: string | undefined,
+    options?: { followUpIfSuperseded?: boolean },
+  ): Promise<string>;
   /** Resolves when every run started through this service has finished. */
   idle(): Promise<void>;
 }
@@ -25,7 +29,10 @@ export function createSyncService(deps: SyncDeps): SyncService {
   const inFlight = new Set<Promise<unknown>>();
 
   /** Coalesce / throttle / insert, serialised per connector so concurrent requests cannot both pass. */
-  async function reserveRun(connectorId: string): Promise<{ runId: string; started: boolean }> {
+  async function reserveRun(
+    connectorId: string,
+    followUp: boolean,
+  ): Promise<{ runId: string; started: boolean }> {
     return deps.db.transaction(async (tx) => {
       await tx.execute(
         sql`select pg_advisory_xact_lock(hashtextextended(${`user-sync:${connectorId}`}, 0))`,
@@ -43,7 +50,12 @@ export function createSyncService(deps: SyncDeps): SyncService {
         )
         .orderBy(desc(syncRuns.startedAt))
         .limit(1);
-      if (active) return { runId: active.id, started: false };
+      if (active) {
+        // A post-connect request riding on an older run: if re-authentication supersedes that run, run again.
+        if (followUp)
+          await tx.update(syncRuns).set({ followUp: true }).where(eq(syncRuns.id, active.id));
+        return { runId: active.id, started: false };
+      }
       const [lastUser] = await tx
         .select({ startedAt: syncRuns.startedAt })
         .from(syncRuns)
@@ -66,8 +78,11 @@ export function createSyncService(deps: SyncDeps): SyncService {
   }
 
   return {
-    async startUserRun(connectorId, psuIp) {
-      const { runId, started } = await reserveRun(connectorId);
+    async startUserRun(connectorId, psuIp, options = {}) {
+      const { runId, started } = await reserveRun(
+        connectorId,
+        options.followUpIfSuperseded === true,
+      );
       if (!started) return runId;
       const p = runSync(deps, connectorId, 'user', {
         runId,

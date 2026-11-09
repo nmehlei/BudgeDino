@@ -319,7 +319,7 @@ export function createChallengeService(
       );
     }
     try {
-      await deps.sync.startUserRun(connector.id, psuIp);
+      await deps.sync.startUserRun(connector.id, psuIp, { followUpIfSuperseded: true });
     } catch (err) {
       if (err instanceof HttpError && err.statusCode === 429) return; // throttled: a recent run exists
       logger.error(

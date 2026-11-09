@@ -509,12 +509,31 @@ describe('serialised with sync', () => {
     expect(reconnect.status).toBe(200);
     release();
     await app.ctx.sync.idle();
-    const { row, state } = await stateOf(connectorId);
+    const { row } = await stateOf(connectorId);
     expect(row.status).toBe('ok');
     expect(row.stateGeneration).toBe(2);
-    expect(state['fetchCount']).toBe(0); // the sync's rotated state (fetchCount 1) did not win
-    const [run] = await database.db.select().from(syncRuns);
-    expect(run?.outcome).toBe('skipped'); // superseded: wrote neither state nor status
+    // superseded: wrote neither state nor status; the post-connect request that had coalesced onto it
+    // gets a fresh run with the new authentication
+    const runs = await database.db.select().from(syncRuns).orderBy(syncRuns.startedAt, syncRuns.id);
+    expect(runs.map((r) => r.outcome)).toEqual(['skipped', 'ok']);
+    expect(runs.map((r) => r.connectorGeneration)).toEqual([1, 2]);
+    expect(runs[1]?.trigger).toBe('user');
+  });
+
+  it('a superseded run that hit needs_attention does not notify; the follow-up run decides', async () => {
+    let release!: () => void;
+    fetchGate = new Promise<void>((r) => (release = r));
+    const res = await connect(bToken, { scenario: 'expired-consent' }, 'spy');
+    await vi.waitFor(async () => {
+      expect(await database.db.select().from(syncRuns)).toHaveLength(1);
+    });
+    await call('POST', `/connectors/${res.json.connectorId}/reconnect`, bToken);
+    release();
+    await app.ctx.sync.idle();
+    const runs = await database.db.select().from(syncRuns).orderBy(syncRuns.startedAt, syncRuns.id);
+    expect(runs.map((r) => r.outcome)).toEqual(['skipped', 'needs_attention']);
+    // only the follow-up (current generation) notified, not the superseded run
+    expect(await database.db.select().from(notifications)).toHaveLength(1);
   });
 
   it('a superseded run that errors neither sets status error nor notifies', async () => {
