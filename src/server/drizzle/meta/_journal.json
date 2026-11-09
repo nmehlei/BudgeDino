@@ -8,6 +8,13 @@
       "when": 1794184510866,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1794186033666,
+      "tag": "0001_members_totp_last_step",
+      "breakpoints": true
     }
   ]
 }

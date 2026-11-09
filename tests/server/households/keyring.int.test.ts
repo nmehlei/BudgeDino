@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { householdKeys } from '@budgedino/server/db/schema';
+import { masterBlindIndex } from '@budgedino/server/crypto';
+import { householdKeys, members } from '@budgedino/server/db/schema';
 import { Keyring } from '@budgedino/server/households/keyring';
 import { createAccount, getAccount } from '@budgedino/server/repositories/accounts';
 import {
@@ -102,6 +103,28 @@ describe('Keyring', () => {
     // Cold keyring with the old master cannot unwrap any more.
     const stale = new Keyring(database.db, oldMaster);
     await expect(stale.forHousehold(householdIds[0] as string)).rejects.toThrow(/authentication/);
+  });
+
+  it('rotateMaster recomputes the master-derived members.email_bidx', async () => {
+    const oldMaster = randomMasterKey();
+    const newMaster = randomMasterKey();
+    const keyring = new Keyring(database.db, oldMaster);
+    const householdId = await createHousehold(database.db, keyring);
+    const memberId = await createTestMember(database.db, keyring, householdId, {
+      email: 'Rotate@Example.test',
+    });
+
+    const memberRow = async () =>
+      (await database.db.select().from(members)).find((m) => m.id === memberId);
+    const before = await memberRow();
+    expect(before?.emailBidx).toBe(masterBlindIndex(oldMaster, 'email', 'rotate@example.test'));
+
+    await keyring.rotateMaster(oldMaster, newMaster);
+
+    const after = await memberRow();
+    expect(after?.emailBidx).toBe(masterBlindIndex(newMaster, 'email', 'rotate@example.test'));
+    expect(after?.emailBidx).not.toBe(before?.emailBidx);
+    expect(keyring.blindIndex('email', 'rotate@example.test')).toBe(after?.emailBidx);
   });
 
   it('rotateMaster is atomic: a failure leaves all keys under the old master', async () => {

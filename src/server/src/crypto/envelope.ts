@@ -117,3 +117,15 @@ export function blindIndex(dk: DataKey, purpose: string, value: string): string 
     .update(value, 'utf8')
     .digest('hex');
 }
+
+/**
+ * Server-wide blind index: HMAC-SHA256 (hex) under an HKDF subkey of the MASTER key (info
+ * `idx:<purpose>`). Used where a lookup must work before the household is known (login by email).
+ * Changes whenever the master key rotates, so rotation must recompute every stored value.
+ */
+export function masterBlindIndex(master: MasterKey, purpose: string, value: string): string {
+  const key = Buffer.from(
+    hkdfSync('sha256', masterKeyBytes(master), Buffer.alloc(0), `idx:${purpose}`, 32),
+  );
+  return createHmac('sha256', key).update(value, 'utf8').digest('hex');
+}

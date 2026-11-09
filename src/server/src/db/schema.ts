@@ -72,6 +72,8 @@ export const members = pgTable(
     displayNameEnc: bytea('display_name_enc').notNull(),
     passwordHash: text('password_hash').notNull(),
     totpSecretEnc: bytea('totp_secret_enc'),
+    /** Last consumed TOTP time step (epoch/30); a code is accepted only for a later step (replay guard). */
+    totpLastStep: integer('totp_last_step'),
     createdAt: createdAt(),
     disabledAt: ts('disabled_at'),
   },

@@ -65,7 +65,8 @@ The version byte is itself authenticated: every AAD starts with it (`AAD = 0x01 
 input, and the decoded length must be 32 bytes. Anything else is rejected.
 
 **Blind index.** `HMAC-SHA256(subkey "idx:<purpose>", value)` as lowercase hex; deterministic per data
-key and purpose, used for dedup keys and exact-match lookups only.
+key and purpose, used for dedup keys and exact-match lookups only. The one exception is the login email
+index, which uses a master-key subkey instead (see "Authentication and sessions").
 
 **Opacity.** `MasterKey` and `DataKey` keep their bytes in module-private storage; JSON, `util.inspect`
 and string conversion never reveal them. `MasterKeyError` messages never contain key material.
@@ -120,3 +121,56 @@ collector. `startTelemetry` returns `{ enabled, shutdown() }`.
 are discarded and never logged; outside a span the keys are absent. The IBAN pattern is deliberately
 case-insensitive (a lowercase IBAN is still an IBAN; leaking one is worse than mangling a lowercase
 hex id).
+
+## Authentication and sessions
+
+Implemented in `src/server/src/auth`; routes under `/api/v1` (zod schemas in `src/shared/src/api`).
+
+**Login lookup (server-wide email index).** `members.email_bidx` = HMAC-SHA256 under an HKDF-SHA256
+subkey of the **master key** (info `idx:email`, empty salt) over the trimmed, lower-cased email
+(`masterBlindIndex`). It is globally unique, so login finds the member before the household is known.
+`email_enc` stays encrypted under the household data key. Because the index depends on the master key,
+`Keyring.rotateMaster` recomputes `email_bidx` for every member (decrypting the email with the household
+key) in the same transaction as the key re-wrap. Dump-only attackers without the master key cannot
+test email guesses.
+
+**Passwords.** argon2id via `@node-rs/argon2` (19 MiB, 2 iterations, 1 lane = OWASP minimum). Minimum
+length 12 (enforced at registration), maximum 256.
+
+**TOTP is mandatory.** RFC 6238, SHA-1, 6 digits, 30 s step, +-1 step window (otplib). Provisioning URI
+issuer `BudgeDino`. The secret is stored encrypted under the household key. `members.totp_last_step`
+holds the last consumed step; a code is accepted only for a strictly later step (atomic conditional
+`UPDATE`), so a code cannot be replayed, and the registration confirmation code counts as used. Practical
+consequence: after logging in you must wait for the next code to log in again.
+
+**Registration (two steps, invite-only).** `POST /auth/register` checks the invite (exists, unused,
+unexpired; before any argon2 work), the email and the password policy, then creates a *pending
+registration* (in memory, 15 min, unguessable id, max 5 wrong codes, behind the
+`PendingRegistrationStore` interface) holding the password hash and a fresh TOTP secret.
+`POST /auth/register/confirm` verifies the code, then in **one transaction** consumes the invite with a
+single conditional `UPDATE ... WHERE used_at IS NULL AND expires_at > now() RETURNING`, creates the
+member and a session. Two concurrent confirmations on one invite: exactly one succeeds, the other gets
+410 (tested). Invalid, expired, used and unknown invites all answer 410 with the same body. Pending
+registrations are lost on server restart (the invitee registers again; the invite is not consumed).
+
+**Invites.** 32 random bytes base64url, only the SHA-256 is stored, 7 days, single use, role `admin` or
+`member`. Created by the CLI (`bootstrap`, `invite`) or by an admin via `POST /households/invites`.
+
+**Sessions.** Token = 32 random bytes base64url sent as `Authorization: Bearer <token>`; only its SHA-256
+is stored. One session per device login (device name stored encrypted); listed and revoked per device
+(`GET /auth/sessions`, `DELETE /auth/sessions/:id`, own sessions only). Revoked sessions and sessions of
+disabled members are rejected with the generic 401. `last_seen_at` is updated at most once per minute.
+There is no idle/absolute expiry in P1 (revocation is the control). Every route declares
+`config.access` (`public` | `member` | `admin`); `requireMember`/`requireAdmin` guard the others.
+
+**No user enumeration.** Unknown email, wrong password, missing/wrong/replayed TOTP code and disabled
+member all return the identical `401 {"error":"invalid_credentials"}` body; an argon2 verification
+against a dummy hash runs for unknown emails. Registration does reveal "email already used", but only
+to holders of a valid invite. Error responses are built from fixed strings and never echo request
+bodies, parser messages or headers.
+
+**Rate limiting.** Failed logins: 5 per email per 15 min and 20 per client IP per 15 min, then
+`429` with `Retry-After` (the 6th attempt is refused even with correct credentials; a successful login
+clears the email counter). The counters are in memory (fixed window, bounded key count) behind the
+`RateLimiter` interface; this is correct for one server instance, so move it to Postgres before running
+several instances. Behind a reverse proxy set `trustProxy` so the IP key is the client IP.

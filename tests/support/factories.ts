@@ -27,10 +27,12 @@ export async function createTestMember(
   overrides: { email?: string; displayName?: string; role?: 'admin' | 'member' } = {},
 ) {
   counter += 1;
+  const email = overrides.email ?? `member${counter}@example.test`;
   return createMember(db, await keyring.forHousehold(householdId), {
     householdId,
     role: overrides.role ?? 'admin',
-    email: overrides.email ?? `member${counter}@example.test`,
+    email,
+    emailBidx: keyring.emailIndex(email),
     displayName: overrides.displayName ?? `Member ${counter}`,
     passwordHash: 'argon2id$test',
   });

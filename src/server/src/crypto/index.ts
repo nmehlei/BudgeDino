@@ -5,6 +5,7 @@ export {
   decryptString,
   encryptField,
   generateDataKey,
+  masterBlindIndex,
   unwrapDataKey,
   wrapDataKey,
   type DataKey,
