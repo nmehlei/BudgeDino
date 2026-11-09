@@ -87,3 +87,30 @@ because the row id is part of each field's AAD.
   that wrapped it. `Keyring.rotateMaster(old, new)` rewraps all rows in one transaction (all or nothing).
 - Test: `tests/server/db/at-rest.int.test.ts` seeds canary values and asserts a `pg_dump --data-only`
   of the database contains none of them.
+
+## Observability
+
+Implemented in `src/server/src/observability`.
+
+**Redaction (`redact.ts`).** `redact(value)` returns a deep copy in which every key matching
+`/amount|iban|counterparty|purpose|payee|password|pin|tan|token|secret|key|balance|email|authorization|cookie|credential/i`
+keeps its key but gets the value `"[redacted]"` (also for bigint), IBAN-looking substrings in any
+string become `"[iban]"`, Buffers/typed arrays become `"[binary]"`, cycles become `"[circular]"`.
+Errors keep `message` and `stack` (IBAN-masked). `trace_id`/`span_id` are never redacted. The key
+match is deliberately broad (over-redaction is preferred to leaking).
+
+**Logger (`logger.ts`).** `createLogger()` is a JSON pino logger. Every log call goes through
+`redact`: object fields and child bindings via `formatters`, the message and interpolation args via a
+`logMethod` hook. Lines carry `trace_id`/`span_id` of the active OpenTelemetry span. Request logs
+(`fastifyLoggerOptions(logger)` for Fastify) contain only method, URL, remote address and status:
+never bodies or headers (so no `authorization`/`cookie`), and sensitive query parameters are replaced
+by `redacted`.
+
+**Telemetry (`otel.ts`).** `startTelemetry(env)` is **off by default**: it does nothing unless
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set. When set, it exports traces, metrics and logs over OTLP/HTTP
+(`<endpoint>/v1/{traces,metrics,logs}`; headers via the standard `OTEL_EXPORTER_OTLP_HEADERS`) with
+service name `budgedino-server`. Only HTTP and `pg` instrumentation are enabled: spans carry method,
+route/URL (sensitive query params redacted), status and SQL text with placeholders only
+(`enhancedDatabaseReporting` is off, so query parameter values are never recorded); request/response
+bodies and headers are not captured. No data leaves the server unless the owner configures a
+collector. `startTelemetry` returns `{ enabled, shutdown() }`.
