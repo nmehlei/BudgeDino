@@ -251,6 +251,41 @@ describe('LibFintsPort statement parse failures (P2-R5)', () => {
     expect((e as FinTSPortError).category).toBe('decode');
   });
 
+  it('takes the balance from the last statement closing balance, no extra order', async () => {
+    const session = new LibFintsPort().openFromState(
+      params,
+      serialiseBankingInformation(info),
+      920,
+    );
+    stubStatements(session, {
+      ...okResponse,
+      statements: [
+        { transactions: [], closingBalance: { date: new Date(0), currency: 'EUR', value: 1 } },
+        { transactions: [], closingBalance: { date: new Date(0), currency: 'EUR', value: -7.25 } },
+      ],
+    });
+    await expect(session.getStatements(account)).resolves.toMatchObject({
+      balance: { value: -7.25, currency: 'EUR' },
+    });
+  });
+
+  it('takes the credit card balance from the statements response', async () => {
+    const session = new LibFintsPort().openFromState(
+      params,
+      serialiseBankingInformation(info),
+      920,
+    );
+    const client = (session as unknown as { client: Record<string, unknown> }).client;
+    client['getCreditCardStatements'] = () =>
+      Promise.resolve({
+        ...okResponse,
+        balance: { balance: -99.5, date: new Date(0), currency: 'EUR' },
+      });
+    await expect(session.getCreditCardStatements(account)).resolves.toMatchObject({
+      balance: { value: -99.5, currency: 'EUR' },
+    });
+  });
+
   it('still returns genuinely empty statements as success', async () => {
     const session = new LibFintsPort().openFromState(
       params,

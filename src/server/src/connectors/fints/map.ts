@@ -1,3 +1,4 @@
+import { Temporal } from 'temporal-polyfill';
 import { currencyExponent, money } from '@budgedino/shared';
 import type { AccountKind, ProviderAccount, ProviderTransaction } from '../types.js';
 import type { FinTSAccount, FinTSTanKind, FinTSTanMethod, FinTSTx } from './port.js';
@@ -15,12 +16,29 @@ export function toMinor(amount: number, currency: string): bigint {
   return negative ? -minor : minor;
 }
 
-/** lib-fints builds dates with local-time constructors, so read them with local getters. */
+const pad = (n: number, w = 2) => String(n).padStart(w, '0');
+
+/**
+ * Calendar date (YYYY-MM-DD) of a date produced by a lib-fints parser. Parsers differ:
+ * - MT940, HKKKU/DKKKU credit card: host-local midnight (`new Date(y, m, d)`);
+ * - CAMT date-only values: host-local noon (`new Date('YYYY-MM-DDT12:00:00')`, `new Date(y,m,d,12)`);
+ * - CAMT values with a time or UTC offset: a true instant, whose day is the bank's (Europe/Berlin).
+ * Local getters are right for the first two (host-independent); the instant form is told apart by
+ * not being local midnight or noon and is read in the bank's time zone.
+ */
 export function toIsoDate(d: Date): string {
-  const y = String(d.getFullYear()).padStart(4, '0');
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  const localTod =
+    d.getHours() * 3_600_000 +
+    d.getMinutes() * 60_000 +
+    d.getSeconds() * 1000 +
+    d.getMilliseconds();
+  if (localTod === 0 || localTod === 12 * 3_600_000) {
+    return `${pad(d.getFullYear(), 4)}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+  return Temporal.Instant.fromEpochMilliseconds(d.getTime())
+    .toZonedDateTimeISO('Europe/Berlin')
+    .toPlainDate()
+    .toString();
 }
 
 export function mapTx(tx: FinTSTx, currency: string): ProviderTransaction {

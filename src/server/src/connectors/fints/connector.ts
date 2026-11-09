@@ -12,16 +12,20 @@
  *  4. After sync, a 3-day statements probe on the first checking/credit-card account; if the bank
  *     wants a TAN for it, a second challenge is raised so the user's SCA covers account access
  *     (PSD2 90-day exemption for later unattended fetches).
- *  5. Done: state `{ bankingInformation, tanMethodId, systemId, credentials }`, consent expires in
- *     90 days. The connector interface hands only `state` to `listAccounts`/`fetchTransactions`
- *     (no config), so the credentials (bank, user id, PIN) travel in the state, which is stored
- *     encrypted like the config.
+ *  5. Done: state `{ bankingInformation, tanMethodId, systemId }`, consent expires in 90 days.
+ *     Credentials are never in the state; `listAccounts`/`fetchTransactions` get the decrypted
+ *     config as their last argument (controller ruling P2-R7).
  *
  * Fetching (unattended, never throws for bank-side problems, never leaves a dialog open):
  * - `from = since ?? today - 89 days`, clamped to the 89-day SCA-exempt window; `today` is the
  *   Europe/Berlin calendar date of `ctx.now()` (the bank's calendar).
  * - TAN demanded or PIN error -> `needs_attention`; any other port error -> `temporary`; a state
- *   that cannot be opened (corrupt BPD, missing credentials, unknown account) -> `needs_attention`.
+ *   that cannot be opened (corrupt BPD, missing/invalid config or state, unknown account) ->
+ *   `needs_attention`.
+ * - Exactly one bank order per fetch: the balance is the closing balance of the statement response
+ *   (no separate balance order that could trigger a TAN push; controller ruling P2-R8).
+ * - Dates sent to the bank are UTC-midnight Dates of the Berlin calendar date, because lib-fints
+ *   encodes dates with `toISOString()`.
  * - Parse failures (flagged by our lib-fints patch, surfaced as a port `decode` error) are
  *   `temporary`, never an empty success.
  *
@@ -51,7 +55,7 @@ import {
   type ConnectorState,
 } from '../types.js';
 import { FINTS_BANKS } from './banks.js';
-import { fintsConfigSchema } from './config.js';
+import { fintsConfigSchema, type FinTSConnectionConfig } from './config.js';
 import type { DialogMeta, FinTSDialogRegistry } from './dialogs.js';
 import { accountRef, mapAccount, mapTx, toMinor } from './map.js';
 import {
@@ -93,32 +97,24 @@ interface PersistedDialog {
   tanMethodId: number;
 }
 
-interface Credentials {
-  bank: keyof typeof FINTS_BANKS;
-  userId: string;
-  pin: string;
+interface StoredState {
+  bankingInformation: unknown;
+  tanMethodId: number;
 }
 
-type StoredState = { bankingInformation: unknown; tanMethodId: number; credentials: Credentials };
-
-/** Reads and validates what the done state carries; undefined when unusable. */
+/** Reads what the done state carries; undefined when unusable. */
 function readState(state: ConnectorState): StoredState | undefined {
-  const { bankingInformation, tanMethodId, credentials } = state;
-  if (typeof tanMethodId !== 'number' || bankingInformation === undefined) return undefined;
-  if (typeof credentials !== 'object' || credentials === null || Array.isArray(credentials))
-    return undefined;
-  const { bank, userId, pin } = credentials;
-  if (typeof bank !== 'string' || !Object.hasOwn(FINTS_BANKS, bank)) return undefined;
-  if (typeof userId !== 'string' || typeof pin !== 'string') return undefined;
-  return {
-    bankingInformation,
-    tanMethodId,
-    credentials: { bank: bank as Credentials['bank'], userId, pin },
-  };
+  const { bankingInformation, tanMethodId } = state;
+  if (typeof tanMethodId !== 'number' || typeof bankingInformation !== 'object') return undefined;
+  if (bankingInformation === null) return undefined;
+  return { bankingInformation, tanMethodId };
 }
 
-/** A JS Date at host-local midnight of a calendar date (lib-fints reads dates with local getters). */
-const localMidnight = (d: Temporal.PlainDate): Date => new Date(d.year, d.month - 1, d.day);
+/**
+ * The Date lib-fints must receive for a calendar date: its `Dat` element encodes with
+ * `toISOString()` (UTC), so UTC midnight, independent of the host time zone.
+ */
+const wireDate = (d: Temporal.PlainDate): Date => new Date(Date.UTC(d.year, d.month - 1, d.day));
 
 const bankDate = (instant: Date): Temporal.PlainDate =>
   Temporal.Instant.fromEpochMilliseconds(instant.getTime())
@@ -193,8 +189,6 @@ function readDialog(dialog: DialogState): PersistedDialog | undefined {
 
 export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
   const { port, dialogs, product } = deps;
-  /** Credentials of live auth sessions (in-process only), so the done state can carry them. */
-  const sessionCredentials = new WeakMap<FinTSSession, Credentials>();
 
   const toChallenge = (
     methodKind: FinTSTanKind,
@@ -262,15 +256,12 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
   const finish = (session: FinTSSession, tanMethodId: number, ctx: ConnectorContext): AuthStep => {
     const info = session.bankingInformation();
     const systemId = (info as { systemId?: unknown } | null)?.systemId;
-    const credentials = sessionCredentials.get(session);
-    if (!credentials) throw failed();
     return {
       done: true,
       state: {
         bankingInformation: info as Json,
         tanMethodId,
         systemId: typeof systemId === 'string' ? systemId : null,
-        credentials: { ...credentials },
       },
       consentExpiresAt: new Date(ctx.now().getTime() + CONSENT_MS),
     };
@@ -319,31 +310,20 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
     return probeOutcome(session, acc, await runProbe(session, acc, ctx), tanMethod, 0, ctx);
   };
 
-  const openStored = (stored: StoredState): FinTSSession => {
-    const bank = FINTS_BANKS[stored.credentials.bank];
+  const openStored = (stored: StoredState, cfg: FinTSConnectionConfig): FinTSSession => {
+    const bank = FINTS_BANKS[cfg.bank];
     return port.openFromState(
       {
         productId: product.id,
         productVersion: product.version,
         url: bank.url,
         blz: bank.blz,
-        userId: stored.credentials.userId,
-        pin: stored.credentials.pin,
+        userId: cfg.userId,
+        pin: cfg.pin,
       },
       stored.bankingInformation,
       stored.tanMethodId,
     );
-  };
-
-  /** Best effort: any failure (including a TAN demand) just means no balance this time. */
-  const fetchBalance = async (session: FinTSSession, acc: FinTSAccount) => {
-    try {
-      const b = await session.getBalance(acc);
-      if (!b.success || b.requiresTan || !b.balance) return undefined;
-      return money(toMinor(b.balance.value, b.balance.currency), b.balance.currency);
-    } catch {
-      return undefined;
-    }
   };
 
   return {
@@ -365,7 +345,6 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
         pin: cfg.pin,
       };
       const session = await guard(() => port.openFirstTime(params));
-      sessionCredentials.set(session, { bank: cfg.bank, userId: cfg.userId, pin: cfg.pin });
       const first = await guard(() => session.synchronize());
       checkPinErrors(first);
       if (!first.success || first.requiresTan) throw failed();
@@ -446,49 +425,54 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
       if (typeof handle === 'string') dialogs.drop(handle);
     },
 
-    async listAccounts(state): Promise<ProviderAccount[]> {
+    async listAccounts(state, _ctx, rawConfig): Promise<ProviderAccount[]> {
       const stored = readState(state);
-      if (!stored) throw failed();
-      return guard(() => openStored(stored).accounts().map(mapAccount));
+      const cfg = fintsConfigSchema.safeParse(rawConfig);
+      if (!stored || !cfg.success) throw failed();
+      return guard(() => openStored(stored, cfg.data).accounts().map(mapAccount));
     },
 
-    async fetchTransactions(state, ref, since, ctx): Promise<FetchResult> {
+    async fetchTransactions(state, ref, since, ctx, rawConfig): Promise<FetchResult> {
       const stored = readState(state);
-      if (!stored) return { ok: false, reason: 'needs_attention', state };
+      const cfg = fintsConfigSchema.safeParse(rawConfig);
+      if (!stored || !cfg.success) return { ok: false, reason: 'needs_attention' };
+      // Set when a response reported that the bank data (BPD/UPD) changed; returned on every path.
+      let fresh: ConnectorState | undefined;
       const fail = (reason: 'needs_attention' | 'temporary'): FetchResult => ({
         ok: false,
         reason,
-        state,
+        ...(fresh ? { state: fresh } : {}),
       });
       try {
-        const session = openStored(stored);
+        const session = openStored(stored, cfg.data);
         const acc = session.accounts().find((a) => accountRef(a) === ref);
         if (!acc) return fail('needs_attention');
-        if (acc.accountType === 'SecuritiesAccount') return { ok: true, transactions: [], state };
+        if (acc.accountType === 'SecuritiesAccount') return { ok: true, transactions: [] };
 
         const today = bankDate(ctx.now());
         const earliest = today.subtract({ days: MAX_LOOKBACK_DAYS });
         let from = since ? bankDate(since) : earliest;
         if (Temporal.PlainDate.compare(from, earliest) < 0) from = earliest;
         if (Temporal.PlainDate.compare(from, today) > 0) from = today;
-        const fromDate = localMidnight(from);
         const r =
           acc.accountType === 'CreditCardAccount'
-            ? await session.getCreditCardStatements(acc, fromDate)
-            : await session.getStatements(acc, fromDate, localMidnight(today));
+            ? await session.getCreditCardStatements(acc, wireDate(from))
+            : await session.getStatements(acc, wireDate(from), wireDate(today));
+        if (r.bankingInformationUpdated)
+          fresh = { ...state, bankingInformation: session.bankingInformation() as Json };
         if (r.bankAnswers.some((a) => PIN_ERROR_CODES.has(a.code))) return fail('needs_attention');
         // PSD2 SCA renewal: never an interactive dialog from here; the user renews via re-auth.
         if (r.requiresTan) return fail('needs_attention');
         if (!r.success) return fail('temporary');
 
         const currency = acc.currency ?? 'EUR';
-        const transactions = (r.transactions ?? []).map((t) => mapTx(t, currency));
-        const balance = await fetchBalance(session, acc);
-        const next: ConnectorState = r.bankingInformationUpdated
-          ? { ...state, bankingInformation: session.bankingInformation() as Json }
-          : state;
-        const out: FetchResult = { ok: true, transactions, state: next };
-        if (balance) out.balance = balance;
+        const out: FetchResult = {
+          ok: true,
+          transactions: (r.transactions ?? []).map((t) => mapTx(t, currency)),
+        };
+        if (r.balance)
+          out.balance = money(toMinor(r.balance.value, r.balance.currency), r.balance.currency);
+        if (fresh) out.state = fresh;
         return out;
       } catch (e) {
         if (e instanceof FinTSPortError)

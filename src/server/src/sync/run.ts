@@ -1,8 +1,13 @@
 import { and, desc, eq, isNull, max, notInArray, or } from 'drizzle-orm';
-import { encryptField, type DataKey } from '../crypto/index.js';
+import { decryptString, encryptField, type DataKey } from '../crypto/index.js';
 import type { ConnectorRegistry } from '../connectors/registry.js';
 import { UnknownConnectorError } from '../connectors/registry.js';
-import type { ConnectorContext, ConnectorState, FetchResult } from '../connectors/types.js';
+import type {
+  ConnectorConfig,
+  ConnectorContext,
+  ConnectorState,
+  FetchResult,
+} from '../connectors/types.js';
 import type { Db, DbOrTx } from '../db/client.js';
 import { newId } from '../db/ids.js';
 import {
@@ -372,6 +377,14 @@ async function executeRun(
   };
 
   let state = decryptConnectorState(dk, connectorId, connector.stateEnc);
+  // Decrypted once per run; credentials stay out of the connector state (controller ruling P2-R7).
+  const config = JSON.parse(
+    decryptString(dk, connector.configEnc, {
+      table: 'connectors',
+      column: 'config',
+      rowId: connectorId,
+    }),
+  ) as ConnectorConfig;
   // Committed immediately (own statement): a later failure in this run must not lose rotated state.
   // A (re)authentication bumps `state_generation`; this run then must not overwrite its newer state or status.
   const unchanged = and(
@@ -413,7 +426,7 @@ async function executeRun(
       continue;
     }
     const since = await syncCursor(db, row.id, today);
-    const result = await impl.fetchTransactions(state, ref, since, ctx);
+    const result = await impl.fetchTransactions(state, ref, since, ctx, config);
     await persistState(result.state);
     if (!result.ok) {
       failure = result;

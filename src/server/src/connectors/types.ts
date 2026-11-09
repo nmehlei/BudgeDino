@@ -69,7 +69,13 @@ export interface ProviderTransaction {
  * progress (e.g. a retry counter) even when the fetch itself failed.
  */
 export type FetchResult =
-  | { ok: true; transactions: ProviderTransaction[]; balance?: Money; state: ConnectorState }
+  | {
+      ok: true;
+      transactions: ProviderTransaction[];
+      balance?: Money;
+      /** Only when the connector's state actually changed (e.g. rotated tokens). */
+      state?: ConnectorState;
+    }
   | {
       ok: false;
       reason: 'needs_attention' | 'rate_limited' | 'temporary';
@@ -120,11 +126,20 @@ export interface Connector {
   ): Promise<AuthStep>;
   /** Optional: end a dialog early (user cancelled); must not throw. */
   cancelAuth?(dialog: DialogState, ctx: ConnectorContext): Promise<void>;
-  listAccounts(state: ConnectorState, ctx: ConnectorContext): Promise<ProviderAccount[]>;
+  /**
+   * `config` is the connector's decrypted config (credentials); connectors that keep everything in
+   * `state` ignore it. The server passes it on every call.
+   */
+  listAccounts(
+    state: ConnectorState,
+    ctx: ConnectorContext,
+    config?: ConnectorConfig,
+  ): Promise<ProviderAccount[]>;
   fetchTransactions(
     state: ConnectorState,
     accountRef: string,
     since: Date | null,
     ctx: ConnectorContext,
+    config?: ConnectorConfig,
   ): Promise<FetchResult>;
 }

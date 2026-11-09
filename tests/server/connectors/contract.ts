@@ -83,7 +83,7 @@ export function runConnectorContract(
     it('lists accounts including the scripted one', async () => {
       const c = make();
       const state = await authenticate(c, script.config, script.answer);
-      const accounts = await c.listAccounts(rt(state), makeCtx());
+      const accounts = await c.listAccounts(rt(state), makeCtx(), script.config);
       expect(accounts.map((a) => a.ref)).toContain(script.accountRef);
     });
 
@@ -91,7 +91,13 @@ export function runConnectorContract(
       const c = make();
       const state = await authenticate(c, script.config, script.answer);
       const ctx = makeCtx();
-      let first = await c.fetchTransactions(state, script.accountRef, script.since, ctx);
+      let first = await c.fetchTransactions(
+        state,
+        script.accountRef,
+        script.since,
+        ctx,
+        script.config,
+      );
       if (!first.ok) {
         // a transient failure is allowed once; retry with the state the connector handed back
         first = await c.fetchTransactions(
@@ -99,15 +105,17 @@ export function runConnectorContract(
           script.accountRef,
           script.since,
           ctx,
+          script.config,
         );
       }
       expect(first.ok).toBe(true);
       if (!first.ok) return;
       const second = await c.fetchTransactions(
-        rt(first.state),
+        rt(first.state ?? state),
         script.accountRef,
         script.since,
         ctx,
+        script.config,
       );
       expect(second.ok).toBe(true);
       if (!second.ok) return;
@@ -128,6 +136,7 @@ export function runConnectorContract(
         script.accountRef,
         script.since,
         makeCtx(undefined, false),
+        script.config,
       );
       if (!result.ok) expect(KNOWN_REASONS).toContain(result.reason);
     });
@@ -140,6 +149,7 @@ export function runConnectorContract(
         script.accountRef,
         script.since,
         makeCtx(),
+        script.config,
       );
       expect(result.ok).toBe(false);
       if (!result.ok) expect(KNOWN_REASONS).toContain(result.reason);

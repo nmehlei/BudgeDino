@@ -19,6 +19,7 @@ import type {
   ConnectorState,
   FetchResult,
 } from '@budgedino/server/connectors/types';
+import { TEST_ZONES, withTimeZone, wireIso } from '../../../support/fints/lib-fints-dist';
 import { ScriptedFinTSPort, type ScriptedScenario } from '../../../support/fints/scripted-port';
 
 const PIN = 'PIN-CANARY-7731';
@@ -69,10 +70,6 @@ const tx = (over: Partial<FinTSTx> = {}): FinTSTx => ({
 });
 
 const rt = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
-const localIso = (d: unknown): string => {
-  const x = d as Date;
-  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
-};
 
 async function setup(
   scenario: ScriptedScenario,
@@ -89,11 +86,14 @@ async function setup(
     delete scripted.scenario.statementsFailWith;
   }
   const dialogs = new FinTSDialogRegistry({ now: ctx.now });
-  const connector: Connector = createFinTSConnector({
-    port,
-    dialogs,
-    product: { id: 'PID', version: '1.0' },
-  });
+  const real = createFinTSConnector({ port, dialogs, product: { id: 'PID', version: '1.0' } });
+  // The server passes the decrypted config on every call; default to it here.
+  const connector: Connector = {
+    ...real,
+    listAccounts: (st, c, cfg = config) => real.listAccounts(st, c, cfg),
+    fetchTransactions: (st, ref, since, c, cfg = config) =>
+      real.fetchTransactions(st, ref, since, c, cfg),
+  };
   const auth = await connector.startAuth(rt(config), ctx);
   if (!auth.done) throw new Error('expected done');
   const state: ConnectorState = rt(auth.state);
@@ -138,8 +138,8 @@ describe('FinTS fetchTransactions', () => {
     const { connector, scripted, state } = await setup({ accounts: [CHECKING] });
     success(await connector.fetchTransactions(state, IBAN, null, ctx));
     const call = scripted?.callsOf('getStatements')[0];
-    expect(localIso(call?.args[1])).toBe('2026-08-12');
-    expect(localIso(call?.args[2])).toBe('2026-11-09');
+    expect(wireIso(call?.args[1])).toBe('2026-08-12');
+    expect(wireIso(call?.args[2])).toBe('2026-11-09');
   });
 
   it('uses the Europe/Berlin date, not the UTC or host date', async () => {
@@ -147,11 +147,11 @@ describe('FinTS fetchTransactions', () => {
     // 23:30 UTC on 9 Nov is already 10 Nov in Berlin (CET).
     await connector.fetchTransactions(state, IBAN, null, ctxAt(new Date('2026-11-09T23:30:00Z')));
     const call = scripted?.callsOf('getStatements')[0];
-    expect(localIso(call?.args[2])).toBe('2026-11-10');
-    expect(localIso(call?.args[1])).toBe('2026-08-13');
+    expect(wireIso(call?.args[2])).toBe('2026-11-10');
+    expect(wireIso(call?.args[1])).toBe('2026-08-13');
     // 22:30 UTC on 30 Mar is 00:30 on 31 Mar in Berlin (CEST).
     await connector.fetchTransactions(state, IBAN, null, ctxAt(new Date('2026-03-30T22:30:00Z')));
-    expect(localIso(scripted?.callsOf('getStatements')[1]?.args[2])).toBe('2026-03-31');
+    expect(wireIso(scripted?.callsOf('getStatements')[1]?.args[2])).toBe('2026-03-31');
   });
 
   it('honours since, but never reaches beyond 89 days', async () => {
@@ -159,8 +159,8 @@ describe('FinTS fetchTransactions', () => {
     await connector.fetchTransactions(state, IBAN, new Date('2026-10-01T00:00:00Z'), ctx);
     await connector.fetchTransactions(state, IBAN, new Date('2025-01-01T00:00:00Z'), ctx);
     const calls = scripted?.callsOf('getStatements') ?? [];
-    expect(localIso(calls[0]?.args[1])).toBe('2026-10-01');
-    expect(localIso(calls[1]?.args[1])).toBe('2026-08-12');
+    expect(wireIso(calls[0]?.args[1])).toBe('2026-10-01');
+    expect(wireIso(calls[1]?.args[1])).toBe('2026-08-12');
   });
 
   it('maps transactions and balance', async () => {
@@ -180,7 +180,7 @@ describe('FinTS fetchTransactions', () => {
     });
     expect(r.transactions[1]?.amount.minor).toBe(100010n);
     expect(r.balance).toEqual({ minor: 123456n, currency: 'EUR' });
-    expect(r.state).toEqual(state);
+    expect(r.state).toBeUndefined();
   });
 
   it('uses the credit card path for credit accounts', async () => {
@@ -192,7 +192,7 @@ describe('FinTS fetchTransactions', () => {
     const r = success(await connector.fetchTransactions(state, CARD_REF, null, ctx));
     expect(r.transactions.map((t) => t.amount.minor)).toEqual([-500n]);
     expect(scripted?.callsOf('getStatements')).toHaveLength(0);
-    expect(localIso(scripted?.callsOf('getCreditCardStatements')[0]?.args[1])).toBe('2026-08-12');
+    expect(wireIso(scripted?.callsOf('getCreditCardStatements')[0]?.args[1])).toBe('2026-08-12');
   });
 
   it('returns an empty ok result for depots without asking the bank for statements', async () => {
@@ -210,7 +210,7 @@ describe('FinTS fetchTransactions', () => {
     });
     const r = failure(await connector.fetchTransactions(state, IBAN, null, ctx));
     expect(r.reason).toBe('needs_attention');
-    expect(r.state).toEqual(state);
+    expect(r.state).toBeUndefined();
     expect(JSON.stringify(dialogs)).toContain('"size":0');
   });
 
@@ -229,19 +229,78 @@ describe('FinTS fetchTransactions', () => {
       const { connector, state } = await setup({ accounts: [CHECKING], statementsFailWith });
       const r = failure(await connector.fetchTransactions(state, IBAN, null, ctx));
       expect(r.reason).toBe('temporary');
-      expect(r.state).toEqual(state);
+      expect(r.state).toBeUndefined();
     }
   });
 
-  it('a balance failure never fails the fetch', async () => {
-    const { connector, state } = await setup({
-      accounts: [CHECKING],
-      transactions: [tx()],
-      balanceFails: true,
+  it('issues exactly one bank order per fetch and takes the balance from it', async () => {
+    for (const [account, ref] of [
+      [CHECKING, IBAN],
+      [CARD, CARD_REF],
+    ] as const) {
+      const { connector, scripted, state } = await setup({
+        accounts: [CHECKING, CARD],
+        balance: { value: -42.1, currency: 'EUR' },
+      });
+      const r = success(await connector.fetchTransactions(state, ref, null, ctx));
+      expect(account.accountType).toBeDefined();
+      expect(scripted?.calls.map((c) => c.method)).toEqual([
+        'openFromState',
+        account === CARD ? 'getCreditCardStatements' : 'getStatements',
+      ]);
+      expect(r.balance).toEqual({ minor: -4210n, currency: 'EUR' });
+    }
+  });
+
+  it('routes accounts sharing an account number (no IBAN) by sub-account', async () => {
+    const a: FinTSAccount = { ...DEPOT, accountType: 'CheckingAccount', subAccountId: '10' };
+    const b: FinTSAccount = { ...DEPOT, accountType: 'CreditCardAccount', subAccountId: '20' };
+    const { connector, scripted, state } = await setup({
+      accounts: [a, b],
+      transactions: [tx({ amount: -1 })],
+      creditCardTransactions: [tx({ amount: -2 })],
     });
-    const r = success(await connector.fetchTransactions(state, IBAN, null, ctx));
-    expect(r.transactions).toHaveLength(1);
-    expect(r.balance).toBeUndefined();
+    const listed = await connector.listAccounts(state, ctx);
+    expect(listed.map((x) => x.ref)).toEqual(['777:10:12030000', '777:20:12030000']);
+    const ra = success(await connector.fetchTransactions(state, '777:10:12030000', null, ctx));
+    const rb = success(await connector.fetchTransactions(state, '777:20:12030000', null, ctx));
+    expect(ra.transactions[0]?.amount.minor).toBe(-100n);
+    expect(rb.transactions[0]?.amount.minor).toBe(-200n);
+    expect((scripted?.callsOf('getStatements')[0]?.args[0] as FinTSAccount).subAccountId).toBe(
+      '10',
+    );
+    expect(
+      (scripted?.callsOf('getCreditCardStatements')[0]?.args[0] as FinTSAccount).subAccountId,
+    ).toBe('20');
+  });
+
+  it('sends UTC-midnight dates that encode to the Berlin calendar day, on any host zone', async () => {
+    for (const tz of TEST_ZONES) {
+      await withTimeZone(tz, async () => {
+        const { connector, scripted, state } = await setup({ accounts: [CHECKING, CARD] });
+        await connector.fetchTransactions(state, IBAN, null, ctx);
+        await connector.fetchTransactions(state, CARD_REF, null, ctx);
+        // 23:30 UTC on 9 Nov is already 10 Nov in Berlin.
+        await connector.fetchTransactions(
+          state,
+          IBAN,
+          null,
+          ctxAt(new Date('2026-11-09T23:30:00Z')),
+        );
+        const stmts = scripted?.callsOf('getStatements') ?? [];
+        expect([wireIso(stmts[0]?.args[1]), wireIso(stmts[0]?.args[2])], tz).toEqual([
+          '2026-08-12',
+          '2026-11-09',
+        ]);
+        expect(wireIso(scripted?.callsOf('getCreditCardStatements')[0]?.args[1]), tz).toBe(
+          '2026-08-12',
+        );
+        expect([wireIso(stmts[1]?.args[1]), wireIso(stmts[1]?.args[2])], tz).toEqual([
+          '2026-08-13',
+          '2026-11-10',
+        ]);
+      });
+    }
   });
 
   it('returns a refreshed bankingInformation in the state', async () => {
@@ -254,6 +313,18 @@ describe('FinTS fetchTransactions', () => {
     expect(r.state).toEqual({ ...state, bankingInformation: updated });
   });
 
+  it('returns refreshed bankingInformation on failure paths too', async () => {
+    const updated = { systemId: 'SYS-NEW', bpd: { url: 'https://fints.example.invalid/x' } };
+    const { connector, state } = await setup({
+      accounts: [CHECKING],
+      bankingInformationAfterStatements: updated,
+      statementsRequireTan: true,
+    });
+    const r = failure(await connector.fetchTransactions(state, IBAN, null, ctx));
+    expect(r.reason).toBe('needs_attention');
+    expect(r.state).toEqual({ ...state, bankingInformation: updated });
+  });
+
   it('an unknown account ref needs attention', async () => {
     const { connector, state } = await setup({ accounts: [CHECKING] });
     expect(failure(await connector.fetchTransactions(state, 'NOPE', null, ctx)).reason).toBe(
@@ -261,11 +332,16 @@ describe('FinTS fetchTransactions', () => {
     );
   });
 
-  it('a state without usable credentials needs attention', async () => {
-    const { connector } = await setup({ accounts: [CHECKING] });
-    expect(failure(await connector.fetchTransactions({}, 'x', null, ctx)).reason).toBe(
+  it('a missing or invalid config, or an unusable state, needs attention', async () => {
+    const { connector, state, scripted } = await setup({ accounts: [CHECKING] });
+    for (const cfg of [{}, { bank: 'dkb' }, { ...config, extra: 1 }]) {
+      const r = failure(await connector.fetchTransactions(state, IBAN, null, ctx, cfg));
+      expect(r.reason).toBe('needs_attention');
+    }
+    expect(failure(await connector.fetchTransactions({}, IBAN, null, ctx)).reason).toBe(
       'needs_attention',
     );
+    expect(scripted?.calls).toHaveLength(0);
   });
 
   describe('opening the stored session', () => {
@@ -290,7 +366,7 @@ describe('FinTS fetchTransactions', () => {
       const { connector, state } = await withFailure(new FinTSPortError('config'));
       const r = failure(await connector.fetchTransactions(state, IBAN, null, ctx));
       expect(r.reason).toBe('needs_attention');
-      expect(r.state).toEqual(state);
+      expect(r.state).toBeUndefined();
     });
 
     it('other port errors are temporary', async () => {

@@ -12,6 +12,7 @@ import { accountRef, classifyTanMethod } from './map.js';
 import {
   FinTSPortError,
   type FinTSAccount,
+  type FinTSBalance,
   type FinTSBankParams,
   type FinTSPort,
   type FinTSPortResponse,
@@ -119,6 +120,21 @@ function mapStatements(statements: readonly unknown[] | undefined): FinTSTx[] {
   return out;
 }
 
+/**
+ * Balance without a separate order: the credit card response's `balance`, else the closing
+ * balance (MT940 `:62F:` / CAMT CLBD) of the last statement of the window.
+ */
+function closingBalance(r: StatementResponse): FinTSBalance | undefined {
+  const card = (r as { balance?: { balance: number; currency: string } }).balance;
+  if (card) return { value: card.balance, currency: card.currency };
+  const last = [...(r.statements ?? [])]
+    .reverse()
+    .find((s) => (s as { closingBalance?: unknown }).closingBalance);
+  const b = (last as { closingBalance?: { value: number; currency: string } } | undefined)
+    ?.closingBalance;
+  return b ? { value: b.value, currency: b.currency } : undefined;
+}
+
 /** Maps any lib-fints/fetch failure to a sanitised {@link FinTSPortError}; never copies text from it. */
 function sanitise(e: unknown): FinTSPortError {
   if (e instanceof FinTSPortError) return e;
@@ -210,7 +226,13 @@ class LibFintsSession implements FinTSSession {
     // Our lib-fints patch flags an MT940/CAMT payload that failed to parse (the library would
     // otherwise report success with zero statements: silent data loss).
     if ((r as { parseFailed?: boolean }).parseFailed) throw new FinTSPortError('decode');
-    return { ...mapResponse(r), transactions: mapStatements(r.statements) };
+    const out: FinTSPortResponse & { transactions: FinTSTx[]; balance?: FinTSBalance } = {
+      ...mapResponse(r),
+      transactions: mapStatements(r.statements),
+    };
+    const balance = closingBalance(r);
+    if (balance) out.balance = balance;
+    return out;
   }
 
   getStatements(acc: FinTSAccount, from?: Date, to?: Date) {

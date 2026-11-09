@@ -41,8 +41,6 @@ export interface ScriptedScenario {
   statementsFailWith?: 'wrong-pin' | 'server-error' | 'decode';
   /** Statement calls report `bankingInformationUpdated` and switch the snapshot to this value. */
   bankingInformationAfterStatements?: unknown;
-  /** `getBalance` throws a network error (statements are unaffected). */
-  balanceFails?: boolean;
   /** Snapshot returned by `bankingInformation()`; JSON only. */
   bankingInformation?: unknown;
 }
@@ -249,7 +247,18 @@ class ScriptedSession implements FinTSSession {
     return this.sc.accounts ?? [];
   }
 
+  private flagUpdate<T extends FinTSPortResponse>(r: T): T {
+    if (this.sc.bankingInformationAfterStatements === undefined) return r;
+    this.snapshotUpdated = true;
+    return { ...r, bankingInformationUpdated: true };
+  }
+
   private statementGate(): FinTSPortResponse | undefined {
+    const r = this.rawStatementGate();
+    return r ? this.flagUpdate(r) : undefined;
+  }
+
+  private rawStatementGate(): FinTSPortResponse | undefined {
     if (this.sc.statementsFailWith === 'wrong-pin')
       return { ...BASE, success: false, bankAnswers: [{ code: 9931, text: 'PIN falsch' }] };
     if (this.sc.statementsFailWith === 'server-error') throw new FinTSPortError('http', 500);
@@ -259,12 +268,15 @@ class ScriptedSession implements FinTSSession {
     return undefined;
   }
 
-  private statementsOk(
-    transactions: FinTSTx[] | undefined,
-  ): FinTSPortResponse & { transactions: FinTSTx[] } {
-    const updated = this.sc.bankingInformationAfterStatements !== undefined;
-    if (updated) this.snapshotUpdated = true;
-    return { ...BASE, bankingInformationUpdated: updated, transactions: transactions ?? [] };
+  private statementsOk(transactions: FinTSTx[] | undefined): FinTSPortResponse & {
+    transactions: FinTSTx[];
+    balance?: { value: number; currency: string };
+  } {
+    return {
+      ...this.flagUpdate({ ...BASE }),
+      transactions: transactions ?? [],
+      ...(this.sc.balance ? { balance: this.sc.balance } : {}),
+    };
   }
 
   async getStatements(
@@ -314,7 +326,6 @@ class ScriptedSession implements FinTSSession {
     acc: FinTSAccount,
   ): Promise<FinTSPortResponse & { balance?: { value: number; currency: string } }> {
     this.rec('getBalance', acc);
-    if (this.sc.balanceFails) throw new FinTSPortError('network');
     const gate = this.statementGate();
     if (gate) return gate;
     return this.sc.balance ? { ...BASE, balance: this.sc.balance } : { ...BASE };

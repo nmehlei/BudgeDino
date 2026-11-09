@@ -74,12 +74,11 @@ const finished = (s: AuthStep) => {
 };
 const methodId = (s: AuthStep) => (finished(s).state as { tanMethodId: number }).tanMethodId;
 
-/** Every step's JSON, minus the (intentionally secret-bearing, encrypted at rest) state parts. */
+/** Every step's JSON, minus the (intentionally secret-bearing) state.bankingInformation. */
 function scrubbed(step: AuthStep): string {
   if (step.done) {
     const rest: Record<string, unknown> = { ...step.state };
     delete rest['bankingInformation'];
-    delete rest['credentials'];
     return JSON.stringify({ ...step, state: rest });
   }
   return JSON.stringify(step);
@@ -124,7 +123,6 @@ describe('FinTS authentication', () => {
       bankingInformation: DEFAULT_BANKING_INFORMATION,
       tanMethodId: 920,
       systemId: 'SYS-SCRIPTED',
-      credentials: { bank: 'dkb', userId: USER, pin: PIN },
     });
     expect(step.consentExpiresAt).toEqual(new Date(NOW.getTime() + 90 * 86_400_000));
     expect(port.callsOf('openFirstTime')[0]?.args[0]).toMatchObject({
@@ -434,7 +432,7 @@ describe('FinTS authentication', () => {
     expect(JSON.stringify(dialogs)).toContain('"size":0');
   });
 
-  it('never leaks PIN or user id outside state.bankingInformation and state.credentials', async () => {
+  it('never leaks PIN or user id outside state.bankingInformation', async () => {
     const scenarios: ScriptedScenario[] = [
       {
         syncRequiresTan: 'decoupled',

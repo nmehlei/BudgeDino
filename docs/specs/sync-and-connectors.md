@@ -83,18 +83,22 @@ injected (no global); `get(type)` throws `UnknownConnectorError`.
 
 - **Methods:** `startAuth(config, ctx)` and `continueAuth(dialog, answer, ctx)` return an `AuthStep`
   (`done` with new state, or a `challenge` plus server-side `dialog` state); `listAccounts(state, ctx)`;
-  `fetchTransactions(state, accountRef, since, ctx)`. Metadata: `type`, `experimental`,
+  `fetchTransactions(state, accountRef, since, ctx)` (plus an optional trailing `config`, below). Metadata: `type`, `experimental`,
   `challengeKinds`, `rateLimit` (`maxUnattendedPerDay`, `defaultSchedule`).
 - **Challenge kinds:** `redirect` (url + return scheme; answer = callback URL), `decoupled` (message +
   poll interval; answer = confirm), `code` (answer = code), `image` (base64 image + `mimeType` `image/png`|`image/jpeg`, plus code entry).
 - **Failure reasons:** `fetchTransactions` never throws for bank-side problems; it returns
   `{ ok: false, reason: 'needs_attention' | 'rate_limited' | 'temporary', retryAfter? }`.
+- **Config on every call:** `listAccounts(state, ctx, config?)` and
+  `fetchTransactions(state, accountRef, since, ctx, config?)` receive the connector's decrypted config
+  (the server decrypts it once per run / discovery), so credentials never need to live in `state`.
+  `FetchResult` success carries `state` only when it actually changed.
 - **FinTS fetching:** unattended fetches request at most the last 89 days (inside the PSD2 90-day
-  SCA exemption; dates are the Europe/Berlin calendar date). A TAN demand or PIN error on a fetch is
-  `needs_attention` (never an open dialog); network, 5xx and unparseable statements are `temporary`
-  (a parse failure is never reported as an empty success). Because `fetchTransactions` receives only
-  the state, the FinTS state also carries the credentials (bank, user id, PIN), stored encrypted like
-  the config.
+  SCA exemption; the window is the Europe/Berlin calendar date, sent as UTC-midnight dates because
+  lib-fints encodes dates in UTC). Each fetch is exactly one bank order; the balance is the closing
+  balance from that statement response. A TAN demand or PIN error on a fetch is `needs_attention`
+  (never an open dialog); network, 5xx and unparseable statements are `temporary` (a parse failure is
+  never reported as an empty success). Credentials come from the config, not the state.
 - **Decoupled polling:** `continueAuth` returning `{done:false}` with the same `decoupled` challenge
   means "still pending, poll again after `pollAfterMs`". Terminal failures throw
   `ConnectorAuthError` (`too_many_attempts` | `declined` | `timeout`); a client mistake (wrong answer

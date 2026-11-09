@@ -320,7 +320,10 @@ export function createChallengeService(
 
   async function discoverAccounts(connector: ConnectorRow, state: ConnectorState, psuIp?: string) {
     const dk = await deps.keyring.forHousehold(connector.householdId);
-    const provided = await registry.get(connector.type).listAccounts(state, ctxFor(psuIp));
+    const config = JSON.parse(
+      decryptString(dk, connector.configEnc, configAad(connector.id)),
+    ) as ConnectorConfig;
+    const provided = await registry.get(connector.type).listAccounts(state, ctxFor(psuIp), config);
     for (const p of provided) {
       const bidx = blindIndex(dk, 'account-external-ref', p.ref);
       const [existing] = await db

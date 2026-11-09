@@ -42,6 +42,12 @@ export interface FinTSTx {
   mandateReference?: string;
 }
 
+/** Closing balance from the statement response (signed float, like amounts). */
+export interface FinTSBalance {
+  value: number;
+  currency: string;
+}
+
 export type FinTSTanKind = 'decoupled' | 'code' | 'photo' | 'chiptan-optical';
 
 export interface FinTSTanMethod {
@@ -77,19 +83,19 @@ export interface FinTSSession {
     acc: FinTSAccount,
     from?: Date,
     to?: Date,
-  ): Promise<FinTSPortResponse & { transactions?: FinTSTx[] }>;
+  ): Promise<FinTSPortResponse & { transactions?: FinTSTx[]; balance?: FinTSBalance }>;
   getStatementsWithTan(
     ref: string,
     tan?: string,
-  ): Promise<FinTSPortResponse & { transactions?: FinTSTx[] }>;
+  ): Promise<FinTSPortResponse & { transactions?: FinTSTx[]; balance?: FinTSBalance }>;
   getCreditCardStatementsWithTan(
     ref: string,
     tan?: string,
-  ): Promise<FinTSPortResponse & { transactions?: FinTSTx[] }>;
+  ): Promise<FinTSPortResponse & { transactions?: FinTSTx[]; balance?: FinTSBalance }>;
   getCreditCardStatements(
     acc: FinTSAccount,
     from?: Date,
-  ): Promise<FinTSPortResponse & { transactions?: FinTSTx[] }>;
+  ): Promise<FinTSPortResponse & { transactions?: FinTSTx[]; balance?: FinTSBalance }>;
   getBalance(
     acc: FinTSAccount,
   ): Promise<FinTSPortResponse & { balance?: { value: number; currency: string } }>;
