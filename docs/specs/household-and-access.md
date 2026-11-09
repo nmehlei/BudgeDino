@@ -11,7 +11,8 @@
 - Each account has a **visibility** setting: `household` (default) or `owner-only`. Toggleable in the app
   in v1. **[owner]** Visibility is enforced on the server; hidden data never leaves the server to other
   members. **[call]**
-- Roles: `admin` (manages members, invites, budgets, categories, shared rules) and `member`. **[call]**
+- Roles: `admin` (manages members, invites, budgets, categories) and `member`. Members may create rules (R18);
+  a rule only affects accounts visible to its creator or counting toward budgets ([categorization.md](categorization.md)). **[call]**
 - **Connectors belong to the member who creates them.** Each member connects their own banks with
   their own credentials on their own phone; TAN confirmations, consent-renewal and sync-failure
   notifications go to that member. Joint accounts are connected by one member and shared via

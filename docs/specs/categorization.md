@@ -78,10 +78,19 @@ id is still set so budgets can exclude the pair). Runs after categorization on i
 
 ### R15: household-wide effects, caller-scoped responses
 
-Rules, `applyToCounterparty`, learned matches and transfer detection work on **all** household accounts,
-including other members' `owner_only` accounts (budgets may count them). API responses, and any counts
+Transfer detection works on **all** household accounts, including other members' `owner_only` accounts
+(budgets may count them). Rules, `applyToCounterparty` and learned matches are scoped by R18. API responses, and any counts
 in them (`recategorized`), only cover transactions the caller can see; a pair with a hidden account is
 visible only through the normal visibility gate, so no response reveals the hidden counterpart.
+
+### R18: members create rules; scoped effects
+
+Members (not only admins) may create rules (via `PATCH /transactions/:id` with `applyToCounterparty`); the
+creator is stored in `rules.created_by`. A rule's effects, both future ingest matching and the
+`applyToCounterparty` history recategorization, only apply to transactions on accounts that are visible to
+the rule's creator (`household`, or owned by the creator) **or** have `countsTowardBudgets=true` (so budgets
+stay consistent). Another member's `owner_only` non-counting account is never touched by it. Learned matches
+follow the same rule, attributed to the owner of the account they were learned on.
 
 ### Listing: `GET /transactions`
 

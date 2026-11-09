@@ -20,6 +20,8 @@ export interface Rule {
   createdAt: Date;
   match: RuleMatch;
   categoryId: string;
+  /** Member who created the rule (R18 scoping); null/absent when unknown. */
+  createdBy?: string | null;
 }
 
 export interface DecryptedTx {

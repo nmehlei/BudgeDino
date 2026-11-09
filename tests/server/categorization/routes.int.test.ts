@@ -30,6 +30,7 @@ let aToken: string;
 let bToken: string;
 let aAccount: string;
 let bHidden: string;
+let bHiddenCounting: string;
 let cat: Record<string, string>;
 let counter = 0;
 
@@ -89,6 +90,16 @@ beforeEach(async () => {
     kind: 'checking',
     currency: 'EUR',
     visibility: 'owner_only',
+  });
+  bHiddenCounting = await createAccount(database.db, dk, {
+    connectorId: cb,
+    ownerMemberId: b,
+    externalRef: 'b-counting',
+    name: 'B counting',
+    kind: 'checking',
+    currency: 'EUR',
+    visibility: 'owner_only',
+    countsTowardBudgets: true,
   });
 });
 
@@ -178,10 +189,8 @@ describe('PATCH /transactions/:id', () => {
       categoryId: cat['Leisure'],
       categorySource: 'rule',
     });
-    expect(await row(hiddenOld)).toMatchObject({
-      categoryId: cat['Leisure'],
-      categorySource: 'rule',
-    });
+    // R18: B's owner_only account does not count toward budgets and is invisible to the rule's creator
+    expect(await row(hiddenOld)).toMatchObject({ categoryId: null, categorySource: 'none' });
     expect((await row(manualOld)).categoryId).toBe(cat['Fees']);
 
     const [created] = await database.db.select().from(rules);
@@ -199,6 +208,58 @@ describe('PATCH /transactions/:id', () => {
     });
     const all = await database.db.select().from(rules);
     expect(all.map((r) => r.priority).sort()).toEqual([1, 2]);
+  });
+
+  it('R18: a rule recategorizes history on an owner_only account only when it counts toward budgets', async () => {
+    const hiddenNotCounting = await add(bHidden, -2_000n, 'Kiosk Eck');
+    const hiddenCounting = await add(bHiddenCounting, -2_500n, 'Kiosk Eck');
+    const target = await add(aAccount, -4_000n, 'Kiosk Eck');
+    const res = await call('PATCH', `/transactions/${target}`, aToken, {
+      categoryId: cat['Leisure'],
+      applyToCounterparty: true,
+    });
+    expect(res.status).toBe(200);
+    expect(await row(hiddenNotCounting)).toMatchObject({
+      categoryId: null,
+      categorySource: 'none',
+    });
+    expect(await row(hiddenCounting)).toMatchObject({
+      categoryId: cat['Leisure'],
+      categorySource: 'rule',
+    });
+    expect(res.json['recategorized']).toBe(0); // neither is visible to A
+  });
+
+  it('R18: ingest matching applies a rule to the creators visible accounts and counting accounts only', async () => {
+    const { categorizeTransactions } = await import('@budgedino/server/categorization/rules');
+    const target = await add(aAccount, -4_000n, 'Kiosk Eck');
+    await call('PATCH', `/transactions/${target}`, aToken, {
+      categoryId: cat['Leisure'],
+      applyToCounterparty: true,
+    });
+    const hiddenNotCounting = await add(bHidden, -100n, 'Kiosk Eck');
+    const hiddenCounting = await add(bHiddenCounting, -100n, 'Kiosk Eck');
+    const own = await add(aAccount, -100n, 'Kiosk Eck');
+    await categorizeTransactions(database.db, keyring, householdId, [
+      hiddenNotCounting,
+      hiddenCounting,
+      own,
+    ]);
+    expect((await row(hiddenNotCounting)).categoryId).toBeNull();
+    expect(await row(hiddenCounting)).toMatchObject({ categoryId: cat['Leisure'] });
+    expect(await row(own)).toMatchObject({ categoryId: cat['Leisure'] });
+
+    // a rule created by B on their own hidden account applies there (visible to the creator)
+    const bTarget = await add(bHidden, -900n, 'Tabak Laden');
+    await call('PATCH', `/transactions/${bTarget}`, bToken, {
+      categoryId: cat['Fees'],
+      applyToCounterparty: true,
+    });
+    const bNext = await add(bHidden, -100n, 'Tabak Laden');
+    const aSame = await add(aAccount, -100n, 'Tabak Laden');
+    await categorizeTransactions(database.db, keyring, householdId, [bNext, aSame]);
+    expect(await row(bNext)).toMatchObject({ categoryId: cat['Fees'] });
+    expect(await row(aSame)).toMatchObject({ categoryId: cat['Fees'] }); // household account: visible to B
   });
 
   it('uses the IBAN for the rule when the transaction has one', async () => {

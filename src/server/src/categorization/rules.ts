@@ -24,7 +24,13 @@ const ruleAad = (rowId: string) => ({ table: 'rules', column: 'match', rowId });
  */
 export function householdTransactionRows(db: Db, householdId: string) {
   return db
-    .select({ tx: transactions, accountId: accounts.id })
+    .select({
+      tx: transactions,
+      accountId: accounts.id,
+      ownerMemberId: accounts.ownerMemberId,
+      visibility: accounts.visibility,
+      countsTowardBudgets: accounts.countsTowardBudgets,
+    })
     .from(transactions)
     .innerJoin(accounts, eq(transactions.accountId, accounts.id))
     .innerJoin(connectors, eq(accounts.connectorId, connectors.id))
@@ -40,6 +46,7 @@ export async function loadRules(db: Db, dk: DataKey, householdId: string): Promi
     createdAt: r.createdAt,
     match: JSON.parse(decryptString(dk, r.matchEnc, ruleAad(r.id))) as RuleMatch,
     categoryId: r.categoryId,
+    createdBy: r.createdBy,
   }));
 }
 
@@ -73,13 +80,21 @@ export async function createRule(
     createdAt: row.createdAt,
     match: input.match,
     categoryId: input.categoryId,
+    createdBy: input.createdBy,
   };
 }
 
 /** counterparty_bidx -> category of the most recent `manual` categorization in the household. */
-export async function loadLearned(db: Db, householdId: string): Promise<Map<string, string>> {
+export async function loadLearned(
+  db: Db,
+  householdId: string,
+): Promise<{ learned: Map<string, string>; owners: Map<string, string> }> {
   const rows = await db
-    .select({ bidx: transactions.counterpartyBidx, categoryId: transactions.categoryId })
+    .select({
+      bidx: transactions.counterpartyBidx,
+      categoryId: transactions.categoryId,
+      owner: accounts.ownerMemberId,
+    })
     .from(transactions)
     .innerJoin(accounts, eq(transactions.accountId, accounts.id))
     .innerJoin(connectors, eq(accounts.connectorId, connectors.id))
@@ -93,29 +108,73 @@ export async function loadLearned(db: Db, householdId: string): Promise<Map<stri
     )
     .orderBy(sql`${transactions.categorySetAt} desc nulls last`, desc(transactions.id));
   const learned = new Map<string, string>();
+  const owners = new Map<string, string>();
   for (const r of rows) {
     if (r.bidx !== null && r.categoryId !== null && !learned.has(r.bidx)) {
       learned.set(r.bidx, r.categoryId);
+      owners.set(r.bidx, r.owner);
     }
   }
-  return learned;
+  return { learned, owners };
 }
 
 export async function loadCategoryRows(db: Db, householdId: string) {
   return db.select().from(categories).where(eq(categories.householdId, householdId));
 }
 
+export interface ScopedContext extends CategorizeContext {
+  /** counterparty_bidx -> owner of the account the learned manual categorization was made on. */
+  learnedOwners: ReadonlyMap<string, string>;
+}
+
 export async function buildContext(
   db: Db,
   dk: DataKey,
   householdId: string,
-): Promise<CategorizeContext> {
+): Promise<ScopedContext> {
   const [ruleList, learned, cats] = await Promise.all([
     loadRules(db, dk, householdId),
     loadLearned(db, householdId),
     loadCategoryRows(db, householdId),
   ]);
-  return { rules: ruleList, learned, heuristics: buildHeuristics(cats) };
+  return {
+    rules: ruleList,
+    learned: learned.learned,
+    learnedOwners: learned.owners,
+    heuristics: buildHeuristics(cats),
+  };
+}
+
+/** The target account facts R18 needs. */
+interface AccountScope {
+  ownerMemberId: string;
+  visibility: 'household' | 'owner_only';
+  countsTowardBudgets: boolean;
+}
+
+/**
+ * R18: a rule (or learned match, treated as a rule of the member who owns the account it was learned on)
+ * only affects accounts its creator can see (`household`, or owned by the creator) or that count toward
+ * budgets (budget consistency).
+ */
+function allowed(creator: string | null | undefined, scope: AccountScope): boolean {
+  return (
+    scope.visibility === 'household' ||
+    scope.countsTowardBudgets ||
+    (creator != null && scope.ownerMemberId === creator)
+  );
+}
+
+function scopedFor(ctx: ScopedContext, scope: AccountScope): CategorizeContext {
+  const learned = new Map<string, string>();
+  for (const [bidx, categoryId] of ctx.learned) {
+    if (allowed(ctx.learnedOwners.get(bidx), scope)) learned.set(bidx, categoryId);
+  }
+  return {
+    rules: ctx.rules.filter((r) => allowed(r.createdBy, scope)),
+    learned,
+    heuristics: ctx.heuristics,
+  };
 }
 
 export async function setCategory(
@@ -132,6 +191,7 @@ export async function setCategory(
 
 interface Candidate {
   accountId: string;
+  scope: AccountScope;
   tx: Transaction;
 }
 
@@ -143,17 +203,23 @@ interface Candidate {
  */
 async function apply(
   db: Db,
-  ctx: CategorizeContext,
+  ctx: ScopedContext,
   candidates: readonly Candidate[],
   onlyUncategorized: boolean,
 ): Promise<Candidate[]> {
   const changed: Candidate[] = [];
+  const perAccount = new Map<string, CategorizeContext>();
   for (const c of candidates) {
     const { tx } = c;
     if (tx.categorySource === 'manual' || tx.transferGroupId !== null) continue;
     // R16: ingest only categorizes new rows and rows without a category; updates keep theirs.
     if (onlyUncategorized && tx.categorySource !== 'none' && tx.categoryId !== null) continue;
-    const result = categorize(tx, ctx);
+    let scoped = perAccount.get(c.accountId);
+    if (!scoped) {
+      scoped = scopedFor(ctx, c.scope);
+      perAccount.set(c.accountId, scoped);
+    }
+    const result = categorize(tx, scoped);
     if (result.categoryId === null && tx.categoryId !== null) continue;
     if (result.categoryId === tx.categoryId && result.source === tx.categorySource) continue;
     await setCategory(db, tx.id, result.categoryId, result.source);
@@ -178,7 +244,15 @@ export async function categorizeTransactions(
   await apply(
     db,
     ctx,
-    rows.map((r) => ({ accountId: r.accountId, tx: toTransaction(dk, r.tx) })),
+    rows.map((r) => ({
+      accountId: r.accountId,
+      scope: {
+        ownerMemberId: r.ownerMemberId,
+        visibility: r.visibility,
+        countsTowardBudgets: r.countsTowardBudgets,
+      },
+      tx: toTransaction(dk, r.tx),
+    })),
     true,
   );
 }
@@ -205,7 +279,15 @@ export async function recategorizeCounterparty(
   const changed = await apply(
     db,
     ctx,
-    rows.map((r) => ({ accountId: r.accountId, tx: toTransaction(dk, r.tx) })),
+    rows.map((r) => ({
+      accountId: r.accountId,
+      scope: {
+        ownerMemberId: r.ownerMemberId,
+        visibility: r.visibility,
+        countsTowardBudgets: r.countsTowardBudgets,
+      },
+      tx: toTransaction(dk, r.tx),
+    })),
     false,
   );
   return changed.map((c) => ({ id: c.tx.id, accountId: c.accountId }));
