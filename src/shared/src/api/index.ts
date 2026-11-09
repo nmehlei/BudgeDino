@@ -5,3 +5,4 @@ export * from './accounts';
 export * from './accounts';
 export * from './challenges';
 export * from './connectors';
+export * from './transactions';

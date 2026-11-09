@@ -16,6 +16,9 @@ import { connectorRoutes } from './connectors/routes.js';
 import { createConnectorRegistry } from './connectors/registry.js';
 import { createSyncService } from './sync/service.js';
 import { syncRoutes } from './sync/routes.js';
+import { categorizationRoutes } from './categorization/routes.js';
+import { categorizeTransactions } from './categorization/rules.js';
+import { detectTransfers } from './categorization/transfers.js';
 import { accountRoutes } from './accounts/routes.js';
 import { authRoutes } from './auth/routes.js';
 import type { AppContext, AppDeps, RouteRegistryEntry } from './deps.js';
@@ -44,7 +47,13 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     registry,
     logger: deps.logger,
     now: clock,
-    onIngested: deps.onIngested ?? (async () => {}),
+    onIngested:
+      deps.onIngested ??
+      (async (householdId, txIds) => {
+        // Categorize first; transfer detection then claims matched pairs (Transfer beats other non-manual sources).
+        await categorizeTransactions(deps.db, deps.keyring, householdId, txIds);
+        await detectTransfers(deps.db, deps.keyring, householdId, txIds);
+      }),
   });
   const ctx: AppContext = {
     db: deps.db,
@@ -161,6 +170,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     async (api) => {
       authRoutes(api);
       accountRoutes(api);
+      categorizationRoutes(api);
       householdRoutes(api);
       syncRoutes(api);
       connectorRoutes(api);

@@ -23,7 +23,7 @@ export interface AppDeps {
   loginIpLimiter?: RateLimiter;
   /** Bank connectors available to this server; default none. */
   registry?: ConnectorRegistry;
-  /** Categorizer hook, called after each sync with inserted/updated transaction ids; default no-op. */
+  /** Categorizer hook, called after each sync with inserted/updated transaction ids; default categorizes and detects transfers. */
   onIngested?: (householdId: string, txIds: string[]) => Promise<void>;
 }
 

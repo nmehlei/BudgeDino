@@ -180,6 +180,10 @@ function buildValues(
       tx.counterparty === undefined
         ? null
         : blindIndex(dk, 'tx-counterparty', normalizeCounterparty(tx.counterparty)),
+    counterpartyIbanEnc:
+      tx.counterpartyIban === undefined
+        ? null
+        : encryptField(dk, tx.counterpartyIban, aad('counterparty_iban', id)),
     purposeEnc: tx.purpose === undefined ? null : encryptField(dk, tx.purpose, aad('purpose', id)),
     mcc: tx.mcc ?? null,
   };
@@ -218,6 +222,9 @@ async function updateIfChanged(
   const purpose = row.purposeEnc
     ? decryptString(dk, row.purposeEnc, aad('purpose', row.id))
     : undefined;
+  const counterpartyIban = row.counterpartyIbanEnc
+    ? decryptString(dk, row.counterpartyIbanEnc, aad('counterparty_iban', row.id))
+    : undefined;
   const same =
     row.status === tx.status &&
     row.bookingDate === tx.bookingDate &&
@@ -225,6 +232,7 @@ async function updateIfChanged(
     amount === tx.amount.minor &&
     row.currency === tx.amount.currency &&
     counterparty === tx.counterparty &&
+    counterpartyIban === tx.counterpartyIban &&
     purpose === tx.purpose &&
     (row.mcc ?? undefined) === tx.mcc;
   if (same) return false;

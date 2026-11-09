@@ -182,6 +182,8 @@ export const transactions = pgTable(
     currency: text('currency').notNull(),
     counterpartyEnc: bytea('counterparty_enc'),
     counterpartyBidx: text('counterparty_bidx'),
+    /** Counterparty IBAN as reported by the bank (rules, transfer detection). */
+    counterpartyIbanEnc: bytea('counterparty_iban_enc'),
     purposeEnc: bytea('purpose_enc'),
     mcc: text('mcc'),
     categoryId: uuid('category_id').references(() => categories.id, { onDelete: 'set null' }),
@@ -190,6 +192,8 @@ export const transactions = pgTable(
     })
       .notNull()
       .default('none'),
+    /** When `category_id` was last set; the newest `manual` one teaches the learned matches. */
+    categorySetAt: timestamp('category_set_at', { withTimezone: true }),
     transferGroupId: uuid('transfer_group_id'),
     createdAt: createdAt(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
