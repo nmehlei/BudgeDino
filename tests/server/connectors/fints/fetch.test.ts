@@ -80,10 +80,12 @@ async function setup(
   const later = {
     statementsRequireTan: scenario.statementsRequireTan,
     statementsFailWith: scenario.statementsFailWith,
+    statementsAnswerCode: scenario.statementsAnswerCode,
   };
   if (scripted) {
     delete scripted.scenario.statementsRequireTan;
     delete scripted.scenario.statementsFailWith;
+    delete scripted.scenario.statementsAnswerCode;
   }
   const dialogs = new FinTSDialogRegistry({ now: ctx.now });
   const real = createFinTSConnector({ port, dialogs, product: { id: 'PID', version: '1.0' } });
@@ -460,5 +462,80 @@ describe('FinTS done-state round trip into LibFintsPort', () => {
     ]);
     expect(reopened.availableTanMethods()).toMatchObject([{ id: 920, kind: 'decoupled' }]);
     expect(rt(reopened.bankingInformation())).toEqual(rt(state['bankingInformation']));
+  });
+});
+
+describe('FinTS statement support', () => {
+  it('lists only accounts with statement support, depots always', async () => {
+    const savings: FinTSAccount = {
+      accountNumber: '999',
+      blz: '12030000',
+      accountType: 'SavingsAccount',
+      currency: 'EUR',
+    };
+    const { connector, state } = await setup({
+      accounts: [CHECKING, savings, CARD, DEPOT],
+      noStatementsFor: ['999', '4111', '777'],
+    });
+    const list = await connector.listAccounts(state, ctx);
+    expect(list.map((a) => a.kind)).toEqual(['checking', 'depot']);
+  });
+
+  it('an unsupported statements call is an empty success, not a failure', async () => {
+    const { connector, state } = await setup({
+      accounts: [CHECKING],
+      noStatementsFor: [CHECKING.accountNumber],
+    });
+    const r = success(await connector.fetchTransactions(state, IBAN, null, ctx));
+    expect(r.transactions).toEqual([]);
+  });
+});
+
+describe('FinTS lockout protection on fetch', () => {
+  it('a rejected dialog init is needs_attention, never temporary', async () => {
+    const { connector, state } = await setup({
+      accounts: [CHECKING],
+      statementsFailWith: 'init-failed',
+    });
+    expect(failure(await connector.fetchTransactions(state, IBAN, null, ctx)).reason).toBe(
+      'needs_attention',
+    );
+  });
+
+  it('answer codes 9930-9942 and 3938 are needs_attention; other failures stay temporary', async () => {
+    for (const code of [9930, 9931, 9935, 9942, 3938]) {
+      const { connector, state } = await setup({
+        accounts: [CHECKING],
+        statementsAnswerCode: code,
+      });
+      expect(failure(await connector.fetchTransactions(state, IBAN, null, ctx)).reason).toBe(
+        'needs_attention',
+      );
+    }
+    for (const code of [9050, 9800, 9943]) {
+      const { connector, state } = await setup({
+        accounts: [CHECKING],
+        statementsAnswerCode: code,
+      });
+      expect(failure(await connector.fetchTransactions(state, IBAN, null, ctx)).reason).toBe(
+        'temporary',
+      );
+    }
+  });
+});
+
+describe('FinTS TAN medium on reopen', () => {
+  it('passes the stored medium name to the port and rejects a malformed one', async () => {
+    const { connector, scripted, state } = await setup({
+      accounts: [CHECKING],
+      tanMedia: { required: true, active: ['Mein Handy'] },
+    });
+    expect(state['tanMediaName']).toBe('Mein Handy');
+    success(await connector.fetchTransactions(state, IBAN, null, ctx));
+    expect(scripted?.callsOf('openFromState').at(-1)?.args[3]).toBe('Mein Handy');
+    const bad = { ...state, tanMediaName: 5 };
+    expect(failure(await connector.fetchTransactions(bad, IBAN, null, ctx)).reason).toBe(
+      'needs_attention',
+    );
   });
 });

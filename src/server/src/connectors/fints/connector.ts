@@ -7,19 +7,24 @@
  *  2. TAN method: `config.tanMethodId` if available, else decoupled > code > photo. chipTAN
  *     (flicker) is never selected (cannot be rendered); only that -> declined.
  *  3. `selectTanMethod` + `synchronize()`; a TAN demand becomes a challenge: decoupled
- *     (`pollAfterMs` 3000), code, or image (PNG or JPEG with its
- *     mime type; other photo formats are declined).
- *  4. After sync, a 3-day statements probe on the first checking/credit-card account; if the bank
- *     wants a TAN for it, a second challenge is raised so the user's SCA covers account access
- *     (PSD2 90-day exemption for later unattended fetches).
- *  5. Done: state `{ bankingInformation, tanMethodId, systemId }`, consent expires in 90 days.
+ *     (`pollAfterMs` from the BPD, clamped 2-10 s, default 3 s), code, or image (photoTAN methods
+ *     only; PNG or JPEG with its mime type, other photo formats are declined).
+ *  4. After sync a required TAN medium is selected (the single active one, else the first), then a
+ *     3-day statements probe on the first checking account with statement support (else the first
+ *     such credit card; none: no probe); if the bank wants a TAN for it, a second challenge is raised
+ *     so the user's SCA covers account access (PSD2 90-day exemption for later unattended fetches).
+ *  5. Done: state `{ bankingInformation, tanMethodId, tanMediaName?, systemId }`, consent expires in
+ *     90 days. A transient failure while answering (network, 5xx, decode) restores the session under
+ *     the same handle so the client can retry; terminal outcomes drop it.
  *     Credentials are never in the state; `listAccounts`/`fetchTransactions` get the decrypted
  *     config as their last argument (controller ruling P2-R7).
  *
  * Fetching (unattended, never throws for bank-side problems, never leaves a dialog open):
  * - `from = since ?? today - 89 days`, clamped to the 89-day SCA-exempt window; `today` is the
  *   Europe/Berlin calendar date of `ctx.now()` (the bank's calendar).
- * - TAN demanded or PIN error -> `needs_attention`; any other port error -> `temporary`; a state
+ * - TAN demanded, PIN error, any answer in 9930-9942 / 3938 or a rejected dialog init (lockout
+ *   protection) -> `needs_attention`; a statements call the bank does not support -> empty success;
+ *   any other port error -> `temporary`; a state
  *   that cannot be opened (corrupt BPD, missing/invalid config or state, unknown account) ->
  *   `needs_attention`.
  * - Exactly one bank order per fetch: the balance is the closing balance of the statement response
@@ -56,7 +61,7 @@ import {
 } from '../types.js';
 import { FINTS_BANKS } from './banks.js';
 import { fintsConfigSchema, type FinTSConnectionConfig } from './config.js';
-import type { DialogMeta, FinTSDialogRegistry } from './dialogs.js';
+import type { DialogMeta, FinTSDialogEntry, FinTSDialogRegistry } from './dialogs.js';
 import { accountRef, mapAccount, mapTx, toMinor } from './map.js';
 import {
   FinTSPortError,
@@ -75,9 +80,14 @@ export interface FinTSConnectorDeps {
 }
 
 const PIN_ERROR_CODES = new Set([9910, 9931, 9942, 3938]);
+/** Fetch: any answer in 9930-9942 (user/PIN/lock family) or 3938 must stop scheduled runs. */
+const isAccessCode = (code: number): boolean =>
+  PIN_ERROR_CODES.has(code) || (code >= 9930 && code <= 9942);
 const TAN_REJECTED_CODES = new Set([9940, 9941]);
 const MAX_TAN_ATTEMPTS = 3;
-const DECOUPLED_POLL_MS = 3000;
+const DECOUPLED_POLL_DEFAULT_MS = 3000;
+const DECOUPLED_POLL_MIN_S = 2;
+const DECOUPLED_POLL_MAX_S = 10;
 const DIALOG_TTL_MS = 10 * 60_000;
 const CONSENT_MS = 90 * 86_400_000;
 const PROBE_DAYS = 3;
@@ -100,14 +110,24 @@ interface PersistedDialog {
 interface StoredState {
   bankingInformation: unknown;
   tanMethodId: number;
+  tanMediaName?: string;
+}
+
+/** A chosen TAN method with what the challenge needs from the bank's parameters. */
+interface TanSel {
+  id: number;
+  kind: FinTSTanKind;
+  decoupledWait?: { firstSeconds: number; betweenSeconds: number };
 }
 
 /** Reads what the done state carries; undefined when unusable. */
 function readState(state: ConnectorState): StoredState | undefined {
-  const { bankingInformation, tanMethodId } = state;
+  const { bankingInformation, tanMethodId, tanMediaName } = state;
   if (typeof tanMethodId !== 'number' || typeof bankingInformation !== 'object') return undefined;
   if (bankingInformation === null) return undefined;
-  return { bankingInformation, tanMethodId };
+  if (tanMediaName !== undefined && (typeof tanMediaName !== 'string' || !tanMediaName))
+    return undefined;
+  return { bankingInformation, tanMethodId, ...(tanMediaName ? { tanMediaName } : {}) };
 }
 
 /**
@@ -121,15 +141,34 @@ const bankDate = (instant: Date): Temporal.PlainDate =>
     .toZonedDateTimeISO(BANK_TIME_ZONE)
     .toPlainDate();
 
-const failed = (): Error => new Error('fints_failed');
+/**
+ * The generic bank failure (mapped to 502). `terminal` failures end the dialog; the others (network,
+ * 5xx, decode) leave an open challenge usable so the client can retry the same handle.
+ */
+class FailedError extends Error {
+  constructor(readonly terminal: boolean) {
+    super('fints_failed');
+    this.name = 'FailedError';
+  }
+}
+
+const failed = (): Error => new FailedError(true);
 
 async function guard<T>(fn: () => Promise<T> | T): Promise<T> {
   try {
     return await fn();
   } catch (e) {
-    if (e instanceof FinTSPortError) throw failed();
+    if (e instanceof FinTSPortError) throw new FailedError(e.category === 'config');
     throw e;
   }
+}
+
+/** Decoupled poll interval from the bank's hint, clamped to 2-10 s; 3 s when the bank gave none. */
+function pollMs(sel: TanSel, poll: 'first' | 'between'): number {
+  const secs =
+    poll === 'first' ? sel.decoupledWait?.firstSeconds : sel.decoupledWait?.betweenSeconds;
+  if (!secs || !Number.isFinite(secs) || secs <= 0) return DECOUPLED_POLL_DEFAULT_MS;
+  return Math.min(DECOUPLED_POLL_MAX_S, Math.max(DECOUPLED_POLL_MIN_S, secs)) * 1000;
 }
 
 function sanitise(text: string | undefined): string {
@@ -150,10 +189,7 @@ function checkPinErrors(r: FinTSPortResponse): void {
 const tanRejected = (r: FinTSPortResponse): boolean =>
   r.bankAnswers.some((a) => TAN_REJECTED_CODES.has(a.code));
 
-function pickTanMethod(
-  session: FinTSSession,
-  wanted: number | undefined,
-): { id: number; kind: FinTSTanKind } {
+function pickTanMethod(session: FinTSSession, wanted: number | undefined): TanSel {
   const methods = session.availableTanMethods();
   const explicit = wanted === undefined ? undefined : methods.find((m) => m.id === wanted);
   if (explicit) {
@@ -168,10 +204,26 @@ function pickTanMethod(
   throw new ConnectorAuthError('declined', 'no supported TAN method');
 }
 
+/** First checking account with statement support, else the first such credit card; else none. */
 function probeAccount(session: FinTSSession): FinTSAccount | undefined {
-  return session
-    .accounts()
-    .find((a) => a.accountType === 'CheckingAccount' || a.accountType === 'CreditCardAccount');
+  const accounts = session.accounts();
+  return (
+    accounts.find((a) => a.accountType === 'CheckingAccount' && session.canGetStatements(a)) ??
+    accounts.find((a) => a.accountType === 'CreditCardAccount' && session.canGetStatements(a))
+  );
+}
+
+/**
+ * Selects the TAN medium when the selected method requires one: the single active medium, or (several
+ * active, none chosen by the user yet) the first. Known limitation: with several media the user
+ * cannot choose; a later plan can add that choice. Returns the name to store, if any.
+ */
+function chooseTanMedia(session: FinTSSession): string | undefined {
+  const media = session.tanMedia();
+  const name = media.required ? media.active[0] : undefined;
+  if (name === undefined) return undefined;
+  session.selectTanMedia(name);
+  return name;
 }
 
 function readDialog(dialog: DialogState): PersistedDialog | undefined {
@@ -191,9 +243,11 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
   const { port, dialogs, product } = deps;
 
   const toChallenge = (
-    methodKind: FinTSTanKind,
+    sel: TanSel,
     r: FinTSPortResponse,
+    poll: 'first' | 'between',
   ): { challenge: Challenge; kind: ChallengeKindUsed } => {
+    const methodKind = sel.kind;
     const message = sanitise(r.tanChallenge);
     if (methodKind === 'decoupled')
       return {
@@ -201,10 +255,10 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
         challenge: {
           kind: 'decoupled',
           message: message || 'Confirm in your banking app',
-          pollAfterMs: DECOUPLED_POLL_MS,
+          pollAfterMs: pollMs(sel, poll),
         },
       };
-    if (r.tanPhoto) {
+    if (methodKind === 'photo' && r.tanPhoto) {
       const mime = r.tanPhoto.mimeType;
       if (mime !== 'image/png' && mime !== 'image/jpeg')
         throw new ConnectorAuthError('declined', 'unsupported photoTAN format');
@@ -229,16 +283,19 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
     session: FinTSSession,
     r: FinTSPortResponse,
     step: Step,
-    tanMethod: { id: number; kind: FinTSTanKind },
+    tanMethod: TanSel,
     attempts: number,
     extra: Pick<DialogMeta, 'accountRef' | 'probe'>,
     ctx: ConnectorContext,
+    opts: { poll?: 'first' | 'between'; fallbackRef?: string } = {},
   ): AuthStep => {
-    if (!r.tanReference) throw failed();
-    const { challenge, kind } = toChallenge(tanMethod.kind, r);
+    // A decoupled status response may omit the reference; the pending one stays valid.
+    const tanReference = r.tanReference ?? opts.fallbackRef;
+    if (!tanReference) throw failed();
+    const { challenge, kind } = toChallenge(tanMethod, r, opts.poll ?? 'first');
     const meta: DialogMeta = {
       step,
-      tanReference: r.tanReference,
+      tanReference,
       startedAt: ctx.now().toISOString(),
     };
     if (extra.accountRef) meta.accountRef = extra.accountRef;
@@ -253,7 +310,12 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
     };
   };
 
-  const finish = (session: FinTSSession, tanMethodId: number, ctx: ConnectorContext): AuthStep => {
+  const finish = async (
+    session: FinTSSession,
+    tanMethodId: number,
+    ctx: ConnectorContext,
+  ): Promise<AuthStep> => {
+    const tanMediaName = await guard(() => chooseTanMedia(session));
     const info = session.bankingInformation();
     const systemId = (info as { systemId?: unknown } | null)?.systemId;
     return {
@@ -261,6 +323,7 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
       state: {
         bankingInformation: info as Json,
         tanMethodId,
+        ...(tanMediaName ? { tanMediaName } : {}),
         systemId: typeof systemId === 'string' ? systemId : null,
       },
       consentExpiresAt: new Date(ctx.now().getTime() + CONSENT_MS),
@@ -289,10 +352,10 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
     session: FinTSSession,
     acc: FinTSAccount,
     r: FinTSPortResponse,
-    tanMethod: { id: number; kind: FinTSTanKind },
+    tanMethod: TanSel,
     attempts: number,
     ctx: ConnectorContext,
-  ): AuthStep => {
+  ): Promise<AuthStep> | AuthStep => {
     checkPinErrors(r);
     if (r.requiresTan)
       return raise(session, r, 'statements-probe', tanMethod, attempts, probeExtra(acc), ctx);
@@ -303,9 +366,11 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
   /** After a successful sync: run the statements probe, else finish. */
   const afterSync = async (
     session: FinTSSession,
-    tanMethod: { id: number; kind: FinTSTanKind },
+    tanMethod: TanSel,
     ctx: ConnectorContext,
   ): Promise<AuthStep> => {
+    // The medium must be selected before any further order (it goes into every HKTAN).
+    await guard(() => chooseTanMedia(session));
     const acc = probeAccount(session);
     if (!acc) return finish(session, tanMethod.id, ctx);
     return probeOutcome(session, acc, await runProbe(session, acc, ctx), tanMethod, 0, ctx);
@@ -324,7 +389,70 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
       },
       stored.bankingInformation,
       stored.tanMethodId,
+      stored.tanMediaName,
     );
+  };
+
+  const resume = async (
+    d: PersistedDialog,
+    entry: FinTSDialogEntry,
+    tan: string | undefined,
+    ctx: ConnectorContext,
+  ): Promise<AuthStep> => {
+    const { session, meta } = entry;
+    const method = session.availableTanMethods().find((m) => m.id === d.tanMethodId);
+    const tanMethod: TanSel = {
+      id: d.tanMethodId,
+      kind: method?.kind ?? 'code',
+      ...(method?.decoupledWait ? { decoupledWait: method.decoupledWait } : {}),
+    };
+
+    const r = await guard(() => {
+      if (d.step === 'sync') return session.synchronizeWithTan(meta.tanReference, tan);
+      return meta.probe === 'credit-card'
+        ? session.getCreditCardStatementsWithTan(meta.tanReference, tan)
+        : session.getStatementsWithTan(meta.tanReference, tan);
+    });
+    checkPinErrors(r);
+
+    const extra: Pick<DialogMeta, 'accountRef' | 'probe'> = {};
+    if (meta.accountRef) extra.accountRef = meta.accountRef;
+    if (meta.probe) extra.probe = meta.probe;
+    if (r.requiresTan) {
+      // Decoupled: still pending (same challenge). Otherwise a follow-up TAN.
+      const pendingPoll = d.kind === 'decoupled';
+      return raise(session, r, d.step, tanMethod, d.attempts, extra, ctx, {
+        poll: pendingPoll ? 'between' : 'first',
+        ...(pendingPoll ? { fallbackRef: meta.tanReference } : {}),
+      });
+    }
+    if (!r.success) {
+      if (!tanRejected(r)) throw failed();
+      if (d.kind === 'decoupled') throw new ConnectorAuthError('declined');
+      const attempts = d.attempts + 1;
+      if (attempts >= MAX_TAN_ATTEMPTS) throw new ConnectorAuthError('too_many_attempts');
+      // The bank may have ended the dialog on a wrong TAN, so never retry the same reference:
+      // restart the order on the session for a fresh reference (and a fresh photo).
+      if (d.step === 'sync') {
+        const again = await guard(() => session.synchronize());
+        checkPinErrors(again);
+        if (again.requiresTan) return raise(session, again, 'sync', tanMethod, attempts, {}, ctx);
+        if (!again.success) throw failed();
+        return afterSync(session, tanMethod, ctx);
+      }
+      const acc = session.accounts().find((a) => accountKey(a) === meta.accountRef);
+      if (!acc) throw failed();
+      return probeOutcome(
+        session,
+        acc,
+        await runProbe(session, acc, ctx),
+        tanMethod,
+        attempts,
+        ctx,
+      );
+    }
+    if (d.step === 'sync') return afterSync(session, tanMethod, ctx);
+    return finish(session, d.tanMethodId, ctx);
   };
 
   return {
@@ -351,7 +479,7 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
       if (!first.success || first.requiresTan) throw failed();
 
       const tanMethod = pickTanMethod(session, cfg.tanMethodId);
-      session.selectTanMethod(tanMethod.id);
+      await guard(() => session.selectTanMethod(tanMethod.id));
       const r = await guard(() => session.synchronize());
       checkPinErrors(r);
       if (r.requiresTan) return raise(session, r, 'sync', tanMethod, 0, {}, ctx);
@@ -369,56 +497,24 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
           : answer.kind === 'decoupled' || answer.kind === 'redirect'
       )
         throw new InvalidAnswerError();
-      const entry = dialogs.take(d.handle);
-      if (!entry) throw new ConnectorAuthError('timeout');
-      const { session, meta } = entry;
       const tan =
         answer.kind === 'code' || answer.kind === 'image' ? answer.code.trim() : undefined;
-      const method = session.availableTanMethods().find((m) => m.id === d.tanMethodId);
-      const tanMethod = { id: d.tanMethodId, kind: method?.kind ?? ('code' as FinTSTanKind) };
-
-      const r = await guard(() => {
-        if (d.step === 'sync') return session.synchronizeWithTan(meta.tanReference, tan);
-        return meta.probe === 'credit-card'
-          ? session.getCreditCardStatementsWithTan(meta.tanReference, tan)
-          : session.getStatementsWithTan(meta.tanReference, tan);
-      });
-      checkPinErrors(r);
-
-      const extra: Pick<DialogMeta, 'accountRef' | 'probe'> = {};
-      if (meta.accountRef) extra.accountRef = meta.accountRef;
-      if (meta.probe) extra.probe = meta.probe;
-      if (r.requiresTan) {
-        // Decoupled: still pending (same challenge). Otherwise a follow-up TAN.
-        return raise(session, r, d.step, tanMethod, d.attempts, extra, ctx);
+      if (tan === '') throw new InvalidAnswerError();
+      const entry = dialogs.take(d.handle);
+      if (!entry) throw new ConnectorAuthError('timeout');
+      try {
+        return await resume(d, entry, tan, ctx);
+      } catch (e) {
+        // Terminal outcomes (declined, too many attempts, bank logic failure) end the dialog. A
+        // transient failure (network, 5xx, decode) keeps the session under the same handle, so
+        // the client's retry reaches it.
+        const terminal =
+          e instanceof ConnectorAuthError ||
+          e instanceof InvalidAnswerError ||
+          (e instanceof FailedError && e.terminal);
+        if (!terminal) dialogs.restore(d.handle, entry);
+        throw e;
       }
-      if (!r.success) {
-        if (!tanRejected(r)) throw failed();
-        if (d.kind === 'decoupled') throw new ConnectorAuthError('declined');
-        const attempts = d.attempts + 1;
-        if (attempts >= MAX_TAN_ATTEMPTS) throw new ConnectorAuthError('too_many_attempts');
-        // The bank may have ended the dialog on a wrong TAN, so never retry the same reference:
-        // restart the order on the session for a fresh reference (and a fresh photo).
-        if (d.step === 'sync') {
-          const again = await guard(() => session.synchronize());
-          checkPinErrors(again);
-          if (again.requiresTan) return raise(session, again, 'sync', tanMethod, attempts, {}, ctx);
-          if (!again.success) throw failed();
-          return afterSync(session, tanMethod, ctx);
-        }
-        const acc = session.accounts().find((a) => accountKey(a) === meta.accountRef);
-        if (!acc) throw failed();
-        return probeOutcome(
-          session,
-          acc,
-          await runProbe(session, acc, ctx),
-          tanMethod,
-          attempts,
-          ctx,
-        );
-      }
-      if (d.step === 'sync') return afterSync(session, tanMethod, ctx);
-      return finish(session, d.tanMethodId, ctx);
     },
 
     async cancelAuth(dialog) {
@@ -430,7 +526,14 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
       const stored = readState(state);
       const cfg = fintsConfigSchema.safeParse(rawConfig);
       if (!stored || !cfg.success) throw failed();
-      return guard(() => openStored(stored, cfg.data).accounts().map(mapAccount));
+      return guard(() => {
+        const session = openStored(stored, cfg.data);
+        // Accounts the bank offers no statements for cannot be synced; depots stay (net worth later).
+        return session
+          .accounts()
+          .filter((a) => a.accountType === 'SecuritiesAccount' || session.canGetStatements(a))
+          .map(mapAccount);
+      });
     },
 
     async fetchTransactions(state, ref, since, ctx, rawConfig): Promise<FetchResult> {
@@ -461,7 +564,10 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
             : await session.getStatements(acc, wireDate(from), wireDate(today));
         if (r.bankingInformationUpdated)
           fresh = { ...state, bankingInformation: session.bankingInformation() as Json };
-        if (r.bankAnswers.some((a) => PIN_ERROR_CODES.has(a.code))) return fail('needs_attention');
+        // A rejected dialog init (the order never ran) or an access/lock answer (9930-9942, 3938)
+        // would be retried by every scheduled run and risks locking the account: stop and wait.
+        if (r.initFailed || r.bankAnswers.some((a) => isAccessCode(a.code)))
+          return fail('needs_attention');
         // PSD2 SCA renewal: never an interactive dialog from here; the user renews via re-auth.
         if (r.requiresTan) return fail('needs_attention');
         if (!r.success) return fail('temporary');
@@ -476,8 +582,12 @@ export function createFinTSConnector(deps: FinTSConnectorDeps): Connector {
         if (fresh) out.state = fresh;
         return out;
       } catch (e) {
-        if (e instanceof FinTSPortError)
+        if (e instanceof FinTSPortError) {
+          // The bank offers no statements for this account: nothing to sync, not an error.
+          if (e.category === 'unsupported')
+            return { ok: true, transactions: [], ...(fresh ? { state: fresh } : {}) };
           return fail(e.category === 'config' ? 'needs_attention' : 'temporary');
+        }
         throw e;
       }
     },

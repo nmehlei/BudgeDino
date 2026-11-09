@@ -461,3 +461,205 @@ describe('FinTS authentication', () => {
     }
   });
 });
+
+describe('FinTS authentication: poll interval, photo gate, empty TAN', () => {
+  const waiting = (first: number, between: number): FinTSTanMethod => ({
+    ...decoupled,
+    decoupledWait: { firstSeconds: first, betweenSeconds: between },
+  });
+
+  it('takes the poll interval from the BPD, first and later polls apart', async () => {
+    const { connector } = setup({
+      tanMethods: [waiting(5, 2)],
+      syncRequiresTan: 'decoupled',
+      decoupledPendingPolls: 2,
+    });
+    const first = pending(await connector.startAuth(rt(config), ctx));
+    expect(first.challenge).toMatchObject({ pollAfterMs: 5000 });
+    const next = pending(
+      await connector.continueAuth(rt(first.dialog), { kind: 'decoupled' }, ctx),
+    );
+    expect(next.challenge).toMatchObject({ pollAfterMs: 2000 });
+  });
+
+  it('clamps the poll interval to 2-10 s and defaults to 3 s without a hint', async () => {
+    for (const [wait, expected] of [
+      [waiting(30, 30), 10000],
+      [waiting(1, 1), 2000],
+      [waiting(0, 0), 3000],
+    ] as const) {
+      const { connector } = setup({ tanMethods: [wait], syncRequiresTan: 'decoupled' });
+      const s = pending(await connector.startAuth(rt(config), ctx));
+      expect(s.challenge).toMatchObject({ pollAfterMs: expected });
+    }
+  });
+
+  it('keeps polling the pending reference when a status response omits it', async () => {
+    const { connector, port } = setup({
+      syncRequiresTan: 'decoupled',
+      decoupledPendingPolls: 1,
+      omitPendingTanReference: true,
+    });
+    const first = pending(await connector.startAuth(rt(config), ctx));
+    const poll = pending(
+      await connector.continueAuth(rt(first.dialog), { kind: 'decoupled' }, ctx),
+    );
+    finished(await connector.continueAuth(rt(poll.dialog), { kind: 'decoupled' }, ctx));
+    expect(port.callsOf('synchronizeWithTan').map((c) => c.args[0])).toEqual([
+      'REF-SYNC',
+      'REF-SYNC',
+    ]);
+  });
+
+  it('only a photoTAN method gets an image challenge', async () => {
+    const { connector } = setup({ tanMethods: [pushTan], syncRequiresTan: 'photo' });
+    const s = pending(await connector.startAuth(rt(config), ctx));
+    expect(s.challenge.kind).toBe('code');
+  });
+
+  it('rejects an empty or blank TAN before touching the session', async () => {
+    const { connector, port } = setup({ tanMethods: [pushTan], syncRequiresTan: 'code' });
+    const s = pending(await connector.startAuth(rt(config), ctx));
+    for (const code of ['', '   ']) {
+      await expect(
+        connector.continueAuth(rt(s.dialog), { kind: 'code', code }, ctx),
+      ).rejects.toBeInstanceOf(InvalidAnswerError);
+    }
+    expect(port.callsOf('synchronizeWithTan')).toHaveLength(0);
+    finished(
+      await connector.continueAuth(
+        rt(s.dialog),
+        { kind: 'code', code: SCRIPTED_CORRECT_CODE },
+        ctx,
+      ),
+    );
+  });
+});
+
+describe('FinTS authentication: transient errors keep the dialog', () => {
+  it('a network error on a poll leaves the same handle usable', async () => {
+    const { connector, port } = setup({
+      syncRequiresTan: 'decoupled',
+      pollNetworkFailures: 1,
+    });
+    const first = pending(await connector.startAuth(rt(config), ctx));
+    const err = await connector
+      .continueAuth(rt(first.dialog), { kind: 'decoupled' }, ctx)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe('fints_failed');
+    expect(err).not.toBeInstanceOf(ConnectorAuthError);
+    finished(await connector.continueAuth(rt(first.dialog), { kind: 'decoupled' }, ctx));
+    expect(port.callsOf('synchronizeWithTan')).toHaveLength(2);
+  });
+
+  it('a plain (non-port) network error also keeps the dialog', async () => {
+    const { connector, port } = setup({ syncRequiresTan: 'decoupled' });
+    const first = pending(await connector.startAuth(rt(config), ctx));
+    const session = port.sessions[0];
+    const original = session?.synchronizeWithTan.bind(session);
+    let calls = 0;
+    if (session && original)
+      session.synchronizeWithTan = (ref, tan) => {
+        if (calls++ === 0) return Promise.reject(new TypeError('fetch failed'));
+        return original(ref, tan);
+      };
+    await expect(
+      connector.continueAuth(rt(first.dialog), { kind: 'decoupled' }, ctx),
+    ).rejects.toThrow('fetch failed');
+    finished(await connector.continueAuth(rt(first.dialog), { kind: 'decoupled' }, ctx));
+  });
+
+  it('a terminal outcome still ends the dialog', async () => {
+    const { connector } = setup({
+      tanMethods: [pushTan],
+      syncRequiresTan: 'code',
+      correctCode: '999999',
+    });
+    let s = pending(await connector.startAuth(rt(config), ctx));
+    for (let i = 0; i < 2; i++)
+      s = pending(
+        await connector.continueAuth(rt(s.dialog), { kind: 'code', code: '000000' }, ctx),
+      );
+    await expect(
+      connector.continueAuth(rt(s.dialog), { kind: 'code', code: '000000' }, ctx),
+    ).rejects.toMatchObject({ reason: 'too_many_attempts' });
+    await expect(
+      connector.continueAuth(rt(s.dialog), { kind: 'code', code: '999999' }, ctx),
+    ).rejects.toMatchObject({ reason: 'timeout' });
+  });
+});
+
+describe('FinTS authentication: statement support and the SCA probe', () => {
+  const NO_STATEMENTS = { noStatementsFor: [CHECKING.accountNumber] };
+
+  it('probes the first checking account that supports statements', async () => {
+    const other = { ...CHECKING, iban: 'DE02120300000000202051', accountNumber: '202051' };
+    const { connector, port } = setup({ accounts: [CHECKING, other], ...NO_STATEMENTS });
+    finished(await connector.startAuth(rt(config), ctx));
+    expect((port.callsOf('getStatements')[0]?.args[0] as FinTSAccount).accountNumber).toBe(
+      '202051',
+    );
+  });
+
+  it('falls back to a credit card that supports statements', async () => {
+    const { connector, port } = setup({ accounts: [CHECKING, CARD], ...NO_STATEMENTS });
+    finished(await connector.startAuth(rt(config), ctx));
+    expect(port.callsOf('getStatements')).toHaveLength(0);
+    expect(port.callsOf('getCreditCardStatements')).toHaveLength(1);
+  });
+
+  it('skips the probe when no account supports statements', async () => {
+    const { connector, port } = setup({
+      accounts: [CHECKING, CARD],
+      noStatementsFor: [CHECKING.accountNumber, CARD.accountNumber],
+    });
+    finished(await connector.startAuth(rt(config), ctx));
+    expect(port.callsOf('getStatements')).toHaveLength(0);
+    expect(port.callsOf('getCreditCardStatements')).toHaveLength(0);
+  });
+});
+
+describe('FinTS authentication: TAN medium', () => {
+  const selected = (port: ScriptedFinTSPort) =>
+    port.callsOf('selectTanMedia').map((c) => c.args[0]);
+
+  it('selects the single active medium when required, and stores its name', async () => {
+    const { connector, port } = setup({
+      accounts: [CHECKING],
+      tanMedia: { required: true, active: ['Mein Handy'] },
+    });
+    const done = finished(await connector.startAuth(rt(config), ctx));
+    expect(selected(port)[0]).toBe('Mein Handy');
+    expect(done.state['tanMediaName']).toBe('Mein Handy');
+    // before the probe order (it goes into every HKTAN)
+    const methods = port.calls.map((c) => c.method);
+    expect(methods.indexOf('selectTanMedia')).toBeLessThan(methods.indexOf('getStatements'));
+  });
+
+  it('prefers the first medium when several are active (documented limitation)', async () => {
+    const { connector } = setup({ tanMedia: { required: true, active: ['A', 'B'] } });
+    expect(finished(await connector.startAuth(rt(config), ctx)).state['tanMediaName']).toBe('A');
+  });
+
+  it('selects nothing when no medium is required or none is active', async () => {
+    for (const tanMedia of [
+      { required: false, active: ['A'] },
+      { required: true, active: [] },
+    ]) {
+      const { connector, port } = setup({ tanMedia });
+      const done = finished(await connector.startAuth(rt(config), ctx));
+      expect(selected(port)).toEqual([]);
+      expect(done.state).not.toHaveProperty('tanMediaName');
+    }
+  });
+
+  it('still stores the medium after a TAN round trip', async () => {
+    const { connector } = setup({
+      syncRequiresTan: 'decoupled',
+      tanMedia: { required: true, active: ['Mein Handy'] },
+    });
+    const end = await drive(connector);
+    expect(finished(end).state['tanMediaName']).toBe('Mein Handy');
+  });
+});

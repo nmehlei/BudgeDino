@@ -37,8 +37,18 @@ export interface ScriptedScenario {
    * 9800); only a restarted order (fresh reference, `REF-...-n`) works.
    */
   refuseReusedTanReference?: boolean;
-  /** Fails every statement/credit-card/balance call (Task 5). */
-  statementsFailWith?: 'wrong-pin' | 'server-error' | 'decode';
+  /** Fails every statement/credit-card call (Task 5). `init-failed`: the bank rejected the dialog init. */
+  statementsFailWith?: 'wrong-pin' | 'server-error' | 'decode' | 'init-failed' | 'network';
+  /** Statement calls fail with this bank answer code (no TAN, `success: false`). */
+  statementsAnswerCode?: number;
+  /** Account numbers the bank offers no statements for (`canGetStatements` false, calls `unsupported`). */
+  noStatementsFor?: string[];
+  /** The next N `synchronizeWithTan` calls fail with a network error (transient). */
+  pollNetworkFailures?: number;
+  /** Decoupled "still pending" status responses carry no tanReference. */
+  omitPendingTanReference?: boolean;
+  /** TAN medium of the selected method. */
+  tanMedia?: { required: boolean; active: string[] };
   /** Statement calls report `bankingInformationUpdated` and switch the snapshot to this value. */
   bankingInformationAfterStatements?: unknown;
   /** Snapshot returned by `bankingInformation()`; JSON only. */
@@ -91,8 +101,12 @@ export class ScriptedFinTSPort implements FinTSPort {
     p: FinTSBankParams,
     bankingInformation: unknown,
     tanMethodId: number,
+    tanMediaName?: string,
   ): FinTSSession {
-    this.calls.push({ method: 'openFromState', args: [p, bankingInformation, tanMethodId] });
+    this.calls.push({
+      method: 'openFromState',
+      args: [p, bankingInformation, tanMethodId, tanMediaName],
+    });
     const s = new ScriptedSession(this, true);
     s.selected = tanMethodId;
     return this.add(s);
@@ -117,6 +131,7 @@ class ScriptedSession implements FinTSSession {
   private snapshotUpdated = false;
   private firstSyncDone = false;
   private rejections = 0;
+  private networkFailures = 0;
 
   constructor(
     private readonly port: ScriptedFinTSPort,
@@ -163,7 +178,9 @@ class ScriptedSession implements FinTSSession {
       if (left > 0) {
         if (pending === 'sync') this.syncPending--;
         else this.statementsPending--;
-        return this.tanResponse(kind, ref);
+        const pendingResponse = this.tanResponse(kind, ref);
+        if (this.sc.omitPendingTanReference) delete pendingResponse.tanReference;
+        return pendingResponse;
       }
       return { ...BASE };
     }
@@ -228,6 +245,8 @@ class ScriptedSession implements FinTSSession {
     tan?: string,
   ): Promise<FinTSPortResponse & { bankingInformation?: unknown }> {
     this.rec('synchronizeWithTan', ref, tan);
+    if ((this.sc.pollNetworkFailures ?? 0) > this.networkFailures++)
+      throw new FinTSPortError('network');
     const kind = this.syncKind() || 'decoupled';
     const r = this.withTan(kind, ref, tan, 'sync');
     if (r.success && !r.requiresTan) this.syncTanGiven = true;
@@ -247,6 +266,22 @@ class ScriptedSession implements FinTSSession {
     return this.sc.accounts ?? [];
   }
 
+  tanMedia(): { required: boolean; active: string[] } {
+    return this.sc.tanMedia ?? { required: false, active: [] };
+  }
+
+  selectTanMedia(name: string): void {
+    this.rec('selectTanMedia', name);
+  }
+
+  canGetStatements(acc: FinTSAccount): boolean {
+    return !(this.sc.noStatementsFor ?? []).includes(acc.accountNumber);
+  }
+
+  private assertSupported(acc: FinTSAccount): void {
+    if (!this.canGetStatements(acc)) throw new FinTSPortError('unsupported');
+  }
+
   private flagUpdate<T extends FinTSPortResponse>(r: T): T {
     if (this.sc.bankingInformationAfterStatements === undefined) return r;
     this.snapshotUpdated = true;
@@ -263,6 +298,20 @@ class ScriptedSession implements FinTSSession {
       return { ...BASE, success: false, bankAnswers: [{ code: 9931, text: 'PIN falsch' }] };
     if (this.sc.statementsFailWith === 'server-error') throw new FinTSPortError('http', 500);
     if (this.sc.statementsFailWith === 'decode') throw new FinTSPortError('decode');
+    if (this.sc.statementsFailWith === 'network') throw new FinTSPortError('network');
+    if (this.sc.statementsFailWith === 'init-failed')
+      return {
+        ...BASE,
+        success: false,
+        initFailed: true,
+        bankAnswers: [{ code: 9050, text: 'Nachricht enthaelt Fehler' }],
+      };
+    if (this.sc.statementsAnswerCode !== undefined)
+      return {
+        ...BASE,
+        success: false,
+        bankAnswers: [{ code: this.sc.statementsAnswerCode, text: 'ANSWER-TEXT-LEAK' }],
+      };
     if (this.sc.statementsRequireTan && !this.statementsTanGiven)
       return this.tanResponse(this.statementsKind(), this.ref('REF-STMT'));
     return undefined;
@@ -285,6 +334,7 @@ class ScriptedSession implements FinTSSession {
     to?: Date,
   ): Promise<FinTSPortResponse & { transactions?: FinTSTx[] }> {
     this.rec('getStatements', acc, from, to);
+    this.assertSupported(acc);
     return this.statementGate() ?? this.statementsOk(this.sc.transactions);
   }
 
@@ -319,16 +369,8 @@ class ScriptedSession implements FinTSSession {
     from?: Date,
   ): Promise<FinTSPortResponse & { transactions?: FinTSTx[] }> {
     this.rec('getCreditCardStatements', acc, from);
+    this.assertSupported(acc);
     return this.statementGate() ?? this.statementsOk(this.sc.creditCardTransactions);
-  }
-
-  async getBalance(
-    acc: FinTSAccount,
-  ): Promise<FinTSPortResponse & { balance?: { value: number; currency: string } }> {
-    this.rec('getBalance', acc);
-    const gate = this.statementGate();
-    if (gate) return gate;
-    return this.sc.balance ? { ...BASE, balance: this.sc.balance } : { ...BASE };
   }
 
   bankingInformation(): unknown {

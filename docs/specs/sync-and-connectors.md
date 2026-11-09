@@ -117,31 +117,46 @@ injected (no global); `get(type)` throws `UnknownConnectorError`.
 Code: `src/server/src/connectors/fints/` (`connector.ts` has the full algorithm in its header). Decision record:
 [ADR 0009](../adr/0009-fints-in-memory-dialogs.md). Enabled with `BUDGEDINO_CONNECTORS=fints` plus a registered
 product id (`BUDGEDINO_FINTS_PRODUCT_ID`, see [the registration guide](../guides/fints-product-registration.md)).
-Banks: DKB and Comdirect (`banks.ts`: BLZ and endpoint; the catalog URL always wins over the URL in a stored BPD).
-Connection config (encrypted): `{bank, userId, pin, tanMethodId?}`.
+Banks: DKB and Comdirect (`banks.ts`: BLZ and endpoint; the catalog URL is pinned into the session's BPD before and
+after every bank call, so neither a stored BPD nor the bank's HIKOM announcement redirects the PIN).
+Connection config (encrypted): `{bank, userId, pin, tanMethodId?}`. State: `{bankingInformation, tanMethodId, tanMediaName?, systemId}`.
 
 - **TAN method preference:** the configured `tanMethodId` if the bank offers it, else decoupled (app approval) > code
   (SMS/push TAN) > photoTAN. chipTAN with flicker/optical cannot be rendered and is never selected; a bank offering only
   that is `declined`.
 - **Auth:** BPD/UPD sync, TAN method selection, then a second sync. A TAN demand becomes a `decoupled` (poll after 3 s),
-  `code` or `image` (PNG/JPEG) challenge. Wrong PIN or locked access (answer codes 9910, 9931, 9942, 3938) is `declined`;
+  `code` or `image` (PNG/JPEG, photoTAN methods only) challenge; an empty TAN is an `InvalidAnswerError` that leaves the
+  dialog usable. The poll interval follows the bank's BPD (`waitingSecondsBeforeFirstStatusRequest` for the first poll,
+  `waitingSecondsBetweenStatusRequests` afterwards), clamped to 2-10 s, default 3 s; a status response without a TAN
+  reference keeps the pending one. Wrong PIN or locked access (answer codes 9910, 9931, 9942, 3938) is `declined`;
   a rejected TAN allows up to 3 attempts; any other failure is a generic `fints_failed` (502). Bank text never reaches
   errors; only the sanitised TAN challenge message does.
-- **SCA probe:** after sync, a 3-day statements fetch on the first checking/credit-card account. If the bank demands a TAN
+- **Transient errors keep the challenge:** a network, 5xx or decode failure while answering a challenge puts the live
+  bank session back under the same handle, so a retry (after the 503) continues the same dialog. Terminal outcomes
+  (declined, too many attempts, bank logic failure, corrupt config) end it.
+- **Statement support:** `listAccounts` skips accounts for which the bank offers no statements (account HKKAZ/HKCAZ or
+  card HKKKU/DKKKU); depots stay listed. A credit card without card statements but with account statements is fetched
+  via the account path. A fetch on an account without support is an empty success.
+- **TAN medium:** if the selected method requires a TAN medium, the single active medium is selected after the SCA sync
+  (several active: the first; the user cannot choose yet) and its name is stored as `tanMediaName` and used on reopen.
+- **SCA probe:** after sync, a 3-day statements fetch on the first checking account that supports statements, else the
+  first such credit card (no probe if there is none). If the bank demands a TAN
   for it, a second challenge is raised so the user's strong authentication covers account access, which enables later
   unattended fetches under the PSD2 90-day exemption.
 - **First window:** the first fetch (no `since`) and any longer look-back are clamped to the last **89 days** (Europe/Berlin
   calendar date), inside the SCA-exempt window. Consent is recorded as expiring after 90 days.
 - **`needs_attention` semantics:** a TAN demanded on a fetch, a PIN error, or unusable stored state/config (corrupt BPD,
-  missing config, unknown account) is `needs_attention`: the server never opens an interactive dialog on its own, the user
+  missing config, unknown account), a bank answer in 9930-9942 or 3938, or a rejected dialog init (the order never ran)
+  is `needs_attention` so scheduled runs stop until the user reconnects (lockout protection): the server never opens an interactive dialog on its own, the user
   reconnects. Network errors, 5xx and unparseable statements are `temporary`.
 - **Single-instance dialogs:** the bank session of an open challenge is held in an in-process registry (not serialisable);
-  the persisted dialog carries only an opaque handle. Entries live at most 10 minutes, are swept every 60 s and dropped on
+  the persisted dialog carries only an opaque handle. The challenge expires after 10 minutes, registry entries live at most 15 (restoring renews), are swept every 60 s and dropped on
   shutdown; a restart drops open challenges (the user restarts the connection). Run one server instance.
 - **Dependency:** `lib-fints` (LGPL-2.1-or-later), patched via `patches/lib-fints@1.5.3.patch` (no console dumps of bank
   responses, parse failures surfaced, raw CAMT dates). Regenerate the patch on upgrades.
-- **Live test:** `pnpm test:live` (opt-in, real bank, never in CI): set `FINTS_LIVE_BANK`, `FINTS_LIVE_USER`,
-  `FINTS_LIVE_PIN`, `BUDGEDINO_FINTS_PRODUCT_ID`. It prints only the challenge kind and message, account count and kinds,
+- **Live script:** `pnpm fints:live` (opt-in, real bank, never in CI): set `FINTS_LIVE_BANK`, `FINTS_LIVE_USER`,
+  `FINTS_LIVE_PIN`, `BUDGEDINO_FINTS_PRODUCT_ID`. TAN input is hidden on a terminal. It prints only the challenge kind and
+  message, whether the selected TAN method requires a TAN medium and the count of active media, account count and kinds,
   and the first checking account's 30-day transaction count and booking date range.
 
 ## Connect, reconnect and challenges (implementation summary)

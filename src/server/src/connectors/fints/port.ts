@@ -58,6 +58,8 @@ export interface FinTSTanMethod {
   name: string;
   decoupled: boolean;
   kind: FinTSTanKind;
+  /** Decoupled methods: the bank's polling hints (BPD), in seconds. */
+  decoupledWait?: { firstSeconds: number; betweenSeconds: number };
 }
 
 export interface FinTSPortResponse {
@@ -70,6 +72,11 @@ export interface FinTSPortResponse {
   tanChallengeHhdUc?: string;
   bankAnswers: { code: number; text: string }[];
   bankingInformationUpdated: boolean;
+  /**
+   * The bank rejected the dialog initialisation itself (HKIDN/HKVVB); the order never ran. lib-fints
+   * then returns the init response as the order's result.
+   */
+  initFailed?: boolean;
 }
 
 export interface FinTSSession {
@@ -80,8 +87,13 @@ export interface FinTSSession {
   ): Promise<FinTSPortResponse & { bankingInformation?: unknown }>;
   selectTanMethod(id: number): void;
   availableTanMethods(): FinTSTanMethod[];
+  /** The selected method's TAN medium needs: whether one is required and the active media names. */
+  tanMedia(): { required: boolean; active: string[] };
+  selectTanMedia(name: string): void;
   /** From the UPD. */
   accounts(): FinTSAccount[];
+  /** Whether the bank offers statements (account or credit card path) for this account. */
+  canGetStatements(acc: FinTSAccount): boolean;
   getStatements(
     acc: FinTSAccount,
     from?: Date,
@@ -99,9 +111,6 @@ export interface FinTSSession {
     acc: FinTSAccount,
     from?: Date,
   ): Promise<FinTSPortResponse & { transactions?: FinTSTx[]; balance?: FinTSBalance }>;
-  getBalance(
-    acc: FinTSAccount,
-  ): Promise<FinTSPortResponse & { balance?: { value: number; currency: string } }>;
   /** JSON-serialisable snapshot for ConnectorState. */
   bankingInformation(): unknown;
 }
@@ -117,7 +126,12 @@ export type FinTSBankParams = {
 
 export interface FinTSPort {
   openFirstTime(p: FinTSBankParams): FinTSSession;
-  openFromState(p: FinTSBankParams, bankingInformation: unknown, tanMethodId: number): FinTSSession;
+  openFromState(
+    p: FinTSBankParams,
+    bankingInformation: unknown,
+    tanMethodId: number,
+    tanMediaName?: string,
+  ): FinTSSession;
 }
 
 export type FinTSPortErrorCategory =

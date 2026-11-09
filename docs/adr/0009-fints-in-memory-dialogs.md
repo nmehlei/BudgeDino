@@ -4,7 +4,7 @@
 
 ## Context
 
-The `fints` connector uses [`lib-fints`](https://github.com/larsdecker/lib-fints) (LGPL-2.1-or-later) to talk
+The `fints` connector uses [`lib-fints`](https://github.com/robocode13/lib-fints) (LGPL-2.1-or-later) to talk
 FinTS 3.0 PIN/TAN to DKB and Comdirect. Two properties of the library shape the design:
 
 - **The dialog is not serialisable.** A FinTS dialog is an open, stateful session (system id, message
@@ -20,8 +20,11 @@ FinTS 3.0 PIN/TAN to DKB and Comdirect. Two properties of the library shape the 
 - **In-process dialog registry.** Live lib-fints sessions are held in a process-wide `FinTSDialogRegistry`
   (`src/server/src/connectors/fints/dialogs.ts`). The persisted `DialogState` carries only an opaque handle
   (32 random bytes, base64url) plus non-secret bookkeeping (kind, step, attempts, TAN method id). An entry
-  is taken once, expires after 10 minutes, the registry is capped (oldest evicted), swept every 60 s by an
-  unref'd timer and cleared on shutdown. Sessions and credentials never reach JSON, logs or `inspect`.
+  is taken once while it is resumed and put back under the same handle (`restore`) when the bank call fails
+  transiently (network, 5xx, decode), so a client retry reaches the same session. The challenge the client
+  sees expires after 10 minutes (`expiresAt`); the registry itself keeps an entry for at most 15 minutes
+  (restoring gives a fresh registry lifetime), is capped (oldest evicted), swept every 60 s by an unref'd
+  timer and cleared on shutdown. Sessions and credentials never reach JSON, logs or `inspect`.
 - **Single instance.** The registry is local to one server process, so BudgeDino runs as one instance
   (already the self-hosting model). A restart drops every open challenge; the user simply starts the
   connection again (a pending TAN is re-requested). The server never starts an interactive dialog on its
@@ -29,13 +32,18 @@ FinTS 3.0 PIN/TAN to DKB and Comdirect. Two properties of the library shape the 
 - **Patched, unmodified otherwise.** `lib-fints` is used as published except for the pnpm patch
   `patches/lib-fints@1.5.3.patch` (registered in `pnpm-workspace.yaml`). It removes the console dumps of bank
   responses, surfaces parse failures (`parseFailed`, mapped to a `decode` port error and then `temporary`),
-  and keeps the raw CAMT date strings (P2-R9). The patch is published in this repository, which satisfies
+  keeps the raw CAMT date strings (P2-R9), and flags an order result that is really the rejected dialog
+  init response (`initFailed`, which lib-fints otherwise returns indistinguishably). The patch is published in this repository, which satisfies
   the LGPL's source-availability requirement for the modified library. Because the repository is AGPL-3.0,
   the combination is licence-compatible (see ADR 0008). **The patch must be regenerated (`pnpm patch`) on
   every lib-fints upgrade**; the version in the patch file name pins it.
-- **Catalog URL pinning (P2-R4).** The PIN is sent to the bank endpoint, and the BPD stored from an earlier
-  response must not be able to redirect it. The operator-controlled catalog URL (`banks.ts`) always wins; a
-  mismatch only logs a warning with the BLZ.
+- **Catalog URL pinning (P2-R4).** The PIN is sent to the bank endpoint. lib-fints reads `bpd.url ?? url`
+  and overwrites `bpd.url` from the bank's HIKOM on every sync, so neither a stored BPD nor an
+  announcement may redirect it. Each `LibFintsSession` keeps the operator-controlled catalog URL
+  (`banks.ts`) and rewrites it into `bankingInformation.bpd.url` when it is opened and before and after
+  every bank call (synchronize, synchronizeWithTan, each order). Later dialogs of the same session and the
+  stored snapshot therefore always carry the catalog URL. A differing BPD URL (stored or announced) only
+  reports the BLZ once per session (`onUrlMismatch`).
 - **Balance from statements (P2-R8).** The balance is the closing balance of the statement response. No
   separate balance order is sent, since an extra order can trigger an unexplained TAN push on scheduled runs.
 - **Config passed to fetch (P2-R7).** `listAccounts` and `fetchTransactions` receive the decrypted
@@ -48,8 +56,13 @@ FinTS 3.0 PIN/TAN to DKB and Comdirect. Two properties of the library shape the 
 
 - Restarts, deployments and crashes abort pending TAN dialogs; users re-initiate the connection.
 - Horizontal scaling is not supported for FinTS (a second instance cannot resume the first one's dialog).
-- A bank endpoint migration needs a catalog update before syncs work again, as the BPD URL is ignored.
+- A bank endpoint migration needs a catalog update before syncs work again, as the announced BPD URL is
+  ignored.
+- Fetches treat a rejected dialog init (`initFailed`) and answer codes 9930-9942 and 3938 as
+  `needs_attention`, so scheduled runs stop instead of repeating a request that may lock the access.
+- A required TAN medium is selected after the SCA sync (the single active medium; with several, the first:
+  the user cannot choose yet) and its name is kept in the connector state.
 - Each lib-fints upgrade costs a patch regeneration and a review of the patched behaviour.
 - A FinTS product registration (DK) is required to run the connector; see
   [the registration guide](../guides/fints-product-registration.md).
-- The opt-in live test (`pnpm test:live`) is the only check against a real bank; it is never run in CI.
+- The opt-in live script (`pnpm fints:live`) is the only check against a real bank; it is never run in CI.

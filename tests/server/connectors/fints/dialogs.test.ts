@@ -137,3 +137,19 @@ describe('FinTSDialogRegistry', () => {
     expect(`${inspect(registry)}${JSON.stringify(registry)}`).not.toContain('SESSION-CANARY-91');
   });
 });
+
+describe('FinTSDialogRegistry.restore', () => {
+  it('puts a taken dialog back under the same handle with a fresh lifetime', () => {
+    const c = clock();
+    const registry = new FinTSDialogRegistry({ ttlMs: 60_000, max: 10, now: c.now });
+    const handle = registry.put(fakeSession('a'), meta);
+    c.advance(50_000);
+    const entry = registry.take(handle);
+    expect(entry).toBeDefined();
+    if (entry) registry.restore(handle, entry);
+    c.advance(30_000);
+    expect(registry.peek(handle)?.meta).toEqual(meta);
+    expect(registry.take(handle)).toBeDefined();
+    expect(registry.take(handle)).toBeUndefined();
+  });
+});

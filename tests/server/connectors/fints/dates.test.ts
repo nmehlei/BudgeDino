@@ -90,8 +90,6 @@ const account = {
 
 /** Runs statements through the real LibFintsPort mapping, as lib-fints would have returned them. */
 async function mapped(statements: Statements, creditCard = false) {
-  const session = new LibFintsPort().openFromState(params, info, 920);
-  const client = (session as unknown as { client: Record<string, unknown> }).client;
   const response = {
     success: true,
     requiresTan: false,
@@ -100,8 +98,13 @@ async function mapped(statements: Statements, creditCard = false) {
     dialogId: 'd',
     statements,
   };
-  client[creditCard ? 'getCreditCardStatements' : 'getAccountStatements'] = () =>
-    Promise.resolve(response);
+  const session = new LibFintsPort({
+    onClientCreated: (c) =>
+      Object.assign(c, {
+        [creditCard ? 'getCreditCardStatements' : 'getAccountStatements']: () =>
+          Promise.resolve(response),
+      }),
+  }).openFromState(params, info, 920);
   const r = creditCard
     ? await session.getCreditCardStatements(account)
     : await session.getStatements(account);

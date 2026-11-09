@@ -73,6 +73,16 @@ export class FinTSDialogRegistry {
     return entry;
   }
 
+  /**
+   * Puts a previously taken dialog back under its own handle (a transient bank failure must not lose
+   * the session). It gets a fresh lifetime; the connector's challenge `expiresAt` still caps the
+   * client-visible window.
+   */
+  restore(handle: string, entry: FinTSDialogEntry): void {
+    this.sweep();
+    this.#entries.set(handle, { ...entry, expiresAtMs: this.now().getTime() + this.ttlMs });
+  }
+
   /** Returns the dialog without removing it. */
   peek(handle: string): FinTSDialogEntry | undefined {
     return this.live(handle);

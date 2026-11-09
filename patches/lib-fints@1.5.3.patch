@@ -12,6 +12,20 @@ index 0dc004208e765f6ea5d017ab443df886020f6bc4..1304b2d76b053d41875900e4f6ab2f7a
                  fundsCode: bkTxCd.domainCode || creditDebitInd || '',
                  amount,
                  transactionType: bkTxCd.familyCode || '',
+diff --git a/dist/client.js b/dist/client.js
+index 180aef1b5543e186d3b15e1c8eda83471ca3336f..07b2d5f1e4bc91f08202ce8fb382d834ee689525 100644
+--- a/dist/client.js
++++ b/dist/client.js
+@@ -259,7 +259,8 @@ export class FinTSClient {
+         else {
+             const lastResponse = [...responses.values()].at(-1);
+             if (lastResponse) {
+-                return lastResponse;
++                // Patch: the order never ran (the dialog init was rejected); tell the caller.
++                return Object.assign(lastResponse, { initFailed: true });
+             }
+             else {
+                 throw new Error(`No response received for customer interaction with segment ID '${interaction.segId}'`);
 diff --git a/dist/httpClient.js b/dist/httpClient.js
 index 0d87f59aa8a0cec564a8d062d7c0327701e00192..b79fe8ed15f1632893d7a9549408e61f2242af23 100644
 --- a/dist/httpClient.js
