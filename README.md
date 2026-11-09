@@ -48,16 +48,16 @@ shuts down gracefully on SIGTERM/SIGINT.
 
 ### Environment variables
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `DATABASE_URL` | required | PostgreSQL connection string |
-| `BUDGEDINO_MASTER_KEY` or `BUDGEDINO_MASTER_KEY_FILE` | one required | master key (32 bytes, base64); never both |
-| `PORT` / `HOST` | `8080` / `0.0.0.0` | listen address |
-| `BUDGEDINO_TRUST_PROXY` | off | hop count or proxy IP/CIDR list when behind a reverse proxy (`true` is rejected) |
-| `BUDGEDINO_MAX_CONCURRENT_SYNCS` | `2` | concurrent bank syncs per process |
-| `BUDGEDINO_CONNECTORS` | empty | enabled connector types; `fake` only outside production or with `BUDGEDINO_ALLOW_FAKE=1` |
-| `LOG_LEVEL` | `info` | log level |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` and other `OTEL_*` | unset | telemetry export (off unless the endpoint is set) |
+| Variable                                              | Default            | Meaning                                                                                  |
+| ----------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                        | required           | PostgreSQL connection string                                                             |
+| `BUDGEDINO_MASTER_KEY` or `BUDGEDINO_MASTER_KEY_FILE` | one required       | master key (32 bytes, base64); never both                                                |
+| `PORT` / `HOST`                                       | `8080` / `0.0.0.0` | listen address                                                                           |
+| `BUDGEDINO_TRUST_PROXY`                               | off                | hop count or proxy IP/CIDR list when behind a reverse proxy (`true` is rejected)         |
+| `BUDGEDINO_MAX_CONCURRENT_SYNCS`                      | `2`                | concurrent bank syncs per process                                                        |
+| `BUDGEDINO_CONNECTORS`                                | empty              | enabled connector types; `fake` only outside production or with `BUDGEDINO_ALLOW_FAKE=1` |
+| `LOG_LEVEL`                                           | `info`             | log level                                                                                |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` and other `OTEL_*`      | unset              | telemetry export (off unless the endpoint is set)                                        |
 
 Invalid configuration exits with code 1 and a message naming the variable, never its value.
 
@@ -69,8 +69,11 @@ The `budgedino` binary is `src/server/dist/cli.js` (`node src/server/dist/cli.js
 budgedino init-key                                   # print a new master key once; confirm you saved it
 budgedino bootstrap --household "Smith family"       # household + one-time admin invite
 budgedino invite --household <id> [--role member]    # further invite tokens
-budgedino rotate-master-key                          # old key from BUDGEDINO_MASTER_KEY, new from BUDGEDINO_NEW_MASTER_KEY
+budgedino rotate-master-key --server-stopped         # old key from BUDGEDINO_MASTER_KEY, new from BUDGEDINO_NEW_MASTER_KEY
 ```
+
+`rotate-master-key` refuses to run without `--server-stopped`: stop all running servers first, they hold the
+old key and cannot read data after the rotation. Point `BUDGEDINO_MASTER_KEY` at the new key afterwards.
 
 First start: `init-key`, store the key, `bootstrap`, start the server, then register in the app with the
 printed invite token and set up TOTP. A lost master key means lost data; there is no recovery.

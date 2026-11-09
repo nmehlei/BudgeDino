@@ -31,8 +31,10 @@ Commands:
                                    Create a household and print a one-time admin invite
   invite --household <id> [--role member|admin]
                                    Print a one-time invite token (default role: member)
-  rotate-master-key                Re-wrap all keys: old key from BUDGEDINO_MASTER_KEY[_FILE],
-                                   new key from BUDGEDINO_NEW_MASTER_KEY[_FILE]
+  rotate-master-key --server-stopped
+                                   Re-wrap all keys: old key from BUDGEDINO_MASTER_KEY[_FILE],
+                                   new key from BUDGEDINO_NEW_MASTER_KEY[_FILE]. Stop all running
+                                   servers first; the flag confirms you did
 
 Environment: DATABASE_URL, BUDGEDINO_MASTER_KEY or BUDGEDINO_MASTER_KEY_FILE`;
 
@@ -56,7 +58,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
       case 'invite':
         return await withKeyring(io, (ctx) => invite(rest, ctx, out));
       case 'rotate-master-key':
-        return await rotateMasterKey(io, out);
+        return await rotateMasterKey(rest, io, out);
       default:
         throw new UsageError(command ? `Unknown command: ${command}` : 'Missing command');
     }
@@ -188,7 +190,32 @@ function loadNewMasterKey(env: CliIo['env']): MasterKey {
   }
 }
 
-async function rotateMasterKey(io: CliIo, out: (t: string) => void): Promise<number> {
+async function rotateMasterKey(
+  args: string[],
+  io: CliIo,
+  out: (t: string) => void,
+): Promise<number> {
+  // R19: warn before anything else; running servers hold the old key and would fail after the rewrap.
+  io.stderr.write(
+    'WARNING: Stop all running servers first. They hold the old master key and cannot read data after rotation.\n',
+  );
+  let confirmed = false;
+  try {
+    confirmed =
+      parseArgs({
+        args,
+        options: { 'server-stopped': { type: 'boolean' } },
+        allowPositionals: false,
+        strict: true,
+      }).values['server-stopped'] === true;
+  } catch (e) {
+    throw new UsageError(e instanceof Error ? e.message : 'Invalid arguments');
+  }
+  if (!confirmed) {
+    throw new UsageError(
+      'Refusing to rotate: pass --server-stopped to confirm that no server is running.',
+    );
+  }
   const oldMaster = loadMasterKey(io.env);
   const newMaster = loadNewMasterKey(io.env);
   if (oldMaster.id === newMaster.id)

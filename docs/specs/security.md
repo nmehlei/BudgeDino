@@ -89,7 +89,9 @@ because the row id is part of each field's AAD.
   keeping them readable keeps budget and category queries simple. Revisit if users put sensitive text
   into custom category names.
 - `household_keys` stores one wrapped data key per household and version, with the id of the master key
-  that wrapped it. `Keyring.rotateMaster(old, new)` rewraps all rows in one transaction (all or nothing).
+  that wrapped it. `Keyring.rotateMaster(old, new)` rewraps all rows in one transaction (all or nothing). The CLI
+  (`budgedino rotate-master-key --server-stopped`, R19) warns to stop all servers first, before anything else, and
+  refuses to run without the flag.
 - Test: `tests/server/db/at-rest.int.test.ts` seeds canary values and asserts a `pg_dump --data-only`
   of the database contains none of them.
 
@@ -121,7 +123,7 @@ bodies and headers are not captured. No data leaves the server unless the owner 
 collector. `startTelemetry` returns `{ enabled, shutdown() }` and is idempotent per process.
 
 **ESM loading (`instrument.ts`).** Under ESM the http/pg instrumentations only patch modules imported
-*after* the `import-in-the-middle` loader hook is registered. `node --import ./dist/instrument.js
+_after_ the `import-in-the-middle` loader hook is registered. `node --import ./dist/instrument.js
 ./dist/main.js` (what `pnpm --filter @budgedino/server start` runs) registers the hook and starts the SDK
 before the application modules load; without `OTEL_EXPORTER_OTLP_ENDPOINT` it does nothing at all.
 Started later (no `--import`), the SDK runs but http spans are missing. Test:
@@ -156,8 +158,8 @@ holds the last consumed step; a code is accepted only for a strictly later step 
 consequence: after logging in you must wait for the next code to log in again.
 
 **Registration (two steps, invite-only).** `POST /auth/register` checks the invite (exists, unused,
-unexpired; before any argon2 work), the email and the password policy, then creates a *pending
-registration* (in memory, 15 min, unguessable id, max 5 wrong codes, behind the
+unexpired; before any argon2 work), the email and the password policy, then creates a _pending
+registration_ (in memory, 15 min, unguessable id, max 5 wrong codes, behind the
 `PendingRegistrationStore` interface) holding the password hash and a fresh TOTP secret.
 `POST /auth/register/confirm` verifies the code, then in **one transaction** consumes the invite with a
 single conditional `UPDATE ... WHERE used_at IS NULL AND expires_at > now() RETURNING`, creates the
@@ -181,7 +183,7 @@ against a dummy hash runs for unknown emails. Registration does reveal "email al
 to holders of a valid invite. Error responses are built from fixed strings and never echo request
 bodies, parser messages or headers.
 
-**Rate limiting.** Login attempts are counted atomically *before* verification (so a parallel burst
+**Rate limiting.** Login attempts are counted atomically _before_ verification (so a parallel burst
 cannot pass the check): 5 per email and 20 per client IP per 15 min, then `429` with `Retry-After`
 (the 6th attempt is refused even with correct credentials). A successful login clears the email counter
 and gives the IP attempt back.

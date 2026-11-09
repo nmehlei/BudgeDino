@@ -188,7 +188,7 @@ describe('budgedino bootstrap / invite / rotate-master-key', () => {
     });
     expect(boot.code).toBe(0);
 
-    const res = await cli(['rotate-master-key'], {
+    const res = await cli(['rotate-master-key', '--server-stopped'], {
       ...dbEnv(),
       BUDGEDINO_MASTER_KEY: oldKey,
       BUDGEDINO_NEW_MASTER_KEY: nextKey,
@@ -202,7 +202,7 @@ describe('budgedino bootstrap / invite / rotate-master-key', () => {
     expect(rows).toEqual([{ master_key_id: loadMasterKey({ BUDGEDINO_MASTER_KEY: nextKey }).id }]);
 
     // old key no longer works
-    const again = await cli(['rotate-master-key'], {
+    const again = await cli(['rotate-master-key', '--server-stopped'], {
       ...dbEnv(),
       BUDGEDINO_MASTER_KEY: oldKey,
       BUDGEDINO_NEW_MASTER_KEY: newKey(),
@@ -210,11 +210,30 @@ describe('budgedino bootstrap / invite / rotate-master-key', () => {
     expect(again.code).toBe(1);
   });
 
+  it('rotate-master-key refuses without --server-stopped, warns first and changes nothing (R19)', async () => {
+    const oldKey = newKey();
+    await cli(['bootstrap', '--household', 'H'], { ...dbEnv(), BUDGEDINO_MASTER_KEY: oldKey });
+    const before = await database.pool.query('select master_key_id from household_keys');
+    const res = await cli(['rotate-master-key'], {
+      ...dbEnv(),
+      BUDGEDINO_MASTER_KEY: oldKey,
+      BUDGEDINO_NEW_MASTER_KEY: newKey(),
+    });
+    expect(res.code).toBe(2);
+    expect(res.stderr).toContain('Stop all running servers first');
+    expect(res.stderr).toContain('--server-stopped');
+    const after = await database.pool.query('select master_key_id from household_keys');
+    expect(after.rows).toEqual(before.rows);
+  });
+
   it('rotate-master-key requires a new key distinct from the old one', async () => {
     const key = newKey();
-    const missing = await cli(['rotate-master-key'], { ...dbEnv(), BUDGEDINO_MASTER_KEY: key });
+    const missing = await cli(['rotate-master-key', '--server-stopped'], {
+      ...dbEnv(),
+      BUDGEDINO_MASTER_KEY: key,
+    });
     expect(missing.code).toBe(2);
-    const same = await cli(['rotate-master-key'], {
+    const same = await cli(['rotate-master-key', '--server-stopped'], {
       ...dbEnv(),
       BUDGEDINO_MASTER_KEY: key,
       BUDGEDINO_NEW_MASTER_KEY: key,

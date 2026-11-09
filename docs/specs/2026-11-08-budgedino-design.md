@@ -11,7 +11,7 @@ by the owner; items marked **[call]** are the AI's call and may be challenged.
 
 ## 1. Intent and why
 
-The owner and their wife Jess keep asking themselves *where all our money goes*. Earlier attempts at an
+The owner and their wife Jess keep asking themselves _where all our money goes_. Earlier attempts at an
 overview (spreadsheets, apps) failed because they needed manual steps that stopped being done.
 
 BudgeDino is an open-source, self-hostable household finance app that answers that question
@@ -25,6 +25,7 @@ anything since the last time.
 ## 2. Goals, non-goals, anti-goals
 
 ### Goals (v1)
+
 - Automatic scheduled and on-demand sync of accounts, transactions and holdings for DKB, C24,
   Revolut, Comdirect, Trade Republic, Scalable Capital. **[owner]**
 - Automatic categorization that learns from corrections.
@@ -38,6 +39,7 @@ anything since the last time.
 - Spec-driven development with persistent documented context. **[owner]**
 
 ### Non-goals (v1)
+
 - iOS app (later; the stack must not prevent it). **[owner]**
 - Initiating payments/transfers. Read-only access to banks. **[call]**
 - Web UI for end users. **[call]** (the stack must allow adding one later)
@@ -47,6 +49,7 @@ anything since the last time.
 - Tax reporting, investment performance analytics (IRR etc.).
 
 ### Anti-goals (failure even if it technically works)
+
 - Any **routine** manual step (CSV imports, typing transactions, recategorizing most transactions).
   The only accepted manual steps are bank-mandated consent renewals and occasional corrections.
 - Sensitive data readable from a stolen database dump, backup, disk, logs or telemetry.

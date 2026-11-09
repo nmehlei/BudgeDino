@@ -50,10 +50,10 @@
 - `budgedino bootstrap --household <name> --timezone <iana>` creates the household, its data key, the
   default categories (`src/server/src/categorization/defaults.ts`) and prints a one-time admin invite
   token. `budgedino invite --household <id> --role member|admin` prints further invites. Invites live
-  7 days and are single use. Admins can also create invites over `POST /households/invites`; members get
-  403. Join flow: `register` -> authenticator app -> `register/confirm` ([security.md](security.md)).
+  7 days and are single use. Admins can also create invites over `POST /households/invites`; members get 403. Join flow: `register` -> authenticator app -> `register/confirm` ([security.md](security.md)).
 - `budgedino init-key` prints a new master key once on stdout and requires typing its last 6
-  characters; `budgedino rotate-master-key` re-wraps all keys (old key from `BUDGEDINO_MASTER_KEY[_FILE]`,
+  characters; `budgedino rotate-master-key --server-stopped` re-wraps all keys (R19: it prints the "stop all running servers
+  first" warning before doing anything and refuses without the flag; old key from `BUDGEDINO_MASTER_KEY[_FILE]`,
   new key from `BUDGEDINO_NEW_MASTER_KEY[_FILE]`).
 - **Passkeys (extension point, not in P1).** Credentials are password + TOTP today. A later plan adds
   WebAuthn passkeys as an alternative first factor: a `passkeys` table keyed by member, an additional

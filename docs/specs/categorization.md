@@ -24,13 +24,13 @@ matches > **heuristics** (MCC table, merchant keywords, salary) > uncategorized 
 its source (`rule` / `learned` / `heuristic` / `manual` / `none`) are stored on the transaction.
 
 - **Rules** (`rules.match_enc`, encrypted `RuleMatch` JSON, household-scoped): `counterpartyContains`,
-  `counterpartyIban`, `purposeContains`, `amountMinMinor` / `amountMaxMinor` (bounds on the *absolute*
+  `counterpartyIban`, `purposeContains`, `amountMinMinor` / `amountMaxMinor` (bounds on the _absolute_
   amount, inclusive), `accountId`. Case-insensitive; all present fields must match; an empty match never
   matches. A new rule gets a priority above all existing ones.
 - **Learned**: `counterparty_bidx` -> category of the most recent `manual` categorization in the household
   (`transactions.category_set_at`). Only manual categorizations teach.
 - **Salary**: a positive amount whose counterparty or purpose contains LOHN / GEHALT / SALARY (word
-  boundary) -> Income, checked *before* MCC and merchant keywords (an employer such as "Deutsche Bahn AG"
+  boundary) -> Income, checked _before_ MCC and merchant keywords (an employer such as "Deutsche Bahn AG"
   must not turn a salary into Transport). Any other positive amount without a match stays uncategorized.
 
 ### Heuristic tables
@@ -57,18 +57,16 @@ between. Rules created with `applyToCounterparty` recategorize history explicitl
 `{ categoryId, applyToCounterparty? }` sets the category as `manual`. With `applyToCounterparty` a rule
 is created (`counterpartyIban` if the transaction has an IBAN, else `counterpartyContains` = the full
 counterparty name; 422 when it has neither) and the household's non-manual history of that counterparty
-is recategorized. The category must belong to the household (422); a transaction the caller cannot see is
-404.
+is recategorized. The category must belong to the household (422); a transaction the caller cannot see is 404.
 
 ### Splits: `POST /transactions/:id/splits`
 
 `{ parts: [{ categoryId, amount: { minor, currency } }] }` replaces existing splits. Each part must be
-non-zero, have the transaction's sign and currency, and the parts must sum to the transaction amount, else
-422. Amounts are stored encrypted.
+non-zero, have the transaction's sign and currency, and the parts must sum to the transaction amount, else 422. Amounts are stored encrypted.
 
 ### Transfers
 
-Opposite amounts (same currency and absolute minor units) on two *different* household accounts, both
+Opposite amounts (same currency and absolute minor units) on two _different_ household accounts, both
 booked, at most 4 days apart, are paired. A candidate pair is rejected when either side has a known
 counterparty IBAN that differs from the other account's IBAN (a third party, e.g. a merchant payment
 next to an unrelated deposit); sides without IBANs are still paired. Ranking: counterparty IBAN equal to the other account's IBAN
