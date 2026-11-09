@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { createFinTSConnector } from '@budgedino/server/connectors/fints/connector';
 import { FinTSDialogRegistry } from '@budgedino/server/connectors/fints/dialogs';
 import type { FinTSBankParams, FinTSSession } from '@budgedino/server/connectors/fints/port';
@@ -31,7 +32,10 @@ class ContractPort extends ScriptedFinTSPort {
   }
 }
 
-function makeConnector(scenario: ScriptedScenario): Connector {
+function makeConnectorAndPort(scenario: ScriptedScenario): {
+  connector: Connector;
+  port: ContractPort;
+} {
   const port = new ContractPort({
     accounts: [
       {
@@ -54,12 +58,16 @@ function makeConnector(scenario: ScriptedScenario): Connector {
     balance: { value: 100, currency: 'EUR' },
     ...scenario,
   });
-  return createFinTSConnector({
+  const connector = createFinTSConnector({
     port,
     dialogs: new FinTSDialogRegistry({ now: () => new Date('2026-01-15T12:00:00Z') }),
     product: { id: 'PID', version: '1.0' },
   });
+  return { connector, port };
 }
+
+const makeConnector = (scenario: ScriptedScenario): Connector =>
+  makeConnectorAndPort(scenario).connector;
 
 const answer: ConnectorContractScript['answer'] = (challenge) =>
   challenge.kind === 'decoupled'
@@ -107,3 +115,19 @@ const scenarios: Array<[string, ScriptedScenario]> = [
 
 for (const [kind, scenario] of scenarios)
   runConnectorContract(`fints (${kind})`, () => makeConnector(scenario), scriptFor(scenario));
+
+describe('fints failing state', () => {
+  it('fails because statements demand a TAN: needs_attention, and the bank flag was set on reopen', async () => {
+    const scenario: ScriptedScenario = { decoupledPendingPolls: 1 };
+    const { connector, port } = makeConnectorAndPort({
+      ...scenario,
+      bankingInformation: { marker: FAIL_MARKER, bpd: {}, upd: { accounts: [] } },
+    });
+    const state = await authenticate(connector, config, answer, makeCtx());
+    expect(port.scenario.statementsRequireTan).toBeUndefined();
+    const result = await connector.fetchTransactions(state, IBAN, null, makeCtx(), config);
+    expect(port.scenario.statementsRequireTan).toBe(true);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe('needs_attention');
+  });
+});

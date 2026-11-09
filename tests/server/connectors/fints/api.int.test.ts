@@ -168,6 +168,7 @@ describe('fints through the real API with a scripted bank', () => {
       '-2345',
       '-890',
     ]);
+    // these extra GETs only feed the response bodies into the leak scan below
     await call('GET', '/connectors');
     await call('GET', '/accounts');
 
@@ -193,8 +194,9 @@ describe('fints through the real API with a scripted bank', () => {
       .where(eq(connectors.id, connectorId));
     expect(after?.status).toBe('needs_attention');
     const notes = await database.db.select().from(notifications);
-    expect(notes.filter((n) => n.kind === 'connector_attention')).toHaveLength(1);
-    expect(notes[0]?.memberId).toBe(ownerId);
+    const attention = notes.filter((n) => n.kind === 'connector_attention');
+    expect(attention).toHaveLength(1);
+    expect(attention[0]?.memberId).toBe(ownerId);
 
     // canaries: nothing the user typed leaks into storage, responses or logs
     const dump = await database.dumpData();
