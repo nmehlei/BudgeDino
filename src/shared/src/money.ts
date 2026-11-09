@@ -18,7 +18,15 @@ export class CurrencyMismatchError extends Error {
   }
 }
 
-const CURRENCY_RE = /^[A-Z]{3}$/;
+/** ISO 4217 minor-unit exponents that differ from 2 (ECB currencies only). */
+const MINOR_EXPONENT: Record<string, number> = { JPY: 0, KRW: 0, ISK: 0 };
+
+/** Number of minor-unit decimals for a currency (2 unless listed above). */
+export function currencyExponent(code: string): number {
+  return MINOR_EXPONENT[code] ?? 2;
+}
+
+const CURRENCY_RE =/^[A-Z]{3}$/;
 
 function assertCurrency(currency: CurrencyCode): void {
   if (!CURRENCY_RE.test(currency)) {

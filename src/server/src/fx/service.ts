@@ -1,5 +1,5 @@
 import { asc, eq, sql } from 'drizzle-orm';
-import { money, type CurrencyCode, type Money } from '@budgedino/shared';
+import { currencyExponent, money, type CurrencyCode, type Money } from '@budgedino/shared';
 import type { Db } from '../db/client.js';
 import { fxRates } from '../db/schema.js';
 import type { FxSource } from './ecb.js';
@@ -15,9 +15,7 @@ export class FxRateMissingError extends Error {
   }
 }
 
-/** ISO 4217 minor-unit exponents that differ from 2 (ECB currencies only). */
-const MINOR_EXPONENT: Record<string, number> = { JPY: 0, KRW: 0, ISK: 0 };
-const exponentOf = (currency: CurrencyCode) => MINOR_EXPONENT[currency] ?? 2;
+const exponentOf = (currency: CurrencyCode) => currencyExponent(currency);
 
 const pow10 = (n: number) => 10n ** BigInt(n);
 
