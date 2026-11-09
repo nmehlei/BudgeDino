@@ -5,6 +5,8 @@ import { buildApp, createIngestHook } from './app.js';
 import { ConfigError, loadConfig, type Config } from './config.js';
 import { createConnectorRegistry } from './connectors/registry.js';
 import { createFakeConnector } from './connectors/fake/fake-connector.js';
+import { createFinTSWiring, type FinTSWiring } from './connectors/fints/wire.js';
+import type { FinTSPort } from './connectors/fints/port.js';
 import type { Connector } from './connectors/types.js';
 import { createDb } from './db/client.js';
 import { migrate } from './db/migrate.js';
@@ -22,26 +24,44 @@ export interface StartOptions {
   logger?: Logger;
   /** pg-boss worker polling interval in seconds (tests lower it). */
   pollingIntervalSeconds?: number;
+  /** Replaces the real lib-fints port (tests). */
+  fintsPort?: FinTSPort;
 }
 
 export interface RunningServer {
   /** Base URL, e.g. `http://127.0.0.1:8080`. */
   url: string;
+  /** Registered connector types. */
+  connectorTypes: string[];
   /** Stops accepting requests, drains running syncs, stops pg-boss and closes the database pool. */
   stop(): Promise<void>;
 }
 
-function connectorsFor(config: Config): Connector[] {
-  return config.connectors.flatMap((name): Connector[] => {
+function connectorsFor(
+  config: Config,
+  logger: Logger,
+  fintsPort: FinTSPort | undefined,
+): { connectors: Connector[]; fints?: FinTSWiring } {
+  const connectors: Connector[] = [];
+  let fints: FinTSWiring | undefined;
+  for (const name of config.connectors) {
     switch (name) {
       case 'fake':
-        return [createFakeConnector()];
+        connectors.push(createFakeConnector());
+        break;
       case 'fints':
-        // Validated in loadConfig (`config.fints`); the connector itself is wired in by the FinTS
-        // connector change, so enabling it does not yet register anything.
-        return [];
+        if (config.fints) {
+          fints = createFinTSWiring({
+            product: { id: config.fints.productId, version: config.fints.productVersion },
+            logger,
+            ...(fintsPort ? { port: fintsPort } : {}),
+          });
+          connectors.push(fints.connector);
+        }
+        break;
     }
-  });
+  }
+  return { connectors, ...(fints ? { fints } : {}) };
 }
 
 /**
@@ -54,10 +74,15 @@ export async function start(config: Config, options: StartOptions = {}): Promise
   const handle = createDb(config.databaseUrl);
   let jobs: Awaited<ReturnType<typeof startJobs>> | undefined;
   let app: ReturnType<typeof buildApp> | undefined;
+  let fints: FinTSWiring | undefined;
+  let connectorTypes: string[] | undefined;
   try {
     await migrate(handle.pool);
     const keyring = new Keyring(handle.db, config.master);
-    const registry = createConnectorRegistry(connectorsFor(config));
+    const wired = connectorsFor(config, logger, options.fintsPort);
+    fints = wired.fints;
+    const registry = createConnectorRegistry(wired.connectors);
+    connectorTypes = registry.types();
     const now = () => new Date();
     const onIngested = createIngestHook({ db: handle.db, keyring, now });
     app = buildApp({
@@ -84,20 +109,24 @@ export async function start(config: Config, options: StartOptions = {}): Promise
     await jobs?.stop().catch(() => undefined);
     await app?.close().catch(() => undefined);
     await handle.close().catch(() => undefined);
+    fints?.stop();
     throw err;
   }
   const port = (app.server.address() as AddressInfo).port;
   logger.info({ port, connectors: config.connectors }, 'budgedino server listening');
   const running = app;
   const runningJobs = jobs;
+  const runningFints = fints;
   let stopped: Promise<void> | undefined;
   return {
     url: `http://127.0.0.1:${port}`,
+    connectorTypes: connectorTypes ?? [],
     stop: () =>
       (stopped ??= (async () => {
         await runningJobs.stop();
         await running.close(); // stops accepting, then waits for running syncs
         await handle.close();
+        runningFints?.stop();
       })()),
   };
 }
