@@ -101,6 +101,30 @@ injected (no global); `get(type)` throws `UnknownConnectorError`.
 - `FakeConnector` (scenarios in its file header) and the reusable `runConnectorContract` suite
   (`tests/server/connectors/contract.ts`) back all sync/challenge tests and future connectors.
 
+## Connect, reconnect and challenges (implementation summary)
+
+Code: `src/server/src/connectors/{routes.ts,challenge-service.ts}`; schemas in `src/shared/src/api/{challenges,connectors}.ts`.
+
+- **Routes (member, owner only; anyone else gets 404):** `POST /connectors {type, config}` -> `{connectorId, challenge?}`
+  (config validated by the connector's `configSchema`, unknown type or invalid config = 400, stored encrypted; the connector
+  starts as `needs_attention`); `POST /connectors/:id/reconnect` -> `{challenge?}`; `POST /challenges/:id/answer` ->
+  `{status, reason?, challenge?}`; `GET /challenges/:id` -> `{status}` (never calls the bank); `DELETE /challenges/:id` cancels.
+  The server never starts a dialog by itself.
+- **Storage:** one encrypted envelope per challenge row (`payload_enc`): `{challenge, dialog, invalidAnswers, lastPollAt}`.
+  Responses carry `{id, expiresAt, ...challenge}` only, never the dialog.
+- **TTL:** min(10 min, `step.expiresAt`), renewed by a not-done step. Expiry is checked lazily on every challenge request and by
+  the `challenges.expire` pg-boss job (every minute); both also expire `answering` rows past their TTL (crash recovery),
+  call `cancelAuth` best-effort and leave the connector `needs_attention`.
+- **Answering:** conditional `open -> answering` claim (no DB transaction across the bank call; a concurrent answer gets 409),
+  result written back only while the claim is held. `InvalidAnswerError` = 422 `invalid_answer`, challenge stays open; the 5th
+  ends it (`cancelled`, `too_many_invalid_answers`). `ConnectorAuthError` = 200 `{status: cancelled|expired, reason}`.
+  Decoupled: the app POSTs `{kind:'decoupled'}` repeatedly; earlier than `pollAfterMs` after the last bank call = 429 with
+  `Retry-After`, no bank call.
+- **At most one open challenge per connector;** a new reconnect cancels the previous one (`cancelAuth`).
+- **On `done`:** state stored encrypted, connector `ok`, `consent_expires_at` set, accounts discovered with `listAccounts`
+  (new refs matched by blind index get visibility `household`, counts toward budgets), then a user-present sync is started
+  (coalescing applies; a throttled 429 does not fail the connect).
+
 ## Sync engine (implementation summary)
 
 Code: `src/server/src/sync/` (`run.ts`, `ingest.ts`, `rate-guard.ts`, `scheduler.ts`, `jobs.ts`, `routes.ts`).

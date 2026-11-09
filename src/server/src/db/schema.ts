@@ -277,7 +277,8 @@ export const challenges = pgTable('challenges', {
   kind: text('kind', { enum: ['redirect', 'decoupled', 'code', 'image'] }).notNull(),
   payloadEnc: bytea('payload_enc').notNull(),
   status: text('status', {
-    enum: ['open', 'answered', 'completed', 'expired', 'cancelled'],
+    // `answering`: claimed by one in-flight answer (the bank call runs outside any DB transaction).
+    enum: ['open', 'answering', 'answered', 'completed', 'expired', 'cancelled'],
   })
     .notNull()
     .default('open'),

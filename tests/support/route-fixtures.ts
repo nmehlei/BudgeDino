@@ -14,12 +14,15 @@ export interface RouteFixtureSeed {
   hiddenAccountId: string;
   hiddenTransactionId: string;
   hiddenMemberId: string;
+  /** An open challenge of member B's connector. */
+  hiddenChallengeId: string;
 }
 
 export type RouteFixtures = Record<string, Record<string, (seed: RouteFixtureSeed) => string>>;
 
 export const ROUTE_FIXTURES: RouteFixtures = {
   // '/api/v1/accounts/:accountId/transactions': { ':accountId': (s) => s.hiddenAccountId },
+  '/api/v1/challenges/:id': { ':id': (s) => s.hiddenChallengeId },
 };
 
 /**
@@ -28,7 +31,11 @@ export const ROUTE_FIXTURES: RouteFixtures = {
  * cannot satisfy it, e.g. an admin-only route; the value is the reason. Exempt routes are still
  * probed as the other member in the leak sweep.
  */
-export const OWNER_POSITIVE_CONTROL_EXEMPT: Record<string, string> = {};
+export const OWNER_POSITIVE_CONTROL_EXEMPT: Record<string, string> = {
+  // Returns only `{ status }`: by design it carries no account data, so there is no canary to find. The
+  // owner's 2xx and the other member's 404 are asserted in tests/server/connectors/challenge.int.test.ts.
+  '/api/v1/challenges/:id': 'status-only response, no canary data (see challenge.int.test.ts)',
+};
 
 /** Substitutes every `:param` of a route URL, throwing when a parameter has no fixture. */
 export function resolveRouteUrl(

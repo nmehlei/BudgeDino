@@ -21,6 +21,7 @@
  * fetchTransactions filters by bookingDate >= since (UTC date compare) and is idempotent.
  */
 import { money } from '@budgedino/shared';
+import { z } from 'zod';
 import {
   ConnectorAuthError,
   InvalidAnswerError,
@@ -54,6 +55,27 @@ export interface FakeTx {
   purpose?: string;
   mcc?: string;
 }
+
+const fakeTxSchema = z.object({
+  providerId: z.string().nullable(),
+  status: z.enum(['pending', 'booked']),
+  bookingDate: z.string(),
+  valueDate: z.string().optional(),
+  amountMinor: z.string(),
+  currency: z.string(),
+  counterparty: z.string().optional(),
+  counterpartyIban: z.string().optional(),
+  purpose: z.string().optional(),
+  mcc: z.string().optional(),
+});
+
+/** Config accepted by `POST /connectors` for type `fake`. */
+export const FAKE_CONFIG_SCHEMA = z.object({
+  scenario: z.enum(['happy', 'decoupled', 'code', 'redirect', 'expired-consent', 'flaky']),
+  transactions: z.array(fakeTxSchema).optional(),
+  accountRef: z.string().min(1).optional(),
+  pendingPolls: z.number().int().nonnegative().optional(),
+});
 
 export const FAKE_CORRECT_CODE = '123456';
 export const FAKE_MAX_CODE_ATTEMPTS = 3;
@@ -117,6 +139,7 @@ export function createFakeConnector(options: FakeConnectorOptions = {}): Connect
     type: 'fake',
     experimental: false,
     challengeKinds: ['redirect', 'decoupled', 'code', 'image'],
+    configSchema: FAKE_CONFIG_SCHEMA,
     rateLimit: {
       maxUnattendedPerDay: null,
       defaultSchedule: { cron: '0 */4 * * *' },

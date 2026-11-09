@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { resolveRouteUrl } from '../../support/route-fixtures.js';
 
-const seed = { hiddenAccountId: 'acc-1', hiddenTransactionId: 'tx-1', hiddenMemberId: 'm-1' };
+const seed = {
+  hiddenAccountId: 'acc-1',
+  hiddenTransactionId: 'tx-1',
+  hiddenMemberId: 'm-1',
+  hiddenChallengeId: 'ch-1',
+};
 
 describe('resolveRouteUrl', () => {
   it('leaves parameterless routes alone', () => {

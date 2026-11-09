@@ -2,11 +2,14 @@ import { eq, max } from 'drizzle-orm';
 import { PgBoss } from 'pg-boss';
 import { connectors, households, syncRuns } from '../db/schema.js';
 import { safeErrorInfo } from '../observability/redact.js';
+import { expireChallenges } from '../connectors/challenge-service.js';
 import { runSync, type SyncDeps } from './run.js';
 import { occurrencesBetween } from './scheduler.js';
 
 export const SYNC_CONNECTOR_QUEUE = 'sync.connector';
 export const SYNC_TICK_QUEUE = 'sync.tick';
+export const CHALLENGES_EXPIRE_QUEUE = 'challenges.expire';
+const EXPIRE_CRON = '* * * * *';
 const TICK_CRON = '*/5 * * * *';
 const DAY_MS = 86_400_000;
 
@@ -67,6 +70,7 @@ export interface JobsHandle {
 /**
  * Starts pg-boss: `sync.tick` every 5 minutes enqueues due connectors as `sync.connector` jobs
  * (policy `exclusive` + `singletonKey: connectorId`: one queued or active job per connector).
+ * `challenges.expire` runs every minute and expires abandoned connect challenges.
  */
 export async function startJobs(deps: SyncDeps, options: JobsOptions): Promise<JobsHandle> {
   const boss = new PgBoss({ connectionString: options.connectionString });
@@ -74,6 +78,7 @@ export async function startJobs(deps: SyncDeps, options: JobsOptions): Promise<J
   await boss.start();
   await boss.createQueue(SYNC_CONNECTOR_QUEUE, { policy: 'exclusive' });
   await boss.createQueue(SYNC_TICK_QUEUE, { policy: 'short' });
+  await boss.createQueue(CHALLENGES_EXPIRE_QUEUE, { policy: 'short' });
 
   const enqueueConnector = async (connectorId: string): Promise<void> => {
     await boss.send(SYNC_CONNECTOR_QUEUE, { connectorId }, { singletonKey: connectorId });
@@ -90,7 +95,11 @@ export async function startJobs(deps: SyncDeps, options: JobsOptions): Promise<J
   await boss.work(SYNC_TICK_QUEUE, { pollingIntervalSeconds: polling }, async () => {
     await tick(deps, enqueueConnector);
   });
+  await boss.work(CHALLENGES_EXPIRE_QUEUE, { pollingIntervalSeconds: polling }, async () => {
+    await expireChallenges(deps);
+  });
   await boss.schedule(SYNC_TICK_QUEUE, TICK_CRON);
+  await boss.schedule(CHALLENGES_EXPIRE_QUEUE, EXPIRE_CRON);
 
   return { boss, enqueueConnector, stop: () => boss.stop({ graceful: true }) };
 }

@@ -27,3 +27,29 @@ export const challengeAnswer = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('image'), code: z.string() }),
 ]);
 export type ChallengeAnswer = z.infer<typeof challengeAnswer>;
+
+/** A challenge as handed to the app: the typed challenge plus its id and expiry. Never the dialog. */
+export const challengeView = z.intersection(
+  challenge,
+  z.object({ id: z.string(), expiresAt: z.iso.datetime() }),
+);
+export type ChallengeView = z.infer<typeof challengeView>;
+
+export const challengeIdParams = z.object({ id: z.uuid() });
+
+/** Externally visible challenge state (`answering` reads as `open`). */
+export const challengeStatus = z.enum(['open', 'completed', 'cancelled', 'expired']);
+export type ChallengeStatus = z.infer<typeof challengeStatus>;
+
+/** `GET`/`DELETE /challenges/:id`: state only, the bank is never called. */
+export const challengeStatusResponse = z.object({ status: challengeStatus });
+export type ChallengeStatusResponse = z.infer<typeof challengeStatusResponse>;
+
+/** `POST /challenges/:id/answer`. `challenge` is present while the dialog continues (`open`). */
+export const challengeAnswerResponse = z.object({
+  status: challengeStatus,
+  /** Why the challenge ended without success, e.g. `declined`, `too_many_invalid_answers`. */
+  reason: z.string().optional(),
+  challenge: challengeView.optional(),
+});
+export type ChallengeAnswerResponse = z.infer<typeof challengeAnswerResponse>;

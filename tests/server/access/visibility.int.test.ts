@@ -13,6 +13,7 @@ import {
 } from '@budgedino/server/repositories/transactions';
 import {
   createHousehold,
+  createTestChallenge,
   createTestConnector,
   createTestMember,
   createTestSession,
@@ -49,6 +50,7 @@ interface Seed {
   hiddenAccountId: string;
   hiddenTransactionIds: string[];
   aOwnAccountId: string;
+  hiddenChallengeId: string;
 }
 
 let seed: Seed;
@@ -99,6 +101,13 @@ beforeEach(async () => {
       }),
     );
   }
+  const hiddenChallengeId = await createTestChallenge(
+    database.db,
+    keyring,
+    householdId,
+    bConnector,
+    bId,
+  );
   const aConnector = await createTestConnector(database.db, keyring, householdId, aId);
   const aOwnAccountId = await createAccount(database.db, dk, {
     connectorId: aConnector,
@@ -118,6 +127,7 @@ beforeEach(async () => {
     hiddenAccountId,
     hiddenTransactionIds,
     aOwnAccountId,
+    hiddenChallengeId,
   };
 });
 
@@ -163,6 +173,7 @@ async function sweepAllGetRoutes(token: string): Promise<SweepResult[]> {
       hiddenAccountId: seed.hiddenAccountId,
       hiddenTransactionId: seed.hiddenTransactionIds[0] as string,
       hiddenMemberId: seed.bId,
+      hiddenChallengeId: seed.hiddenChallengeId,
     });
     const res = await get(url, token);
     expect(res.status, `${route.url} must not fail`).toBeLessThan(500);

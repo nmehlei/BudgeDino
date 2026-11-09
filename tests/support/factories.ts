@@ -3,7 +3,7 @@ import { createSession } from '@budgedino/server/auth/sessions';
 import { loadMasterKey, type MasterKey } from '@budgedino/server/crypto';
 import type { Db } from '@budgedino/server/db/client';
 import { newId } from '@budgedino/server/db/ids';
-import { connectors, households } from '@budgedino/server/db/schema';
+import { challenges, connectors, households } from '@budgedino/server/db/schema';
 import { Keyring } from '@budgedino/server/households/keyring';
 import { createMember } from '@budgedino/server/repositories/members';
 
@@ -71,6 +71,34 @@ export async function createTestConnector(
     ownerMemberId,
     type: 'fake',
     configEnc: encryptField(dk, '{}', { table: 'connectors', column: 'config', rowId: id }),
+  });
+  return id;
+}
+
+/** An open `code` challenge (10 min TTL from now) on the connector, with an encrypted envelope. */
+export async function createTestChallenge(
+  db: Db,
+  keyring: Keyring,
+  householdId: string,
+  connectorId: string,
+  memberId: string,
+) {
+  const { sealEnvelope } = await import('@budgedino/server/connectors/challenge-service');
+  const id = newId();
+  const dk = await keyring.forHousehold(householdId);
+  await db.insert(challenges).values({
+    id,
+    connectorId,
+    memberId,
+    kind: 'code',
+    payloadEnc: sealEnvelope(dk, id, {
+      challenge: { kind: 'code', message: 'Enter the TAN' },
+      dialog: {},
+      invalidAnswers: 0,
+      lastPollAt: null,
+    }),
+    status: 'open',
+    expiresAt: new Date(Date.now() + 10 * 60 * 1000),
   });
   return id;
 }

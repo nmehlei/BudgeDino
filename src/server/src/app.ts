@@ -11,6 +11,8 @@ import { VERSION } from '@budgedino/shared';
 import { adminGuard, memberGuard } from './auth/guard.js';
 import { InMemoryPendingRegistrationStore } from './auth/pending.js';
 import { InMemoryRateLimiter } from './auth/rate-limit.js';
+import { createChallengeService } from './connectors/challenge-service.js';
+import { connectorRoutes } from './connectors/routes.js';
 import { createConnectorRegistry } from './connectors/registry.js';
 import { createSyncService } from './sync/service.js';
 import { syncRoutes } from './sync/routes.js';
@@ -36,6 +38,14 @@ const BODY_LIMIT_BYTES = 64 * 1024;
 export function buildApp(deps: AppDeps): FastifyInstance {
   const clock = deps.now ?? (() => new Date());
   const registry = deps.registry ?? createConnectorRegistry([]);
+  const sync = createSyncService({
+    db: deps.db,
+    keyring: deps.keyring,
+    registry,
+    logger: deps.logger,
+    now: clock,
+    onIngested: deps.onIngested ?? (async () => {}),
+  });
   const ctx: AppContext = {
     db: deps.db,
     keyring: deps.keyring,
@@ -57,13 +67,14 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         now: () => clock().getTime(),
       }),
     registry,
-    sync: createSyncService({
+    sync,
+    challenges: createChallengeService({
       db: deps.db,
       keyring: deps.keyring,
       registry,
       logger: deps.logger,
       now: clock,
-      onIngested: deps.onIngested ?? (async () => {}),
+      sync,
     }),
   };
 
@@ -152,6 +163,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       accountRoutes(api);
       householdRoutes(api);
       syncRoutes(api);
+      connectorRoutes(api);
     },
     { prefix: API_PREFIX },
   );

@@ -5,6 +5,7 @@ import type {
   CurrencyCode,
   Money,
 } from '@budgedino/shared';
+import type { ZodType } from 'zod';
 import type { Logger } from '../observability/logger.js';
 
 export type { Challenge, ChallengeAnswer, ChallengeKind };
@@ -102,6 +103,8 @@ export interface Connector {
   type: string;
   experimental: boolean;
   challengeKinds: ChallengeKind[];
+  /** Validates `POST /connectors` config for this type (400 on mismatch); default: any JSON object. */
+  configSchema?: ZodType;
   rateLimit: RateLimitPolicy;
   startAuth(config: ConnectorConfig, ctx: ConnectorContext): Promise<AuthStep>;
   /**
