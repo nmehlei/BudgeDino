@@ -4,6 +4,7 @@ import { defineConfig } from 'vitest/config';
 // Vitest 4+ replaced `vitest.workspace.ts` with `test.projects`.
 const alias = {
   '@budgedino/shared': fileURLToPath(new URL('./src/shared/src/index.ts', import.meta.url)),
+  '@budgedino/server': fileURLToPath(new URL('./src/server/src', import.meta.url)),
 };
 
 export default defineConfig({

@@ -34,3 +34,30 @@ Measures **[call]**:
 - Logs and traces never contain amounts, payees, IBANs, credentials (enforced by a redaction layer
   and tests).
 - Visibility enforcement is a security property: see [household-and-access.md](household-and-access.md).
+
+## Encryption format
+
+Implemented in `src/server/src/crypto` (`node:crypto` only).
+
+**Key hierarchy.** `master key` (32 bytes, base64 in `BUDGEDINO_MASTER_KEY` or the file named by
+`BUDGEDINO_MASTER_KEY_FILE`; setting both is an error) wraps each per-household `data key` (32 random
+bytes). The master key is used directly for wrapping (no HKDF). Field encryption and blind indexes use
+HKDF-SHA256 subkeys of the data key (empty salt, info = label): `enc` for field encryption and
+`idx:<purpose>` for blind indexes, so the raw data key is never used for any primitive. The master key
+id is the first 8 hex chars of its SHA-256 and is stored next to wrapped keys to support rotation.
+
+**Blob layout** (field values and wrapped data keys alike): `0x01 (version) | iv (12) | tag (16) |
+ciphertext`, AES-256-GCM with a random 12-byte IV. Unknown versions and blobs shorter than 29 bytes are
+rejected with a clear error that contains no plaintext or key material.
+
+**AAD.**
+- Field: `table|column|rowId` (UTF-8; `\` and `|` inside a component are backslash-escaped so
+  components cannot be shifted across separators). A blob decrypts only for the row and column it was
+  written for.
+- Wrapped data key: the master key id.
+
+**Blind index.** `HMAC-SHA256(subkey "idx:<purpose>", value)` as lowercase hex; deterministic per data
+key and purpose, used for dedup keys and exact-match lookups only.
+
+**Opacity.** `MasterKey` and `DataKey` keep their bytes in module-private storage; JSON, `util.inspect`
+and string conversion never reveal them. `MasterKeyError` messages never contain key material.
