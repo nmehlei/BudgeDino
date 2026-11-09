@@ -14,5 +14,8 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "temporal-polyfill": "^1.0.8"
   }
 }

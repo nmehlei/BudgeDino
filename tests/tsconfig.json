@@ -1,0 +1,7 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": { "@budgedino/shared": ["../src/shared/src/index.ts"] }
+  },
+  "include": ["./**/*.ts"]
+}
