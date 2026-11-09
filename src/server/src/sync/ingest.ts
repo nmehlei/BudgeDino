@@ -3,7 +3,7 @@ import { and, eq, inArray, lt } from 'drizzle-orm';
 import { blindIndex, decryptString, encryptField, type DataKey } from '../crypto/index.js';
 import type { DbOrTx } from '../db/client.js';
 import { newId } from '../db/ids.js';
-import { transactionDedupAliases, transactions } from '../db/schema.js';
+import { transactionDedupAliases, transactionSplits, transactions } from '../db/schema.js';
 import type { ProviderTransaction } from '../connectors/types.js';
 
 const aad = (column: string, rowId: string) => ({ table: 'transactions', column, rowId });
@@ -125,7 +125,7 @@ export async function ingest(
           .insert(transactionDedupAliases)
           .values({ accountId, dedupBidx: match.dedupBidx, transactionId: match.id })
           .onConflictDoNothing();
-        await writeTx(db, dk, match.id, tx, dedupBidx);
+        await writeTx(db, dk, match, tx, dedupBidx);
         updated.push(match.id);
         continue;
       }
@@ -189,21 +189,34 @@ function buildValues(
   };
 }
 
-/** Overwrites the provider-owned columns of a row; id, category and transfer group are kept. */
+/**
+ * Overwrites the provider-owned columns of a row; id, category and transfer group are kept. When the
+ * amount or currency changes the row's splits no longer sum to it, so they are deleted (category stays).
+ */
 async function writeTx(
   db: DbOrTx,
   dk: DataKey,
-  id: string,
+  row: Row,
   tx: ProviderTransaction,
   dedupBidx: string,
 ): Promise<void> {
-  const values: Partial<ReturnType<typeof buildValues>> = buildValues(dk, id, '', tx, dedupBidx);
+  const values: Partial<ReturnType<typeof buildValues>> = buildValues(
+    dk,
+    row.id,
+    '',
+    tx,
+    dedupBidx,
+  );
   delete values.id;
   delete values.accountId;
+  const oldAmount = BigInt(decryptString(dk, row.amountEnc, aad('amount', row.id)));
+  if (oldAmount !== tx.amount.minor || row.currency !== tx.amount.currency) {
+    await db.delete(transactionSplits).where(eq(transactionSplits.transactionId, row.id));
+  }
   await db
     .update(transactions)
     .set({ ...values, updatedAt: new Date() })
-    .where(eq(transactions.id, id));
+    .where(eq(transactions.id, row.id));
 }
 
 async function updateIfChanged(
@@ -236,7 +249,7 @@ async function updateIfChanged(
     purpose === tx.purpose &&
     (row.mcc ?? undefined) === tx.mcc;
   if (same) return false;
-  await writeTx(db, dk, row.id, tx, dedupBidx);
+  await writeTx(db, dk, row, tx, dedupBidx);
   return true;
 }
 

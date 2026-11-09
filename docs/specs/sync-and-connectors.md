@@ -180,7 +180,9 @@ Code: `src/server/src/sync/` (`run.ts`, `ingest.ts`, `rate-guard.ts`, `scheduler
   within 25 % of the pending amount and it is booked 0 to 7 days after the pending date; the row keeps its id and
   category. The absorbed pending key is kept as an alias (`transaction_dedup_aliases`), so a bank that keeps
   reporting the pre-authorisation neither re-inserts nor downgrades the booked row; within a batch pending
-  entries are processed before booked ones. Pending rows older than 14 days that a fetch no longer reports are deleted (stale pre-auths).
+  entries are processed before booked ones; a booked row is never downgraded to pending, also not by a
+  pending report with the same provider id. When an update changes a row's amount or currency its splits
+  (which would no longer sum) are deleted; the category stays. Pending rows older than 14 days that a fetch no longer reports are deleted (stale pre-auths).
 - **Scheduler:** `nextRuns(schedule, timeZone, from)` supports `{times: ['HH:MM']}` (household-local) and
   `{cron}` (evaluated in the household time zone). pg-boss queues: `sync.tick` (every 5 minutes, enqueues due
   `ok` connectors) and `sync.connector` (policy `exclusive`, `singletonKey: connectorId`). `startJobs(deps, ...)`

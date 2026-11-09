@@ -5,8 +5,8 @@ import type { FakeTx } from '@budgedino/server/connectors/fake/fake-connector';
 import { createFakeConnector } from '@budgedino/server/connectors/fake/fake-connector';
 import { createConnectorRegistry } from '@budgedino/server/connectors/registry';
 import type { ProviderTransaction } from '@budgedino/server/connectors/types';
-import type { DataKey } from '@budgedino/server/crypto';
-import { categories, transactions } from '@budgedino/server/db/schema';
+import { encryptField, type DataKey } from '@budgedino/server/crypto';
+import { categories, transactionSplits, transactions } from '@budgedino/server/db/schema';
 import { newId } from '@budgedino/server/db/ids';
 import { Keyring } from '@budgedino/server/households/keyring';
 import { createLogger } from '@budgedino/server/observability/logger';
@@ -188,6 +188,67 @@ describe('pending to booked reconciliation', () => {
     const all = await rows();
     expect(all).toHaveLength(1);
     expect(all[0]).toMatchObject({ status: 'booked', amountMinor: -4850n });
+  });
+
+  it('never downgrades a booked row when a later pending report carries the same provider id', async () => {
+    await run([tx({ providerId: 'same-id', status: 'booked', amount: money(-4850n, 'EUR') })]);
+    const again = await run([
+      tx({ providerId: 'same-id', status: 'pending', amount: money(-4200n, 'EUR') }),
+    ]);
+    expect(again.inserted).toEqual([]);
+    expect(again.updated).toEqual([]);
+    const all = await rows();
+    expect(all).toHaveLength(1);
+    expect(all[0]).toMatchObject({ status: 'booked', amountMinor: -4850n });
+  });
+
+  it('deletes the splits of a transaction whose amount changes (pending 42.00 to booked 48.50), keeps the category', async () => {
+    const pending = await run([
+      tx({
+        providerId: null,
+        status: 'pending',
+        bookingDate: '2026-11-03',
+        amount: money(-4200n, 'EUR'),
+        counterparty: 'Fuel Station',
+      }),
+    ]);
+    const id = pending.inserted[0] ?? '';
+    const categoryId = await seedCategory();
+    await database.db
+      .update(transactions)
+      .set({ categoryId, categorySource: 'manual' })
+      .where(eq(transactions.id, id));
+    await database.db.insert(transactionSplits).values([
+      {
+        transactionId: id,
+        categoryId,
+        amountEnc: encryptField(dk, '-4000', {
+          table: 'transaction_splits',
+          column: 'amount',
+          rowId: newId(),
+        }),
+      },
+      {
+        transactionId: id,
+        categoryId,
+        amountEnc: encryptField(dk, '-200', {
+          table: 'transaction_splits',
+          column: 'amount',
+          rowId: newId(),
+        }),
+      },
+    ]);
+    await run([
+      tx({
+        providerId: 'bank-77',
+        bookingDate: '2026-11-05',
+        amount: money(-4850n, 'EUR'),
+        counterparty: 'Fuel Station',
+      }),
+    ]);
+    expect(await database.db.select().from(transactionSplits)).toHaveLength(0);
+    const [raw] = await database.db.select().from(transactions).where(eq(transactions.id, id));
+    expect(raw?.categoryId).toBe(categoryId);
   });
 
   it('reconciles a pending/booked pair delivered in one batch, booked first', async () => {
