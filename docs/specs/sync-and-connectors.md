@@ -72,3 +72,22 @@ Further institutions come from the same connectors (any FinTS bank; any Enable B
   TAN confirmation. The app warns ahead of time (14 and 3 days before), via notification, and offers one-tap
   renewal. **[call]**
 - Sync failures are visible per connector (last success, last error in plain language). **[call]**
+
+## Connector interface (implementation summary)
+
+Code: `src/server/src/connectors/types.ts`; challenge schemas shared with the app in
+`src/shared/src/api/challenges.ts`. The registry is built with `createConnectorRegistry([...])` and
+injected (no global); `get(type)` throws `UnknownConnectorError`.
+
+- **Methods:** `startAuth(config, ctx)` and `continueAuth(dialog, answer, ctx)` return an `AuthStep`
+  (`done` with new state, or a `challenge` plus server-side `dialog` state); `listAccounts(state, ctx)`;
+  `fetchTransactions(state, accountRef, since, ctx)`. Metadata: `type`, `experimental`,
+  `challengeKinds`, `rateLimit` (`maxUnattendedPerDay`, `defaultSchedule`).
+- **Challenge kinds:** `redirect` (url + return scheme; answer = callback URL), `decoupled` (message +
+  poll interval; answer = confirm), `code` (answer = code), `image` (image + code).
+- **Failure reasons:** `fetchTransactions` never throws for bank-side problems; it returns
+  `{ ok: false, reason: 'needs_attention' | 'rate_limited' | 'temporary', retryAfter? }`. Auth throws
+  `ConnectorAuthError` only for terminal failures (too many wrong codes, invalid answer).
+- Config, state and dialog are opaque JSON (stored encrypted); dialog state never leaves the server.
+- `FakeConnector` (scenarios in its file header) and the reusable `runConnectorContract` suite
+  (`tests/server/connectors/contract.ts`) back all sync/challenge tests and future connectors.
