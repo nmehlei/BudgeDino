@@ -229,6 +229,12 @@ class LibFintsSession implements FinTSSession {
     );
   }
 
+  getCreditCardStatementsWithTan(ref: string, tan?: string) {
+    return guard(async () =>
+      this.statementsResult(await this.client.getCreditCardStatementsWithTan(ref, tan)),
+    );
+  }
+
   getBalance(acc: FinTSAccount) {
     return guard(async () => {
       const r: AccountBalanceResponse = await this.client.getAccountBalance(this.resolve(acc));

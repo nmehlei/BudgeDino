@@ -206,7 +206,8 @@ describe('FinTS authentication', () => {
     const s = pending(await connector.startAuth(rt(config), ctx));
     expect(s.challenge.kind).toBe('image');
     if (s.challenge.kind !== 'image') throw new Error('unreachable');
-    expect(Buffer.from(s.challenge.imagePngBase64, 'base64').subarray(1, 4).toString()).toBe('PNG');
+    expect(s.challenge.mimeType).toBe('image/png');
+    expect(Buffer.from(s.challenge.imageBase64, 'base64').subarray(1, 4).toString()).toBe('PNG');
     const done = await connector.continueAuth(
       rt(s.dialog),
       { kind: 'image', code: SCRIPTED_CORRECT_CODE },
@@ -215,18 +216,112 @@ describe('FinTS authentication', () => {
     expect(methodId(done)).toBe(950);
   });
 
-  it('photoTAN: JPEG is declined as unsupported', async () => {
-    const { connector } = setup({
+  it('photoTAN: JPEG is passed through with its mime type; other formats are declined', async () => {
+    const jpeg = Uint8Array.of(0xff, 0xd8, 0xff);
+    const a = setup({
       tanMethods: [photoTan],
       syncRequiresTan: 'photo',
-      photo: { mimeType: 'image/jpeg', data: Uint8Array.of(0xff, 0xd8, 0xff) },
+      photo: { mimeType: 'image/jpeg', data: jpeg },
     });
-    await expect(connector.startAuth(rt(config), ctx)).rejects.toMatchObject({
-      name: 'ConnectorAuthError',
+    const s = pending(await a.connector.startAuth(rt(config), ctx));
+    expect(s.challenge).toMatchObject({
+      kind: 'image',
+      mimeType: 'image/jpeg',
+      imageBase64: Buffer.from(jpeg).toString('base64'),
+    });
+    const b = setup({
+      tanMethods: [photoTan],
+      syncRequiresTan: 'photo',
+      photo: { mimeType: 'image/gif', data: jpeg },
+    });
+    await expect(b.connector.startAuth(rt(config), ctx)).rejects.toMatchObject({
       reason: 'declined',
       message: 'unsupported photoTAN format',
     });
   });
+
+  it('a rejected TAN restarts the order for a fresh reference (sync)', async () => {
+    const { connector, port } = setup({
+      tanMethods: [photoTan],
+      syncRequiresTan: 'photo',
+      refuseReusedTanReference: true,
+    });
+    const first = pending(await connector.startAuth(rt(config), ctx));
+    const retry = pending(
+      await connector.continueAuth(rt(first.dialog), { kind: 'image', code: '000000' }, ctx),
+    );
+    expect(retry.challenge.kind).toBe('image');
+    expect(port.callsOf('synchronize')).toHaveLength(3);
+    const done = await connector.continueAuth(
+      rt(retry.dialog),
+      { kind: 'image', code: SCRIPTED_CORRECT_CODE },
+      ctx,
+    );
+    finished(done);
+    expect(port.callsOf('synchronizeWithTan').map((c) => c.args[0])).toEqual([
+      'REF-SYNC',
+      'REF-SYNC-1',
+    ]);
+  });
+
+  it('too_many_attempts still applies across restarts', async () => {
+    const { connector } = setup({
+      tanMethods: [pushTan],
+      syncRequiresTan: 'code',
+      refuseReusedTanReference: true,
+    });
+    let step = pending(await connector.startAuth(rt(config), ctx));
+    for (let i = 0; i < 2; i++)
+      step = pending(
+        await connector.continueAuth(rt(step.dialog), { kind: 'code', code: '1' }, ctx),
+      );
+    await expect(
+      connector.continueAuth(rt(step.dialog), { kind: 'code', code: '1' }, ctx),
+    ).rejects.toMatchObject({ reason: 'too_many_attempts' });
+  });
+
+  it.each([
+    ['checking', CHECKING, 'getStatements', 'getStatementsWithTan'],
+    ['credit-card', CARD, 'getCreditCardStatements', 'getCreditCardStatementsWithTan'],
+  ] as const)(
+    'probe TAN (%s): continued with the matching call, restart on rejection',
+    async (_n, acc, probe, withTan) => {
+      const { connector, port } = setup({
+        tanMethods: [pushTan],
+        syncRequiresTan: 'code',
+        statementsRequireTan: true,
+        accounts: [acc],
+        refuseReusedTanReference: true,
+      });
+      let step = pending(await connector.startAuth(rt(config), ctx));
+      step = pending(
+        await connector.continueAuth(
+          rt(step.dialog),
+          { kind: 'code', code: SCRIPTED_CORRECT_CODE },
+          ctx,
+        ),
+      );
+      expect(port.callsOf(probe)).toHaveLength(1);
+      // wrong code: the order is restarted (probe re-run), then the right code finishes
+      step = pending(
+        await connector.continueAuth(rt(step.dialog), { kind: 'code', code: '9' }, ctx),
+      );
+      expect(port.callsOf(probe)).toHaveLength(2);
+      finished(
+        await connector.continueAuth(
+          rt(step.dialog),
+          { kind: 'code', code: SCRIPTED_CORRECT_CODE },
+          ctx,
+        ),
+      );
+      expect(port.callsOf(withTan).map((c) => c.args[0])).toEqual(['REF-STMT', 'REF-STMT-1']);
+      const other =
+        withTan === 'getStatementsWithTan'
+          ? 'getCreditCardStatementsWithTan'
+          : 'getStatementsWithTan';
+      expect(port.callsOf(other)).toHaveLength(0);
+    },
+  );
 
   it('chipTAN-optical only is declined', async () => {
     const { connector } = setup({ tanMethods: [chip] });

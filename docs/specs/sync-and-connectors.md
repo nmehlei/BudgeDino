@@ -49,7 +49,7 @@ Further institutions come from the same connectors (any FinTS bank; any Enable B
   - `decoupled` — "confirm in your bank app" (e.g. DKB); the app shows a waiting state, the server polls
     the bank.
   - `code` — TAN or SMS code entry.
-  - `image` — photoTAN/chipTAN image plus code entry.
+  - `image` — photoTAN image (`imageBase64` + `mimeType`, PNG or JPEG) plus code entry.
 - The server keeps the bank dialog state for the duration of the challenge (minutes) and continues the
   same dialog with the user's answer, so the bank session and the user are in the same moment.
 - Each connector declares which challenge types it can raise; new bank quirks become new challenge
@@ -86,7 +86,7 @@ injected (no global); `get(type)` throws `UnknownConnectorError`.
   `fetchTransactions(state, accountRef, since, ctx)`. Metadata: `type`, `experimental`,
   `challengeKinds`, `rateLimit` (`maxUnattendedPerDay`, `defaultSchedule`).
 - **Challenge kinds:** `redirect` (url + return scheme; answer = callback URL), `decoupled` (message +
-  poll interval; answer = confirm), `code` (answer = code), `image` (image + code).
+  poll interval; answer = confirm), `code` (answer = code), `image` (base64 image + `mimeType` `image/png`|`image/jpeg`, plus code entry).
 - **Failure reasons:** `fetchTransactions` never throws for bank-side problems; it returns
   `{ ok: false, reason: 'needs_attention' | 'rate_limited' | 'temporary', retryAfter? }`.
 - **Decoupled polling:** `continueAuth` returning `{done:false}` with the same `decoupled` challenge

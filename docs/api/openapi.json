@@ -2036,14 +2036,22 @@
                                 "message": {
                                   "type": "string"
                                 },
-                                "imagePngBase64": {
+                                "imageBase64": {
                                   "type": "string"
+                                },
+                                "mimeType": {
+                                  "type": "string",
+                                  "enum": [
+                                    "image/png",
+                                    "image/jpeg"
+                                  ]
                                 }
                               },
                               "required": [
                                 "kind",
                                 "message",
-                                "imagePngBase64"
+                                "imageBase64",
+                                "mimeType"
                               ],
                               "additionalProperties": false
                             }
@@ -2373,14 +2381,22 @@
                                 "message": {
                                   "type": "string"
                                 },
-                                "imagePngBase64": {
+                                "imageBase64": {
                                   "type": "string"
+                                },
+                                "mimeType": {
+                                  "type": "string",
+                                  "enum": [
+                                    "image/png",
+                                    "image/jpeg"
+                                  ]
                                 }
                               },
                               "required": [
                                 "kind",
                                 "message",
-                                "imagePngBase64"
+                                "imageBase64",
+                                "mimeType"
                               ],
                               "additionalProperties": false
                             }
@@ -2710,14 +2726,22 @@
                                 "message": {
                                   "type": "string"
                                 },
-                                "imagePngBase64": {
+                                "imageBase64": {
                                   "type": "string"
+                                },
+                                "mimeType": {
+                                  "type": "string",
+                                  "enum": [
+                                    "image/png",
+                                    "image/jpeg"
+                                  ]
                                 }
                               },
                               "required": [
                                 "kind",
                                 "message",
-                                "imagePngBase64"
+                                "imageBase64",
+                                "mimeType"
                               ],
                               "additionalProperties": false
                             }

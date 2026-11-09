@@ -9,6 +9,8 @@ export interface DialogMeta {
   step: 'sync' | 'statements-probe';
   tanReference: string;
   accountRef?: string;
+  /** Which statements call the probe used, so it can be continued or restarted. */
+  probe?: 'statements' | 'credit-card';
   startedAt: string;
 }
 

@@ -82,6 +82,10 @@ export interface FinTSSession {
     ref: string,
     tan?: string,
   ): Promise<FinTSPortResponse & { transactions?: FinTSTx[] }>;
+  getCreditCardStatementsWithTan(
+    ref: string,
+    tan?: string,
+  ): Promise<FinTSPortResponse & { transactions?: FinTSTx[] }>;
   getCreditCardStatements(
     acc: FinTSAccount,
     from?: Date,

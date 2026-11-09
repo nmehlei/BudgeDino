@@ -16,7 +16,12 @@ export const challenge = z.discriminatedUnion('kind', [
     message: z.string(),
     length: z.number().int().positive().optional(),
   }),
-  z.object({ kind: z.literal('image'), message: z.string(), imagePngBase64: z.string() }),
+  z.object({
+    kind: z.literal('image'),
+    message: z.string(),
+    imageBase64: z.string(),
+    mimeType: z.enum(['image/png', 'image/jpeg']),
+  }),
 ]);
 export type Challenge = z.infer<typeof challenge>;
 

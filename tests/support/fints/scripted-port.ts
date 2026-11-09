@@ -32,6 +32,11 @@ export interface ScriptedScenario {
   balance?: { value: number; currency: string };
   /** Fails the first `synchronize()`. */
   failWith?: 'wrong-pin' | 'locked' | 'server-error';
+  /**
+   * After a rejected TAN the bank ends the dialog: answering the old reference fails (message-level
+   * 9800); only a restarted order (fresh reference, `REF-...-n`) works.
+   */
+  refuseReusedTanReference?: boolean;
   /** Fails every statement/credit-card/balance call (Task 5). */
   statementsFailWith?: 'wrong-pin' | 'server-error';
   /** Snapshot returned by `bankingInformation()`; JSON only. */
@@ -108,6 +113,7 @@ class ScriptedSession implements FinTSSession {
   private syncPending: number;
   private statementsPending: number;
   private firstSyncDone = false;
+  private rejections = 0;
 
   constructor(
     private readonly port: ScriptedFinTSPort,
@@ -125,6 +131,10 @@ class ScriptedSession implements FinTSSession {
 
   private rec(method: string, ...args: unknown[]): void {
     this.port.calls.push({ method, args });
+  }
+
+  private ref(base: 'REF-SYNC' | 'REF-STMT'): string {
+    return this.rejections === 0 ? base : `${base}-${this.rejections}`;
   }
 
   private tanResponse(kind: ScriptedTanKind, ref: string): FinTSPortResponse {
@@ -154,7 +164,13 @@ class ScriptedSession implements FinTSSession {
       }
       return { ...BASE };
     }
+    if (
+      this.sc.refuseReusedTanReference &&
+      ref !== this.ref(pending === 'sync' ? 'REF-SYNC' : 'REF-STMT')
+    )
+      return { ...BASE, success: false, bankAnswers: [{ code: 9800, text: 'Dialog beendet' }] };
     if (tan === (this.sc.correctCode ?? SCRIPTED_CORRECT_CODE)) return { ...BASE };
+    this.rejections++;
     return { ...BASE, success: false, bankAnswers: [{ code: 9941, text: 'TAN ungueltig' }] };
   }
 
@@ -200,7 +216,7 @@ class ScriptedSession implements FinTSSession {
       return this.withBankingInfo({ ...BASE, bankingInformationUpdated: true });
     }
     const kind = this.syncKind();
-    if (kind && !this.syncTanGiven) return this.tanResponse(kind, 'REF-SYNC');
+    if (kind && !this.syncTanGiven) return this.tanResponse(kind, this.ref('REF-SYNC'));
     return this.withBankingInfo({ ...BASE });
   }
 
@@ -233,7 +249,7 @@ class ScriptedSession implements FinTSSession {
       return { ...BASE, success: false, bankAnswers: [{ code: 9931, text: 'PIN falsch' }] };
     if (this.sc.statementsFailWith === 'server-error') throw new FinTSPortError('http', 500);
     if (this.sc.statementsRequireTan && !this.statementsTanGiven)
-      return this.tanResponse(this.statementsKind(), 'REF-STMT');
+      return this.tanResponse(this.statementsKind(), this.ref('REF-STMT'));
     return undefined;
   }
 
@@ -255,6 +271,19 @@ class ScriptedSession implements FinTSSession {
     if (r.success && !r.requiresTan) {
       this.statementsTanGiven = true;
       return { ...r, transactions: this.sc.transactions ?? [] };
+    }
+    return r;
+  }
+
+  async getCreditCardStatementsWithTan(
+    ref: string,
+    tan?: string,
+  ): Promise<FinTSPortResponse & { transactions?: FinTSTx[] }> {
+    this.rec('getCreditCardStatementsWithTan', ref, tan);
+    const r = this.withTan(this.statementsKind(), ref, tan, 'statements');
+    if (r.success && !r.requiresTan) {
+      this.statementsTanGiven = true;
+      return { ...r, transactions: this.sc.creditCardTransactions ?? [] };
     }
     return r;
   }
