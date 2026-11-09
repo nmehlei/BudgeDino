@@ -166,6 +166,52 @@ describe('pending to booked reconciliation', () => {
     expect(again.updated).toEqual([]);
   });
 
+  it('does not bring the pending twin back when the bank re-reports it after booking', async () => {
+    const pendingTx = tx({
+      providerId: null,
+      status: 'pending',
+      bookingDate: '2026-11-03',
+      amount: money(-4200n, 'EUR'),
+      counterparty: 'Fuel Station',
+    });
+    await run([pendingTx]);
+    const bookedTx = tx({
+      providerId: 'bank-77',
+      bookingDate: '2026-11-05',
+      amount: money(-4850n, 'EUR'),
+      counterparty: 'Fuel Station',
+    });
+    await run([bookedTx]);
+    const again = await run([pendingTx, bookedTx]);
+    expect(again.inserted).toEqual([]);
+    expect(again.updated).toEqual([]);
+    const all = await rows();
+    expect(all).toHaveLength(1);
+    expect(all[0]).toMatchObject({ status: 'booked', amountMinor: -4850n });
+  });
+
+  it('reconciles a pending/booked pair delivered in one batch, booked first', async () => {
+    const res = await run([
+      tx({
+        providerId: 'bank-77',
+        bookingDate: '2026-11-05',
+        amount: money(-4850n, 'EUR'),
+        counterparty: 'Fuel Station',
+      }),
+      tx({
+        providerId: null,
+        status: 'pending',
+        bookingDate: '2026-11-03',
+        amount: money(-4200n, 'EUR'),
+        counterparty: 'Fuel Station',
+      }),
+    ]);
+    expect(res.inserted).toHaveLength(1);
+    const all = await rows();
+    expect(all).toHaveLength(1);
+    expect(all[0]).toMatchObject({ status: 'booked', amountMinor: -4850n });
+  });
+
   it.each([
     ['amount differs by more than 25%', { amount: money(-5400n, 'EUR') }],
     ['booked more than 7 days after pending', { bookingDate: '2026-11-11' }],

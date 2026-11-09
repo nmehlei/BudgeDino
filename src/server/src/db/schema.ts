@@ -134,6 +134,8 @@ export const accounts = pgTable(
       .notNull()
       .references(() => members.id),
     externalRefBidx: text('external_ref_bidx').notNull(),
+    /** Bank-side account reference (needed to fetch); null only for rows created before it was stored. */
+    externalRefEnc: bytea('external_ref_enc'),
     nameEnc: bytea('name_enc').notNull(),
     ibanEnc: bytea('iban_enc'),
     kind: text('kind', {
@@ -195,6 +197,24 @@ export const transactions = pgTable(
     index('transactions_account_booking_date').on(t.accountId, t.bookingDate),
     index('transactions_transfer_group').on(t.transferGroupId),
   ],
+);
+
+/**
+ * Dedup keys of pending rows that were absorbed into their booked twin (same row, new key). A bank that
+ * keeps reporting the pre-authorisation matches the alias instead of creating a new pending row.
+ */
+export const transactionDedupAliases = pgTable(
+  'transaction_dedup_aliases',
+  {
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => accounts.id, { onDelete: 'cascade' }),
+    dedupBidx: text('dedup_bidx').notNull(),
+    transactionId: uuid('transaction_id')
+      .notNull()
+      .references(() => transactions.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.accountId, t.dedupBidx] })],
 );
 
 export const transactionSplits = pgTable('transaction_splits', {

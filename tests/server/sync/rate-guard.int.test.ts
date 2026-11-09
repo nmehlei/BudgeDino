@@ -3,6 +3,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { createFakeConnector } from '@budgedino/server/connectors/fake/fake-connector';
 import { createConnectorRegistry } from '@budgedino/server/connectors/registry';
 import { decryptString } from '@budgedino/server/crypto';
+import { createAccount } from '@budgedino/server/repositories/accounts';
+import { decryptConnectorState } from '@budgedino/server/repositories/connectors';
 import { connectors, notifications, syncRuns } from '@budgedino/server/db/schema';
 import { Keyring } from '@budgedino/server/households/keyring';
 import { createLogger } from '@budgedino/server/observability/logger';
@@ -155,5 +157,78 @@ describe('errors and serialisation', () => {
     // flaky: the first fetch of a state fails temporarily and carries fetchCount 1. Because that state
     // is persisted before the second (serialised) run starts, the second run succeeds.
     expect(results.map((r) => r.outcome).sort()).toEqual(['ok', 'temporary']);
+  });
+});
+
+describe('durable state, account refs, error streak', () => {
+  it('keeps the state returned for account 1 when the fetch of account 2 throws', async () => {
+    const { connectorId } = await seedFakeConnector(database.db, keyring, householdId, ownerId);
+    const dk = await keyring.forHousehold(householdId);
+    await createAccount(database.db, dk, {
+      connectorId,
+      ownerMemberId: ownerId,
+      externalRef: 'fake-2',
+      name: 'Second',
+      kind: 'checking',
+      currency: 'EUR',
+    });
+    const fake = registry.get('fake');
+    const spy = vi
+      .spyOn(fake, 'fetchTransactions')
+      .mockResolvedValueOnce({
+        ok: true,
+        transactions: [],
+        state: { scenario: 'happy', accountRef: 'fake-1', transactions: [], rotated: 'token-2' },
+      })
+      .mockRejectedValueOnce(new Error('network down'));
+    const res = await runSync(deps(), connectorId, 'user');
+    spy.mockRestore();
+    expect(res.outcome).toBe('error');
+    const [c] = await database.db.select().from(connectors).where(eq(connectors.id, connectorId));
+    const state = decryptConnectorState(dk, connectorId, c?.stateEnc ?? null);
+    expect(state['rotated']).toBe('token-2');
+  });
+
+  it('never calls listAccounts during a run (uses the stored bank reference)', async () => {
+    const { connectorId } = await seedFakeConnector(database.db, keyring, householdId, ownerId);
+    const spy = vi.spyOn(registry.get('fake'), 'listAccounts');
+    spy.mockClear();
+    const fetchSpy = vi.spyOn(registry.get('fake'), 'fetchTransactions');
+    fetchSpy.mockClear();
+    await runSync(deps(), connectorId, 'user');
+    expect(spy).not.toHaveBeenCalled();
+    expect(fetchSpy.mock.calls[0]?.[1]).toBe('fake-1');
+    spy.mockRestore();
+    fetchSpy.mockRestore();
+  });
+
+  it('after 3 consecutive error runs sets status=error, notifies the owner once and stops scheduling', async () => {
+    const { connectorId } = await seedFakeConnector(database.db, keyring, householdId, ownerId);
+    const spy = vi
+      .spyOn(registry.get('fake'), 'fetchTransactions')
+      .mockRejectedValue(new Error('boom'));
+    for (let i = 0; i < 2; i++) {
+      nowMs += 60_000;
+      await runSync(deps(), connectorId, 'user');
+    }
+    let [c] = await database.db.select().from(connectors).where(eq(connectors.id, connectorId));
+    expect(c?.status).toBe('ok');
+    expect(await database.db.select().from(notifications)).toHaveLength(0);
+    nowMs += 60_000;
+    await runSync(deps(), connectorId, 'user');
+    nowMs += 60_000;
+    await runSync(deps(), connectorId, 'user'); // 4th: already in error, no second notification
+    spy.mockRestore();
+    [c] = await database.db.select().from(connectors).where(eq(connectors.id, connectorId));
+    expect(c?.status).toBe('error');
+    const rows = await database.db.select().from(notifications);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: 'connector_attention', memberId: ownerId });
+    expect((await runSync(deps(), connectorId, 'schedule')).outcome).toBe('skipped');
+    // a successful user run recovers the connector
+    nowMs += 60_000;
+    expect((await runSync(deps(), connectorId, 'user')).outcome).toBe('ok');
+    [c] = await database.db.select().from(connectors).where(eq(connectors.id, connectorId));
+    expect(c?.status).toBe('ok');
   });
 });

@@ -15,6 +15,13 @@
       "when": 1794186033666,
       "tag": "0001_members_totp_last_step",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794193759156,
+      "tag": "0002_sync_aliases_external_ref",
+      "breakpoints": true
     }
   ]
 }

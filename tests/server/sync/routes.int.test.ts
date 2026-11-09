@@ -76,6 +76,33 @@ describe('POST /connectors/:id/sync', () => {
     expect(run).toMatchObject({ trigger: 'user', userPresent: true, outcome: 'ok' });
   });
 
+  it('coalesces onto a queued or active run and throttles user runs to one per 2 minutes', async () => {
+    const { connectorId } = await seedFakeConnector(database.db, keyring, householdId, bId);
+    const queued = await database.db
+      .insert(syncRuns)
+      .values({
+        connectorId,
+        trigger: 'schedule',
+        startedAt: new Date('2026-11-09T11:55:00Z'),
+      })
+      .returning({ id: syncRuns.id });
+    const coalesced = await call('POST', `/connectors/${connectorId}/sync`, bToken);
+    expect(coalesced.statusCode).toBe(202);
+    expect(coalesced.json<{ runId: string }>().runId).toBe(queued[0]?.id);
+    expect(await database.db.select().from(syncRuns)).toHaveLength(1);
+
+    // no active run any more: the first user run starts, the second within 2 minutes is throttled
+    await database.db.update(syncRuns).set({ outcome: 'ok' });
+    const first = await call('POST', `/connectors/${connectorId}/sync`, bToken);
+    expect(first.statusCode).toBe(202);
+    await app.ctx.sync.idle();
+    const second = await call('POST', `/connectors/${connectorId}/sync`, bToken);
+    expect(second.statusCode).toBe(429);
+    expect(second.headers['retry-after']).toBe('120');
+    expect(second.json<{ error: string }>().error).toBe('sync_throttled');
+    expect(await database.db.select().from(syncRuns)).toHaveLength(2);
+  });
+
   it('answers 404 for another member (admin included) and for unknown ids, without starting a run', async () => {
     const { connectorId } = await seedFakeConnector(database.db, keyring, householdId, bId);
     const other = await call('POST', `/connectors/${connectorId}/sync`, aToken);

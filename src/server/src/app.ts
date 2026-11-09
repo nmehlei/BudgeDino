@@ -108,7 +108,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   // (a JSON parse error message can contain a snippet of the body).
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof HttpError) {
-      return reply.code(err.statusCode).send({ error: err.code, message: err.message });
+      return reply
+        .code(err.statusCode)
+        .headers(err.headers)
+        .send({ error: err.code, message: err.message });
     }
     if (hasZodFastifySchemaValidationErrors(err)) {
       return reply.code(400).send({

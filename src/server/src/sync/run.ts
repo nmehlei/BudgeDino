@@ -1,19 +1,15 @@
-import { and, eq, max, sql } from 'drizzle-orm';
-import { blindIndex, encryptField, type DataKey } from '../crypto/index.js';
+import { and, desc, eq, isNull, max, notInArray, or } from 'drizzle-orm';
+import { encryptField, type DataKey } from '../crypto/index.js';
 import type { ConnectorRegistry } from '../connectors/registry.js';
 import { UnknownConnectorError } from '../connectors/registry.js';
-import type {
-  Connector,
-  ConnectorContext,
-  ConnectorState,
-  FetchResult,
-} from '../connectors/types.js';
+import type { ConnectorContext, ConnectorState, FetchResult } from '../connectors/types.js';
 import type { Db, DbOrTx } from '../db/client.js';
 import { newId } from '../db/ids.js';
 import { accounts, connectors, notifications, syncRuns, transactions } from '../db/schema.js';
 import type { Keyring } from '../households/keyring.js';
 import type { Logger } from '../observability/logger.js';
 import { safeErrorInfo } from '../observability/redact.js';
+import { decryptExternalRef } from '../repositories/accounts.js';
 import { decryptConnectorState, encryptConnectorState } from '../repositories/connectors.js';
 import { ingest } from './ingest.js';
 import { isUnattendedBudgetExhausted } from './rate-guard.js';
@@ -21,6 +17,8 @@ import { isUnattendedBudgetExhausted } from './rate-guard.js';
 const DAY_MS = 86_400_000;
 /** Late bookings: every fetch re-requests this much of the already-synced range. */
 const CURSOR_OVERLAP_DAYS = 7;
+/** This many consecutive failed runs put the connector into `error` (the scheduler then skips it). */
+const ERROR_STREAK_LIMIT = 3;
 
 export type SyncTrigger = 'schedule' | 'user';
 
@@ -85,10 +83,12 @@ export async function createSyncRun(
 /**
  * Fetches and ingests the transactions of every account of a connector.
  *
- * One run at a time per connector (advisory transaction lock), so a user-triggered run and a scheduled
- * run never interleave their state writes. Unattended runs honour the connector's daily budget; user runs
- * do not count against it and are sent to the bank as user-present. The server never starts an
- * interactive bank dialog: `needs_attention` flips the connector and notifies its owner.
+ * One run at a time per connector: a session-level advisory lock on a dedicated connection (no DB
+ * transaction is held open across bank HTTP), so a user-triggered run and a scheduled run never interleave
+ * their state writes. Connector state is committed right after every FetchResult; ingest runs in one short
+ * transaction per account. Unattended runs honour the connector's daily budget; user runs do not count
+ * against it and are sent to the bank as user-present. The server never starts an interactive bank dialog:
+ * `needs_attention` flips the connector and notifies its owner.
  */
 export async function runSync(
   deps: SyncDeps,
@@ -98,79 +98,136 @@ export async function runSync(
 ): Promise<RunSyncResult> {
   const { db, logger } = deps;
   const runId = options.runId ?? (await createSyncRun(db, connectorId, trigger, deps.now()));
+  const ingested: string[] = [];
+  const lockClient = await db.$client.connect();
   try {
-    const result = await db.transaction(async (tx) => {
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${connectorId}, 0))`);
-      return executeRun(deps, tx, connectorId, trigger, runId, options);
-    });
-    if (result.ingestedIds !== null) {
-      try {
-        await deps.onIngested(result.householdId, result.ingestedIds);
-      } catch (err) {
-        logger.error({ connectorId, error: safeErrorInfo(err) }, 'onIngested hook failed');
+    await lockClient.query('select pg_advisory_lock(hashtextextended($1, 0))', [connectorId]);
+    try {
+      const result = await executeRun(deps, connectorId, trigger, runId, options, ingested);
+      await callHook(deps, result.householdId, result.fetched ? ingested : null, connectorId);
+      return { runId, outcome: result.outcome };
+    } catch (err) {
+      const code =
+        err instanceof UnknownConnectorError ? ERROR_CODES.unknown_connector : ERROR_CODES.failed;
+      logger.error({ connectorId, runId, error: safeErrorInfo(err) }, 'sync failed');
+      await recordError(deps, connectorId, runId, code);
+      if (ingested.length > 0) {
+        const [row] = await db
+          .select({ householdId: connectors.householdId })
+          .from(connectors)
+          .where(eq(connectors.id, connectorId));
+        if (row) await callHook(deps, row.householdId, ingested, connectorId);
       }
+      return { runId, outcome: 'error' };
+    } finally {
+      await lockClient.query('select pg_advisory_unlock(hashtextextended($1, 0))', [connectorId]);
     }
-    return { runId, outcome: result.outcome };
-  } catch (err) {
-    const code =
-      err instanceof UnknownConnectorError ? ERROR_CODES.unknown_connector : ERROR_CODES.failed;
-    logger.error({ connectorId, runId, error: safeErrorInfo(err) }, 'sync failed');
-    await db.transaction(async (tx) => {
-      await tx
-        .update(syncRuns)
-        .set({ outcome: 'error', errorCode: code, finishedAt: deps.now() })
-        .where(eq(syncRuns.id, runId));
-      await tx
-        .update(connectors)
-        .set({ lastErrorCode: code })
-        .where(eq(connectors.id, connectorId));
-    });
-    return { runId, outcome: 'error' };
+  } finally {
+    lockClient.release();
   }
+}
+
+async function callHook(
+  deps: SyncDeps,
+  householdId: string,
+  ids: string[] | null,
+  connectorId: string,
+): Promise<void> {
+  if (ids === null) return;
+  try {
+    await deps.onIngested(householdId, ids);
+  } catch (err) {
+    deps.logger.error({ connectorId, error: safeErrorInfo(err) }, 'onIngested hook failed');
+  }
+}
+
+/** Records an unexpected failure; after 3 consecutive failed runs the connector goes to `error`. */
+async function recordError(
+  deps: SyncDeps,
+  connectorId: string,
+  runId: string,
+  code: string,
+): Promise<void> {
+  const { db } = deps;
+  await db.transaction(async (tx) => {
+    await tx
+      .update(syncRuns)
+      .set({ outcome: 'error', errorCode: code, finishedAt: deps.now() })
+      .where(eq(syncRuns.id, runId));
+    await tx.update(connectors).set({ lastErrorCode: code }).where(eq(connectors.id, connectorId));
+    const [connector] = await tx.select().from(connectors).where(eq(connectors.id, connectorId));
+    if (!connector || connector.status === 'error' || connector.status === 'disabled') return;
+    // runs that never reached the bank do not break or extend a streak
+    const recent = await tx
+      .select({ outcome: syncRuns.outcome })
+      .from(syncRuns)
+      .where(
+        and(
+          eq(syncRuns.connectorId, connectorId),
+          or(isNull(syncRuns.outcome), notInArray(syncRuns.outcome, ['rate_limited', 'skipped'])),
+        ),
+      )
+      .orderBy(desc(syncRuns.startedAt), desc(syncRuns.id))
+      .limit(ERROR_STREAK_LIMIT);
+    if (recent.length === ERROR_STREAK_LIMIT && recent.every((r) => r.outcome === 'error')) {
+      await tx.update(connectors).set({ status: 'error' }).where(eq(connectors.id, connectorId));
+      await notifyAttention(
+        tx,
+        await deps.keyring.forHousehold(connector.householdId),
+        connector,
+        `${connector.type} stopped syncing after repeated errors`,
+      );
+    }
+  });
 }
 
 interface RunDone {
   outcome: SyncOutcome;
   householdId: string;
-  /** null when no fetch succeeded (the hook is not called). */
-  ingestedIds: string[] | null;
+  /** True when at least one fetch succeeded (the ingest hook is then called). */
+  fetched: boolean;
 }
 
 async function executeRun(
   deps: SyncDeps,
-  tx: DbOrTx,
   connectorId: string,
   trigger: SyncTrigger,
   runId: string,
   options: RunSyncOptions,
+  ingested: string[],
 ): Promise<RunDone> {
+  const { db } = deps;
   const now = deps.now();
-  const [connector] = await tx.select().from(connectors).where(eq(connectors.id, connectorId));
+  const [connector] = await db.select().from(connectors).where(eq(connectors.id, connectorId));
   if (!connector) throw new Error('Connector not found');
-  const finish = async (outcome: SyncOutcome, errorCode?: string): Promise<RunDone> => {
-    await tx
+  const finish = async (
+    outcome: SyncOutcome,
+    fetched: boolean,
+    errorCode?: string,
+  ): Promise<RunDone> => {
+    await db
       .update(syncRuns)
       .set({ outcome, errorCode: errorCode ?? null, finishedAt: deps.now() })
       .where(eq(syncRuns.id, runId));
-    return { outcome, householdId: connector.householdId, ingestedIds: null };
+    return { outcome, householdId: connector.householdId, fetched };
   };
 
   // Scheduled runs only touch healthy connectors; a user may retry one that needs attention or errored.
   const runnable = trigger === 'user' ? connector.status !== 'disabled' : connector.status === 'ok';
-  if (!runnable) return finish('skipped');
+  if (!runnable) return finish('skipped', false);
 
   const impl = deps.registry.get(connector.type);
   if (
     trigger === 'schedule' &&
     (await isUnattendedBudgetExhausted(
-      tx,
+      db,
       connectorId,
       now,
       runId,
       impl.rateLimit.maxUnattendedPerDay,
     ))
   ) {
-    return finish('rate_limited');
+    return finish('rate_limited', false);
   }
 
   const dk = await deps.keyring.forHousehold(connector.householdId);
@@ -182,50 +239,60 @@ async function executeRun(
   };
 
   let state = decryptConnectorState(dk, connectorId, connector.stateEnc);
+  // Committed immediately (own statement): a later failure in this run must not lose rotated state.
   const persistState = async (next: ConnectorState | undefined) => {
     if (next === undefined) return;
     state = next;
-    await tx
+    await db
       .update(connectors)
       .set({ stateEnc: encryptConnectorState(dk, connectorId, next) })
       .where(eq(connectors.id, connectorId));
   };
 
-  const accountIds = await resolveAccounts(tx, dk, impl, connectorId, state, ctx);
-  const ingestedIds: string[] = [];
+  const accountRows = await db.select().from(accounts).where(eq(accounts.connectorId, connectorId));
   let failure: Exclude<FetchResult, { ok: true }> | null = null;
-  for (const { accountId, ref } of accountIds) {
-    const since = await syncCursor(tx, accountId);
+  for (const row of accountRows) {
+    const ref = decryptExternalRef(dk, row);
+    if (ref === null) {
+      deps.logger.warn(
+        { connectorId, accountId: row.id },
+        'sync: account has no stored bank reference',
+      );
+      continue;
+    }
+    const since = await syncCursor(db, row.id);
     const result = await impl.fetchTransactions(state, ref, since, ctx);
     await persistState(result.state);
     if (!result.ok) {
       failure = result;
       break;
     }
-    const { inserted, updated } = await ingest(tx, dk, accountId, result.transactions, { now });
-    ingestedIds.push(...inserted, ...updated);
-    if (result.balance !== undefined) {
-      await tx
-        .update(accounts)
-        .set({
-          balanceEnc: encryptField(dk, result.balance.minor.toString(), {
-            table: 'accounts',
-            column: 'balance',
-            rowId: accountId,
-          }),
-          balanceAt: now,
-        })
-        .where(eq(accounts.id, accountId));
-    }
+    const balance = result.balance;
+    await db.transaction(async (tx) => {
+      const { inserted, updated } = await ingest(tx, dk, row.id, result.transactions, { now });
+      ingested.push(...inserted, ...updated);
+      if (balance !== undefined) {
+        await tx
+          .update(accounts)
+          .set({
+            balanceEnc: encryptField(dk, balance.minor.toString(), {
+              table: 'accounts',
+              column: 'balance',
+              rowId: row.id,
+            }),
+            balanceAt: now,
+          })
+          .where(eq(accounts.id, row.id));
+      }
+    });
   }
 
   if (failure === null) {
-    await tx
+    await db
       .update(connectors)
       .set({ status: 'ok', lastSuccessAt: now, lastErrorCode: null })
       .where(eq(connectors.id, connectorId));
-    await finish('ok');
-    return { outcome: 'ok', householdId: connector.householdId, ingestedIds };
+    return finish('ok', true);
   }
 
   const [outcome, errorCode] =
@@ -234,51 +301,25 @@ async function executeRun(
       : failure.reason === 'rate_limited'
         ? (['bank_rate_limited', ERROR_CODES.bank_rate_limited] as const)
         : (['temporary', ERROR_CODES.temporary] as const);
-  await tx
+  await db
     .update(connectors)
     .set({ lastErrorCode: errorCode })
     .where(eq(connectors.id, connectorId));
   if (outcome === 'needs_attention' && connector.status !== 'needs_attention') {
-    await tx
-      .update(connectors)
-      .set({ status: 'needs_attention' })
-      .where(eq(connectors.id, connectorId));
-    await notifyAttention(tx, dk, connector);
+    await db.transaction(async (tx) => {
+      await tx
+        .update(connectors)
+        .set({ status: 'needs_attention' })
+        .where(eq(connectors.id, connectorId));
+      await notifyAttention(tx, dk, connector, `${connector.type} needs your attention`);
+    });
   }
-  await finish(outcome, errorCode);
-  return { outcome, householdId: connector.householdId, ingestedIds };
-}
-
-/**
- * The connector's accounts as the bank knows them. Accounts store only a blind index of the bank
- * reference, so the references come from `listAccounts` and are matched to existing rows; accounts
- * discovered at the bank but not yet in BudgeDino are ignored (discovery happens after auth).
- */
-async function resolveAccounts(
-  tx: DbOrTx,
-  dk: DataKey,
-  impl: Connector,
-  connectorId: string,
-  state: ConnectorState,
-  ctx: ConnectorContext,
-): Promise<{ accountId: string; ref: string }[]> {
-  const rows = await tx
-    .select({ id: accounts.id, bidx: accounts.externalRefBidx })
-    .from(accounts)
-    .where(eq(accounts.connectorId, connectorId));
-  if (rows.length === 0) return [];
-  const byBidx = new Map(rows.map((r) => [r.bidx, r.id]));
-  const out: { accountId: string; ref: string }[] = [];
-  for (const provider of await impl.listAccounts(state, ctx)) {
-    const accountId = byBidx.get(blindIndex(dk, 'account-external-ref', provider.ref));
-    if (accountId) out.push({ accountId, ref: provider.ref });
-  }
-  return out;
+  return finish(outcome, ingested.length > 0, errorCode);
 }
 
 /** Latest booked date minus the overlap, or null before the first sync. */
-async function syncCursor(tx: DbOrTx, accountId: string): Promise<Date | null> {
-  const [row] = await tx
+async function syncCursor(db: DbOrTx, accountId: string): Promise<Date | null> {
+  const [row] = await db
     .select({ latest: max(transactions.bookingDate) })
     .from(transactions)
     .where(and(eq(transactions.accountId, accountId), eq(transactions.status, 'booked')));
@@ -286,17 +327,15 @@ async function syncCursor(tx: DbOrTx, accountId: string): Promise<Date | null> {
   return new Date(Date.parse(`${row.latest}T00:00:00Z`) - CURSOR_OVERLAP_DAYS * DAY_MS);
 }
 
-/** The body names the connector type only: no amounts, payees or IBANs. */
+/** The body carries the connector type only: no amounts, payees or IBANs. */
 async function notifyAttention(
   tx: DbOrTx,
   dk: DataKey,
   connector: typeof connectors.$inferSelect,
+  message: string,
 ): Promise<void> {
   const id = newId();
-  const body = JSON.stringify({
-    connectorId: connector.id,
-    message: `${connector.type} needs your attention`,
-  });
+  const body = JSON.stringify({ connectorId: connector.id, message });
   await tx.insert(notifications).values({
     id,
     householdId: connector.householdId,

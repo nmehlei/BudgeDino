@@ -105,12 +105,18 @@ injected (no global); `get(type)` throws `UnknownConnectorError`.
 
 Code: `src/server/src/sync/` (`run.ts`, `ingest.ts`, `rate-guard.ts`, `scheduler.ts`, `jobs.ts`, `routes.ts`).
 
-- **`runSync(connectorId, trigger, ctx)`** runs one connector inside a transaction holding a
-  `pg_advisory_xact_lock` on the connector id, so scheduled and user-triggered runs never interleave state
-  writes. Connector state (`connectors.state_enc`, encrypted) is persisted after **every** `FetchResult`,
-  successful or not. Accounts store only a blind index of the bank reference, so the references come from
-  `listAccounts` and are matched to existing accounts (bank accounts BudgeDino does not know yet are ignored;
+- **`runSync(connectorId, trigger, ctx)`** runs one connector under a session-level advisory lock
+  (`pg_advisory_lock` on a dedicated connection; no DB transaction is open during bank HTTP), so scheduled and
+  user-triggered runs never interleave state writes. Connector state (`connectors.state_enc`, encrypted) is
+  committed right after **every** `FetchResult`, successful or not, and survives a later failure in the same run;
+  ingest of each account is its own short transaction. The bank reference of each account is stored encrypted
+  (`accounts.external_ref_enc`, written at account creation), so a run never calls `listAccounts` (account
   discovery happens after auth).
+- **Error streak:** 3 consecutive `error` runs set the connector to `error` (the scheduler skips it) and notify
+  the owner once; a successful user run restores `ok`.
+- **User syncs:** a request while a run of that connector is queued or active (no outcome, started < 15 min ago)
+  returns that run's id with 202 (coalescing); user runs are spaced at least 2 minutes apart per connector
+  (otherwise 429 `sync_throttled` with `Retry-After`).
 - **Cursor:** `since` = latest booked `booking_date` of the account minus 7 days (late bookings), or `null` on
   the first sync.
 - **Triggers:** `schedule` runs only touch `ok` connectors and count against `maxUnattendedPerDay`
@@ -129,7 +135,9 @@ Code: `src/server/src/sync/` (`run.ts`, `ingest.ts`, `rate-guard.ts`, `scheduler
   (identical content twice in one batch keeps two rows). Pending to booked: a booked transaction without a
   match takes over a pending row of the same account when the counterparty blind index is equal, the amount is
   within 25 % of the pending amount and it is booked 0 to 7 days after the pending date; the row keeps its id and
-  category. Pending rows older than 14 days that a fetch no longer reports are deleted (stale pre-auths).
+  category. The absorbed pending key is kept as an alias (`transaction_dedup_aliases`), so a bank that keeps
+  reporting the pre-authorisation neither re-inserts nor downgrades the booked row; within a batch pending
+  entries are processed before booked ones. Pending rows older than 14 days that a fetch no longer reports are deleted (stale pre-auths).
 - **Scheduler:** `nextRuns(schedule, timeZone, from)` supports `{times: ['HH:MM']}` (household-local) and
   `{cron}` (evaluated in the household time zone). pg-boss queues: `sync.tick` (every 5 minutes, enqueues due
   `ok` connectors) and `sync.connector` (policy `exclusive`, `singletonKey: connectorId`). `startJobs(deps, ...)`

@@ -45,6 +45,7 @@ export async function createAccount(db: Db, dk: DataKey, input: NewAccount): Pro
     connectorId: input.connectorId,
     ownerMemberId: input.ownerMemberId,
     externalRefBidx: blindIndex(dk, 'account-external-ref', input.externalRef),
+    externalRefEnc: encryptField(dk, input.externalRef, aad('external_ref', id)),
     nameEnc: encryptField(dk, input.name, aad('name', id)),
     ibanEnc: input.iban === undefined ? null : encryptField(dk, input.iban, aad('iban', id)),
     kind: input.kind,
@@ -58,6 +59,16 @@ export async function createAccount(db: Db, dk: DataKey, input: NewAccount): Pro
     balanceAt: input.balanceMinor === undefined ? null : new Date(),
   });
   return id;
+}
+
+/** The bank-side reference of an account (needed to fetch); null for rows stored before it was kept. */
+export function decryptExternalRef(
+  dk: DataKey,
+  row: Pick<typeof accounts.$inferSelect, 'id' | 'externalRefEnc'>,
+): string | null {
+  return row.externalRefEnc
+    ? decryptString(dk, row.externalRefEnc, aad('external_ref', row.id))
+    : null;
 }
 
 function toAccount(dk: DataKey, row: typeof accounts.$inferSelect): Account {

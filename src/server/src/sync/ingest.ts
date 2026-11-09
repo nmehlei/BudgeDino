@@ -3,7 +3,7 @@ import { and, eq, inArray, lt } from 'drizzle-orm';
 import { blindIndex, decryptString, encryptField, type DataKey } from '../crypto/index.js';
 import type { DbOrTx } from '../db/client.js';
 import { newId } from '../db/ids.js';
-import { transactions } from '../db/schema.js';
+import { transactionDedupAliases, transactions } from '../db/schema.js';
 import type { ProviderTransaction } from '../connectors/types.js';
 
 const aad = (column: string, rowId: string) => ({ table: 'transactions', column, rowId });
@@ -54,7 +54,8 @@ type Row = typeof transactions.$inferSelect;
  * one batch gets an occurrence suffix, so two genuine identical payments stay two rows).
  * A booked transaction without a match takes over a pending row of the same account when counterparty,
  * amount (within 25 %) and date (within 7 days after the pending date) fit; the row keeps its id and category.
- * Pending rows older than 14 days that this batch did not mention are deleted.
+ * Pending rows older than 14 days that this batch did not mention are deleted. The dedup key of an absorbed
+ * pending row stays as an alias of the booked row, so a re-reported pre-authorisation never comes back.
  */
 export async function ingest(
   db: DbOrTx,
@@ -69,7 +70,9 @@ export async function ingest(
   const touched = new Set<string>();
   const seenHashes = new Map<string, number>();
 
-  for (const tx of txs) {
+  // Keys are assigned in provider order (stable occurrence suffixes); processing then handles pending
+  // entries before booked ones, so a pending/booked pair in one batch reconciles whatever the order.
+  const keyed = txs.map((tx) => {
     let key: string;
     if (tx.providerId !== null) {
       key = `id:${tx.providerId}`;
@@ -79,8 +82,15 @@ export async function ingest(
       seenHashes.set(hash, n + 1);
       key = n === 0 ? `hash:${hash}` : `hash:${hash}#${n}`;
     }
-    const dedupBidx = blindIndex(dk, 'tx-dedup', key);
+    return { tx, dedupBidx: blindIndex(dk, 'tx-dedup', key) };
+  });
+  const ordered = [
+    ...keyed.filter((k) => k.tx.status === 'pending'),
+    ...keyed.filter((k) => k.tx.status === 'booked'),
+  ];
+  const reconciled = new Set<string>();
 
+  for (const { tx, dedupBidx } of ordered) {
     const [existing] = await db
       .select()
       .from(transactions)
@@ -91,10 +101,30 @@ export async function ingest(
       continue;
     }
 
+    // A key that was absorbed into a booked row earlier: the bank is re-reporting the old pre-auth.
+    const [alias] = await db
+      .select({ transactionId: transactionDedupAliases.transactionId })
+      .from(transactionDedupAliases)
+      .where(
+        and(
+          eq(transactionDedupAliases.accountId, accountId),
+          eq(transactionDedupAliases.dedupBidx, dedupBidx),
+        ),
+      );
+    if (alias) {
+      touched.add(alias.transactionId);
+      continue;
+    }
+
     if (tx.status === 'booked' && tx.counterparty !== undefined) {
-      const match = await findPendingMatch(db, dk, accountId, tx, touched);
+      const match = await findPendingMatch(db, dk, accountId, tx, reconciled);
       if (match) {
+        reconciled.add(match.id);
         touched.add(match.id);
+        await db
+          .insert(transactionDedupAliases)
+          .values({ accountId, dedupBidx: match.dedupBidx, transactionId: match.id })
+          .onConflictDoNothing();
         await writeTx(db, dk, match.id, tx, dedupBidx);
         updated.push(match.id);
         continue;
@@ -207,7 +237,7 @@ async function findPendingMatch(
   dk: DataKey,
   accountId: string,
   tx: ProviderTransaction,
-  touched: Set<string>,
+  reconciled: Set<string>,
 ): Promise<Row | null> {
   if (tx.counterparty === undefined) return null;
   const bidx = blindIndex(dk, 'tx-counterparty', normalizeCounterparty(tx.counterparty));
@@ -225,7 +255,7 @@ async function findPendingMatch(
   const booked = dayNumber(tx.bookingDate);
   let best: { row: Row; diff: bigint; days: number } | null = null;
   for (const row of candidates) {
-    if (touched.has(row.id)) continue;
+    if (reconciled.has(row.id)) continue;
     const days = booked - dayNumber(row.bookingDate);
     if (days < 0 || days > RECONCILE_WINDOW_DAYS) continue;
     const pending = BigInt(decryptString(dk, row.amountEnc, aad('amount', row.id)));
