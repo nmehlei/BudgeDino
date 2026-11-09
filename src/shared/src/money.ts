@@ -26,7 +26,7 @@ export function currencyExponent(code: string): number {
   return MINOR_EXPONENT[code] ?? 2;
 }
 
-const CURRENCY_RE =/^[A-Z]{3}$/;
+const CURRENCY_RE = /^[A-Z]{3}$/;
 
 function assertCurrency(currency: CurrencyCode): void {
   if (!CURRENCY_RE.test(currency)) {

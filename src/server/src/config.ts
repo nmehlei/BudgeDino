@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { loadMasterKey, MasterKeyError, type MasterKey } from './crypto/index.js';
 
 /** Connector types a deployment can enable via `BUDGEDINO_CONNECTORS`. */
-export const KNOWN_CONNECTORS = ['fake'] as const;
+export const KNOWN_CONNECTORS = ['fake', 'fints'] as const;
 export type ConnectorName = (typeof KNOWN_CONNECTORS)[number];
 
 export interface Config {
@@ -15,6 +15,8 @@ export interface Config {
   trustProxy: number | string | undefined;
   maxConcurrentSyncs: number;
   connectors: ConnectorName[];
+  /** Present only when the `fints` connector is enabled (product id is then guaranteed). */
+  fints?: { productId: string; productVersion: string };
 }
 
 /**
@@ -62,6 +64,11 @@ const envSchema = z.object({
     .optional()
     .transform((v) => (v ? v : '0.0.0.0')),
   BUDGEDINO_MAX_CONCURRENT_SYNCS: intVar(2, 1, 20),
+  BUDGEDINO_FINTS_PRODUCT_ID: z.string().optional(),
+  BUDGEDINO_FINTS_PRODUCT_VERSION: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() !== '' ? v.trim() : '1.0')),
 });
 
 function parseTrustProxy(raw: string | undefined, problems: string[]): number | string | undefined {
@@ -126,6 +133,10 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
   const trustProxy = parseTrustProxy(env['BUDGEDINO_TRUST_PROXY'], problems);
   const allowFake = env['NODE_ENV'] !== 'production' || env['BUDGEDINO_ALLOW_FAKE'] === '1';
   const connectors = parseConnectors(env['BUDGEDINO_CONNECTORS'], allowFake, problems);
+  const productId = parsed.success ? parsed.data.BUDGEDINO_FINTS_PRODUCT_ID?.trim() : undefined;
+  if (connectors.includes('fints') && !productId) {
+    problems.push('BUDGEDINO_FINTS_PRODUCT_ID: is required when the "fints" connector is enabled');
+  }
   if (problems.length > 0 || !parsed.success || !master) throw new ConfigError(problems);
   return {
     databaseUrl: parsed.data.DATABASE_URL,
@@ -135,5 +146,13 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     trustProxy,
     maxConcurrentSyncs: parsed.data.BUDGEDINO_MAX_CONCURRENT_SYNCS,
     connectors,
+    ...(connectors.includes('fints') && productId
+      ? {
+          fints: {
+            productId,
+            productVersion: parsed.data.BUDGEDINO_FINTS_PRODUCT_VERSION,
+          },
+        }
+      : {}),
   };
 }

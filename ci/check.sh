@@ -7,6 +7,7 @@ cd "$(dirname "$0")/.."
 
 echo "==> lint"
 pnpm lint
+pnpm exec prettier --check .
 
 echo "==> typecheck"
 pnpm typecheck

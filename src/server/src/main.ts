@@ -32,10 +32,14 @@ export interface RunningServer {
 }
 
 function connectorsFor(config: Config): Connector[] {
-  return config.connectors.map((name) => {
+  return config.connectors.flatMap((name): Connector[] => {
     switch (name) {
       case 'fake':
-        return createFakeConnector();
+        return [createFakeConnector()];
+      case 'fints':
+        // Validated in loadConfig (`config.fints`); the connector itself is wired in by the FinTS
+        // connector change, so enabling it does not yet register anything.
+        return [];
     }
   });
 }

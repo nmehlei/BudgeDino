@@ -48,16 +48,18 @@ shuts down gracefully on SIGTERM/SIGINT.
 
 ### Environment variables
 
-| Variable                                              | Default            | Meaning                                                                                  |
-| ----------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                                        | required           | PostgreSQL connection string                                                             |
-| `BUDGEDINO_MASTER_KEY` or `BUDGEDINO_MASTER_KEY_FILE` | one required       | master key (32 bytes, base64); never both                                                |
-| `PORT` / `HOST`                                       | `8080` / `0.0.0.0` | listen address                                                                           |
-| `BUDGEDINO_TRUST_PROXY`                               | off                | hop count or proxy IP/CIDR list when behind a reverse proxy (`true` is rejected)         |
-| `BUDGEDINO_MAX_CONCURRENT_SYNCS`                      | `2`                | concurrent bank syncs per process                                                        |
-| `BUDGEDINO_CONNECTORS`                                | empty              | enabled connector types; `fake` only outside production or with `BUDGEDINO_ALLOW_FAKE=1` |
-| `LOG_LEVEL`                                           | `info`             | log level                                                                                |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` and other `OTEL_*`      | unset              | telemetry export (off unless the endpoint is set)                                        |
+| Variable                                              | Default               | Meaning                                                                                      |
+| ----------------------------------------------------- | --------------------- | -------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                        | required              | PostgreSQL connection string                                                                 |
+| `BUDGEDINO_MASTER_KEY` or `BUDGEDINO_MASTER_KEY_FILE` | one required          | master key (32 bytes, base64); never both                                                    |
+| `PORT` / `HOST`                                       | `8080` / `0.0.0.0`    | listen address                                                                               |
+| `BUDGEDINO_TRUST_PROXY`                               | off                   | hop count or proxy IP/CIDR list when behind a reverse proxy (`true` is rejected)             |
+| `BUDGEDINO_MAX_CONCURRENT_SYNCS`                      | `2`                   | concurrent bank syncs per process                                                            |
+| `BUDGEDINO_CONNECTORS`                                | empty                 | enabled connector types; `fake` (not in production unless `BUDGEDINO_ALLOW_FAKE=1`), `fints` |
+| `BUDGEDINO_FINTS_PRODUCT_ID`                          | required with `fints` | FinTS product id registered with the ZKA                                                     |
+| `BUDGEDINO_FINTS_PRODUCT_VERSION`                     | `1.0`                 | product version sent to the bank                                                             |
+| `LOG_LEVEL`                                           | `info`                | log level                                                                                    |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` and other `OTEL_*`      | unset                 | telemetry export (off unless the endpoint is set)                                            |
 
 Invalid configuration exits with code 1 and a message naming the variable, never its value.
 

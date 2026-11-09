@@ -35,27 +35,66 @@
 ### Task 1: lib-fints seam and pure mapping
 
 **Files:**
+
 - Create: `src/server/src/connectors/fints/port.ts`, `src/server/src/connectors/fints/map.ts`
 - Test: `tests/server/connectors/fints/map.test.ts`
 
 **Interfaces:**
+
 - Produces (`port.ts`) — the only surface the connector uses:
   ```ts
-  interface FinTSPortResponse { success: boolean; requiresTan: boolean; tanReference?: string; tanChallenge?: string; tanPhoto?: { mimeType: string; data: Uint8Array }; bankAnswers: { code: number; text: string }[]; bankingInformationUpdated: boolean }
+  interface FinTSPortResponse {
+    success: boolean;
+    requiresTan: boolean;
+    tanReference?: string;
+    tanChallenge?: string;
+    tanPhoto?: { mimeType: string; data: Uint8Array };
+    bankAnswers: { code: number; text: string }[];
+    bankingInformationUpdated: boolean;
+  }
   interface FinTSSession {
     synchronize(): Promise<FinTSPortResponse & { bankingInformation?: unknown }>;
-    synchronizeWithTan(ref: string, tan?: string): Promise<FinTSPortResponse & { bankingInformation?: unknown }>;
+    synchronizeWithTan(
+      ref: string,
+      tan?: string,
+    ): Promise<FinTSPortResponse & { bankingInformation?: unknown }>;
     selectTanMethod(id: number): void;
-    availableTanMethods(): FinTSTanMethod[];          // {id,name,decoupled:boolean, kind:'decoupled'|'code'|'photo'|'chiptan-optical'}
-    accounts(): FinTSAccount[];                       // from UPD
-    getStatements(acc: FinTSAccount, from?: Date, to?: Date): Promise<FinTSPortResponse & { transactions?: FinTSTx[] }>;
-    getStatementsWithTan(ref: string, tan?: string): Promise<FinTSPortResponse & { transactions?: FinTSTx[] }>;
-    getCreditCardStatements(acc: FinTSAccount, from?: Date): Promise<FinTSPortResponse & { transactions?: FinTSTx[] }>;
-    getBalance(acc: FinTSAccount): Promise<FinTSPortResponse & { balance?: { value: number; currency: string } }>;
-    bankingInformation(): unknown;                    // JSON-serialisable snapshot for ConnectorState
+    availableTanMethods(): FinTSTanMethod[]; // {id,name,decoupled:boolean, kind:'decoupled'|'code'|'photo'|'chiptan-optical'}
+    accounts(): FinTSAccount[]; // from UPD
+    getStatements(
+      acc: FinTSAccount,
+      from?: Date,
+      to?: Date,
+    ): Promise<FinTSPortResponse & { transactions?: FinTSTx[] }>;
+    getStatementsWithTan(
+      ref: string,
+      tan?: string,
+    ): Promise<FinTSPortResponse & { transactions?: FinTSTx[] }>;
+    getCreditCardStatements(
+      acc: FinTSAccount,
+      from?: Date,
+    ): Promise<FinTSPortResponse & { transactions?: FinTSTx[] }>;
+    getBalance(
+      acc: FinTSAccount,
+    ): Promise<FinTSPortResponse & { balance?: { value: number; currency: string } }>;
+    bankingInformation(): unknown; // JSON-serialisable snapshot for ConnectorState
   }
-  interface FinTSPort { openFirstTime(p: FinTSBankParams): FinTSSession; openFromState(p: FinTSBankParams, bankingInformation: unknown, tanMethodId: number): FinTSSession }
-  type FinTSBankParams = { productId: string; productVersion: string; url: string; blz: string; userId: string; pin: string }
+  interface FinTSPort {
+    openFirstTime(p: FinTSBankParams): FinTSSession;
+    openFromState(
+      p: FinTSBankParams,
+      bankingInformation: unknown,
+      tanMethodId: number,
+    ): FinTSSession;
+  }
+  type FinTSBankParams = {
+    productId: string;
+    productVersion: string;
+    url: string;
+    blz: string;
+    userId: string;
+    pin: string;
+  };
   ```
   `FinTSAccount` and `FinTSTx` are plain projections of lib-fints `BankAccount` / `Transaction` (+ credit-card statement entries) with the fields the mapper needs.
 - Produces (`map.ts`): `toMinor(amount: number, currency: string): bigint`; `toIsoDate(d: Date): string` (local getters); `mapTx(tx: FinTSTx, currency: string): ProviderTransaction` (status `'booked'`, `providerId: null`, counterparty = `remoteName`, `counterpartyIban` only if `remoteAccountNumber` matches the IBAN pattern, purpose = `purpose`); `mapAccount(acc: FinTSAccount): ProviderAccount` (kind: Checking→checking, Savings/FixedDeposit→savings, CreditCard→credit_card, Securities→depot, else other; `ref` per Review Focus 5); `classifyTanMethod(m): FinTSTanMethod['kind']`.
@@ -67,11 +106,13 @@
 ### Task 2: Bank catalog, config schema, operator config, LibFintsPort
 
 **Files:**
+
 - Create: `src/server/src/connectors/fints/banks.ts`, `src/server/src/connectors/fints/config.ts`, `src/server/src/connectors/fints/lib-fints-port.ts`
 - Modify: `src/server/src/config.ts` (env), `src/server/src/main.ts` (registration), `.env.example`, `README.md`
 - Test: `tests/server/connectors/fints/config.test.ts`, `tests/server/config.test.ts`
 
 **Interfaces:**
+
 - `FINTS_BANKS: Record<'dkb'|'comdirect', { name: string; blz: string; url: string }>` — DKB `12030000` `https://fints.dkb.de/fints`, Comdirect `20041111` `https://fints.comdirect.de/fints` (implementer verifies both against the published FinTS institute list at fints.org/hbci-zka and records the source in a code comment).
 - `fintsConfigSchema = z.object({ bank: z.enum(['dkb','comdirect']), userId: z.string().min(1).max(64), pin: z.string().min(1).max(64), tanMethodId: z.number().int().optional() }).strict()` — exported as the connector's `configSchema`.
 - `LibFintsPort implements FinTSPort` — thin adapter over `FinTSConfig.forFirstTimeUse` / `fromBankingInformation` and `FinTSClient`; `debugEnabled` always false.
@@ -84,10 +125,12 @@
 ### Task 3: In-process dialog registry
 
 **Files:**
+
 - Create: `src/server/src/connectors/fints/dialogs.ts`
 - Test: `tests/server/connectors/fints/dialogs.test.ts`
 
 **Interfaces:**
+
 - `class FinTSDialogRegistry { constructor(opts: { ttlMs: number; max: number; now: () => Date }); put(session: FinTSSession, meta: DialogMeta): string /* 32-byte random base64url handle */; take(handle: string): { session; meta } | undefined /* removes */; peek(handle) ; drop(handle): void; sweep(): void }` — default `ttlMs` 15 min (matches P1 challenge lifetime cap), `max` 100 (oldest evicted).
 - `DialogMeta = { step: 'sync' | 'statements-probe'; tanReference: string; accountRef?: string; startedAt: string }`.
 - The connector's `DialogState` is `{ handle, step }` only — never PIN/bankingInformation.
@@ -98,10 +141,12 @@
 ### Task 4: FinTSConnector authentication
 
 **Files:**
+
 - Create: `src/server/src/connectors/fints/connector.ts`
 - Test: `tests/server/connectors/fints/auth.test.ts`, `tests/support/fints/scripted-port.ts`
 
 **Interfaces:**
+
 - `createFinTSConnector(deps: { port: FinTSPort; dialogs: FinTSDialogRegistry; product: { id: string; version: string } }): Connector` with `type: 'fints'`, `experimental: false`, `challengeKinds: ['decoupled','code','image']`, `configSchema: fintsConfigSchema`, `rateLimit` per Global Constraints.
 - `ScriptedFinTSPort` (tests): scenario-driven fake implementing `FinTSPort`, e.g. `{ tanMethods, syncRequiresTan: 'decoupled'|'code'|'photo'|false, decoupledPendingPolls, statementsRequireTan: boolean, accounts, transactions, failWith?: 'wrong-pin'|'locked'|'server-error' }`, recording every call.
 - Auth algorithm (connector decides; documents in file header):
@@ -118,10 +163,12 @@
 ### Task 5: Accounts and transactions
 
 **Files:**
+
 - Modify: `src/server/src/connectors/fints/connector.ts`
 - Test: `tests/server/connectors/fints/fetch.test.ts`
 
 **Interfaces:**
+
 - `listAccounts(state, ctx)`: from `openFromState(...).accounts()` → `mapAccount`; no network if UPD present.
 - `fetchTransactions(state, accountRef, since, ctx)`:
   - depot → `{ ok: true, transactions: [] }` (holdings in the net-worth plan);
@@ -136,6 +183,7 @@
 ### Task 6: Contract suite, API integration
 
 **Files:**
+
 - Create: `tests/server/connectors/fints/contract.test.ts`, `tests/server/connectors/fints/api.int.test.ts`
 - Modify: `tests/support/route-fixtures.ts` only if new GET routes (none expected)
 
@@ -146,6 +194,7 @@
 ### Task 7: Opt-in live test, docs, ADR
 
 **Files:**
+
 - Create: `tests/live/fints.live.test.ts` (vitest project `live`, excluded from `ci/check.sh`), `docs/adr/0009-fints-in-memory-dialogs.md`
 - Modify: `docs/specs/sync-and-connectors.md` (FinTS section: TAN method preference, 89-day first window, SCA probe, needs_attention semantics, single-instance dialogs), `docs/specs/self-hosting.md` + README (FinTS product registration: what, where, env vars; LGPL dependency note), `AGENTS.md` (live test command)
 
@@ -156,5 +205,6 @@
 ---
 
 ## Owner actions (outside the code)
+
 - Register a FinTS product at the Deutsche Kreditwirtschaft (free) — needed for the live test and production.
 - Run `pnpm test:live` once with DKB credentials and confirm the DKB app approval flow end to end.

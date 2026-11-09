@@ -58,6 +58,7 @@ TypeScript throughout. **[owner]**
 ## Testing strategy
 
 Strong testing is a core requirement. **[owner]** **[call]** on specifics:
+
 - TDD for domain logic.
 - **Unit:** Vitest; property-based tests (fast-check) for money, budgets periods, transfer detection,
   categorization precedence, deduplication.

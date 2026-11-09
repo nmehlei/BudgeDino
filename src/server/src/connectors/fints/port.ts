@@ -57,6 +57,8 @@ export interface FinTSPortResponse {
   tanReference?: string;
   tanChallenge?: string;
   tanPhoto?: { mimeType: string; data: Uint8Array };
+  /** Raw HHD UC challenge; present for chipTAN (flicker) challenges. */
+  tanChallengeHhdUc?: string;
   bankAnswers: { code: number; text: string }[];
   bankingInformationUpdated: boolean;
 }

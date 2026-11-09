@@ -105,6 +105,26 @@ describe('loadConfig', () => {
     expect(msg).not.toMatch(/hunter2|SECRET/);
   });
 
+  describe('fints', () => {
+    it('requires a product id when fints is enabled, naming the variable only', () => {
+      const msg = problems({ ...base, BUDGEDINO_CONNECTORS: 'fints' });
+      expect(msg).toContain('BUDGEDINO_FINTS_PRODUCT_ID');
+      expect(msg).not.toContain('hunter2');
+    });
+    it('exposes fints settings with a default product version', () => {
+      const c = loadConfig({
+        ...base,
+        BUDGEDINO_CONNECTORS: 'fints',
+        BUDGEDINO_FINTS_PRODUCT_ID: 'PID',
+      });
+      expect(c.connectors).toEqual(['fints']);
+      expect(c.fints).toEqual({ productId: 'PID', productVersion: '1.0' });
+    });
+    it('leaves fints unset when not enabled', () => {
+      expect(loadConfig({ ...base, BUDGEDINO_FINTS_PRODUCT_ID: 'PID' }).fints).toBeUndefined();
+    });
+  });
+
   it('requires DATABASE_URL and a master key', () => {
     const msg = problems({});
     expect(msg).toContain('DATABASE_URL: is required');
