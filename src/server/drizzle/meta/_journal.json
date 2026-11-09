@@ -64,6 +64,13 @@
       "when": 1794200201920,
       "tag": "0008_connectors_account_defaults",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794215563544,
+      "tag": "0009_challenges_cancel_attempted",
+      "breakpoints": true
     }
   ]
 }

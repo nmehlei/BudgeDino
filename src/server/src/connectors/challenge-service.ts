@@ -146,21 +146,23 @@ async function closeChallenge(
   to: 'cancelled' | 'expired',
   from: DbStatus[],
   userPresent = true,
+  callBank = true,
 ): Promise<boolean> {
   const [updated] = await deps.db
     .update(challenges)
-    .set({ status: to })
+    .set({ status: to, ...(to === 'expired' && callBank ? { cancelAttempted: true } : {}) })
     .where(and(eq(challenges.id, row.id), inArray(challenges.status, from)))
     .returning({ id: challenges.id });
   if (!updated) return false;
-  await cancelDialog(deps, row, connector, userPresent);
+  if (callBank) await cancelDialog(deps, row, connector, userPresent);
   return true;
 }
 
 /**
  * Expires every open or stale `answering` challenge past its TTL (pg-boss job `challenges.expire`, every
- * minute; the same check also runs lazily on each challenge request). The connector stays `needs_attention`.
- * Returns how many challenges it expired.
+ * minute; the same check also runs lazily on each challenge request, but only marks the row expired: no request ever
+ * calls the bank). The sweeper also makes the one best-effort `cancelAuth` for rows expired lazily
+ * (`cancel_attempted`). The connector stays `needs_attention`. Returns how many challenges it handled.
  */
 export async function expireChallenges(deps: ChallengeDeps): Promise<number> {
   const now = deps.now();
@@ -173,6 +175,7 @@ export async function expireChallenges(deps: ChallengeDeps): Promise<number> {
     .innerJoin(connectors, eq(challenges.connectorId, connectors.id))
     .where(
       or(
+        and(eq(challenges.status, 'expired'), eq(challenges.cancelAttempted, false)),
         and(eq(challenges.status, 'open'), lte(challenges.expiresAt, now)),
         and(
           eq(challenges.status, 'answering'),
@@ -183,7 +186,20 @@ export async function expireChallenges(deps: ChallengeDeps): Promise<number> {
   let expired = 0;
   for (const { challenge, connector } of due) {
     // no user is present: the sweeper acts on its own
-    if (await closeChallenge(deps, challenge, connector, 'expired', [challenge.status], false)) {
+    if (challenge.status === 'expired') {
+      // already expired lazily on a request: claim the one best-effort bank-side cancel
+      const [claimed] = await deps.db
+        .update(challenges)
+        .set({ cancelAttempted: true })
+        .where(and(eq(challenges.id, challenge.id), eq(challenges.cancelAttempted, false)))
+        .returning({ id: challenges.id });
+      if (claimed) {
+        await cancelDialog(deps, challenge, connector, false);
+        expired += 1;
+      }
+    } else if (
+      await closeChallenge(deps, challenge, connector, 'expired', [challenge.status], false)
+    ) {
       expired += 1;
     }
   }
@@ -249,7 +265,16 @@ export function createChallengeService(
     const found = await find();
     if (!found) throw notFound();
     if (isStale(found.row, deps.now())) {
-      await closeChallenge(deps, found.row, found.connector, 'expired', [found.row.status]);
+      // Request paths (GET included) never call the bank: the sweeper cancels the dialog best-effort.
+      await closeChallenge(
+        deps,
+        found.row,
+        found.connector,
+        'expired',
+        [found.row.status],
+        true,
+        false,
+      );
       return (await find()) ?? Promise.reject(notFound());
     }
     return found;

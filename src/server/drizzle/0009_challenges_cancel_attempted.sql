@@ -1,0 +1,1 @@
+ALTER TABLE "challenges" ADD COLUMN "cancel_attempted" boolean DEFAULT false NOT NULL;

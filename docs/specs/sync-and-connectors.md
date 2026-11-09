@@ -108,8 +108,9 @@ Code: `src/server/src/connectors/{routes.ts,challenge-service.ts}`; schemas in `
 - **Routes (member, owner only; anyone else gets 404):** `POST /connectors {type, config, accountDefaults?}` -> `{connectorId, challenge?}`
   (config validated by the connector's `configSchema`, unknown type or invalid config = 400, stored encrypted; the connector
   starts as `needs_attention`); `POST /connectors/:id/reconnect` -> `{challenge?}`; `POST /challenges/:id/answer` ->
-  `{status, reason?, challenge?}`; `GET /challenges/:id` -> `{status}` (never calls the bank); `DELETE /challenges/:id` cancels.
-  The server never starts a dialog by itself.
+  `{status, reason?, challenge?}`; `GET /challenges/:id` -> `{status}` (never calls the bank; a lazily detected expiry only marks the row `expired`); `DELETE /challenges/:id` cancels.
+  The server never starts a dialog by itself. The sweeper (not a request) calls `cancelAuth` best-effort, once
+  (`challenges.cancel_attempted`), for challenges that expired lazily.
 - **Storage:** one encrypted envelope per challenge row (`payload_enc`): `{challenge, dialog, invalidAnswers, lastPollAt}`.
   Responses carry `{id, expiresAt, ...challenge}` only, never the dialog.
 - **TTL:** min(10 min, `step.expiresAt`), renewed by a not-done step. Expiry is checked lazily on every challenge request and by

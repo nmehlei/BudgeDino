@@ -299,6 +299,8 @@ export const challenges = pgTable('challenges', {
     .notNull()
     .default('open'),
   expiresAt: ts('expires_at').notNull(),
+  /** Set once the sweeper has tried the best-effort bank-side cancel of an expired challenge. */
+  cancelAttempted: boolean('cancel_attempted').notNull().default(false),
   createdAt: createdAt(),
 });
 

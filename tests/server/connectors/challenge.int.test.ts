@@ -435,6 +435,26 @@ describe('challenge lifecycle', () => {
     }
   });
 
+  it('GET marks an overdue challenge expired without calling the bank; the sweeper cancels it once', async () => {
+    const res = await connect(bToken, { scenario: 'code' }, 'spy');
+    const id = res.json.challenge.id;
+    nowMs += 11 * 60 * 1000;
+    expect((await call('GET', `/challenges/${id}`, bToken)).json).toEqual({ status: 'expired' });
+    expect(cancelCalls).toBe(0);
+    const deps = {
+      db: database.db,
+      keyring,
+      registry: app.ctx.registry,
+      logger: createLogger({ level: 'silent' }),
+      now: () => new Date(nowMs),
+    };
+    await expireChallenges(deps);
+    expect(cancelCalls).toBe(1);
+    expect(cancelUserPresent).toEqual([false]);
+    await expireChallenges(deps);
+    expect(cancelCalls).toBe(1); // best effort, once
+  });
+
   it('a reconnect cancels the previous open challenge (cancelAuth called)', async () => {
     const res = await connect(bToken, { scenario: 'code' }, 'spy');
     const oldId = res.json.challenge.id;
