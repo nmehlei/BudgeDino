@@ -1,0 +1,1 @@
+ALTER TABLE "connectors" ADD COLUMN "state_generation" integer DEFAULT 0 NOT NULL;

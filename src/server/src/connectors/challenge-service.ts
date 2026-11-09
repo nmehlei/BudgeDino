@@ -1,4 +1,4 @@
-import { and, eq, inArray, lte, sql } from 'drizzle-orm';
+import { and, eq, inArray, lte, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { ChallengeAnswer, ChallengeStatus, ChallengeView } from '@budgedino/shared';
 import { blindIndex, decryptString, encryptField, type DataKey } from '../crypto/index.js';
@@ -12,6 +12,7 @@ import type { Logger } from '../observability/logger.js';
 import { safeErrorInfo } from '../observability/redact.js';
 import { createAccount } from '../repositories/accounts.js';
 import { encryptConnectorState } from '../repositories/connectors.js';
+import { withConnectorLock } from '../sync/run.js';
 import type { SyncService } from '../sync/service.js';
 import { UnknownConnectorError, type ConnectorRegistry } from './registry.js';
 import {
@@ -29,6 +30,10 @@ import {
 export const CHALLENGE_TTL_MS = 10 * 60 * 1000;
 /** The N-th invalid answer ends the challenge. */
 export const MAX_INVALID_ANSWERS = 5;
+/** Renewals (not-done steps) never stretch a challenge beyond this age. */
+export const CHALLENGE_MAX_LIFETIME_MS = 15 * 60 * 1000;
+/** An `answering` claim is considered abandoned (crashed process) this long after its expiry. */
+export const ANSWERING_GRACE_MS = 2 * 60 * 1000;
 
 type ChallengeRow = typeof challenges.$inferSelect;
 type ConnectorRow = typeof connectors.$inferSelect;
@@ -83,10 +88,18 @@ const view = (id: string, expiresAt: Date, challenge: Challenge): ChallengeView 
   expiresAt: expiresAt.toISOString(),
 });
 
-const ttlFor = (now: Date, step: { expiresAt?: Date | undefined }): Date => {
-  const cap = now.getTime() + CHALLENGE_TTL_MS;
+const ttlFor = (now: Date, step: { expiresAt?: Date | undefined }, createdAt: Date = now): Date => {
+  const cap = Math.min(
+    now.getTime() + CHALLENGE_TTL_MS,
+    createdAt.getTime() + CHALLENGE_MAX_LIFETIME_MS,
+  );
   return step.expiresAt && step.expiresAt.getTime() < cap ? step.expiresAt : new Date(cap);
 };
+
+/** Open challenges expire at `expiresAt`; an `answering` one only after the grace period. */
+const isStale = (row: Pick<ChallengeRow, 'status' | 'expiresAt'>, now: Date): boolean =>
+  (row.status === 'open' && row.expiresAt.getTime() <= now.getTime()) ||
+  (row.status === 'answering' && row.expiresAt.getTime() + ANSWERING_GRACE_MS <= now.getTime());
 
 const notFound = () => new HttpError(404, 'not_found', 'Not found');
 const busy = () =>
@@ -101,6 +114,7 @@ async function cancelDialog(
   deps: ChallengeDeps,
   row: Pick<ChallengeRow, 'id' | 'payloadEnc'>,
   connector: Pick<ConnectorRow, 'id' | 'type' | 'householdId'>,
+  userPresent: boolean,
 ): Promise<void> {
   try {
     const impl = deps.registry.get(connector.type);
@@ -109,7 +123,7 @@ async function cancelDialog(
     const envelope = openEnvelope(dk, row.id, row.payloadEnc);
     await impl.cancelAuth(envelope.dialog, {
       now: deps.now,
-      userPresent: true,
+      userPresent,
       logger: deps.logger,
     });
   } catch (err) {
@@ -127,6 +141,7 @@ async function closeChallenge(
   connector: Pick<ConnectorRow, 'id' | 'type' | 'householdId'>,
   to: 'cancelled' | 'expired',
   from: DbStatus[],
+  userPresent = true,
 ): Promise<boolean> {
   const [updated] = await deps.db
     .update(challenges)
@@ -134,7 +149,7 @@ async function closeChallenge(
     .where(and(eq(challenges.id, row.id), inArray(challenges.status, from)))
     .returning({ id: challenges.id });
   if (!updated) return false;
-  await cancelDialog(deps, row, connector);
+  await cancelDialog(deps, row, connector, userPresent);
   return true;
 }
 
@@ -144,6 +159,7 @@ async function closeChallenge(
  * Returns how many challenges it expired.
  */
 export async function expireChallenges(deps: ChallengeDeps): Promise<number> {
+  const now = deps.now();
   const due = await deps.db
     .select({
       challenge: challenges,
@@ -152,11 +168,18 @@ export async function expireChallenges(deps: ChallengeDeps): Promise<number> {
     .from(challenges)
     .innerJoin(connectors, eq(challenges.connectorId, connectors.id))
     .where(
-      and(inArray(challenges.status, ['open', 'answering']), lte(challenges.expiresAt, deps.now())),
+      or(
+        and(eq(challenges.status, 'open'), lte(challenges.expiresAt, now)),
+        and(
+          eq(challenges.status, 'answering'),
+          lte(challenges.expiresAt, new Date(now.getTime() - ANSWERING_GRACE_MS)),
+        ),
+      ),
     );
   let expired = 0;
   for (const { challenge, connector } of due) {
-    if (await closeChallenge(deps, challenge, connector, 'expired', ['open', 'answering'])) {
+    // no user is present: the sweeper acts on its own
+    if (await closeChallenge(deps, challenge, connector, 'expired', [challenge.status], false)) {
       expired += 1;
     }
   }
@@ -217,9 +240,8 @@ export function createChallengeService(
     };
     const found = await find();
     if (!found) throw notFound();
-    const live = found.row.status === 'open' || found.row.status === 'answering';
-    if (live && found.row.expiresAt.getTime() <= deps.now().getTime()) {
-      await closeChallenge(deps, found.row, found.connector, 'expired', ['open', 'answering']);
+    if (isStale(found.row, deps.now())) {
+      await closeChallenge(deps, found.row, found.connector, 'expired', [found.row.status]);
       return (await find()) ?? Promise.reject(notFound());
     }
     return found;
@@ -260,7 +282,7 @@ export function createChallengeService(
       if (insert) await tx.insert(challenges).values(insert);
       return old;
     });
-    for (const old of superseded) await cancelDialog(deps, old, connector);
+    for (const old of superseded) await cancelDialog(deps, old, connector, true);
   }
 
   async function discoverAccounts(connector: ConnectorRow, state: ConnectorState, psuIp?: string) {
@@ -318,6 +340,7 @@ export function createChallengeService(
       status: 'ok' as const,
       consentExpiresAt: step.consentExpiresAt ?? null,
       lastErrorCode: null,
+      stateGeneration: sql`${connectors.stateGeneration} + 1`,
     };
   };
 
@@ -339,10 +362,10 @@ export function createChallengeService(
       throw unavailable();
     }
     if (step.done) {
-      await db
-        .update(connectors)
-        .set(await connectedValues(connector, step))
-        .where(eq(connectors.id, connector.id));
+      const values = await connectedValues(connector, step);
+      await withConnectorLock(deps, connector.id, () =>
+        db.update(connectors).set(values).where(eq(connectors.id, connector.id)),
+      );
       await afterConnected(connector, step.state, psuIp);
       return undefined;
     }
@@ -358,10 +381,12 @@ export function createChallengeService(
         challenge: step.challenge,
         dialog: step.dialog,
         invalidAnswers: 0,
-        lastPollAt: null,
+        // the first poll of a decoupled challenge waits pollAfterMs, too
+        lastPollAt: step.challenge.kind === 'decoupled' ? deps.now().toISOString() : null,
       }),
       status: 'open',
       expiresAt,
+      createdAt: deps.now(),
     });
     return view(id, expiresAt, step.challenge);
   }
@@ -404,8 +429,22 @@ export function createChallengeService(
         })
         .returning();
       if (!connector) throw new Error('connector insert returned no row');
-      const challenge = await begin(connector, config, psuIp);
-      return { connectorId: id, ...(challenge ? { challenge } : {}) };
+      try {
+        const challenge = await begin(connector, config, psuIp);
+        return { connectorId: id, ...(challenge ? { challenge } : {}) };
+      } catch (err) {
+        // The client never learns this id: do not leave a credential-bearing orphan behind.
+        await db
+          .delete(connectors)
+          .where(eq(connectors.id, id))
+          .catch((delErr: unknown) =>
+            logger.error(
+              { connectorId: id, error: safeErrorInfo(delErr) },
+              'could not remove failed connector',
+            ),
+          );
+        throw err;
+      }
     },
 
     async reconnect(auth, connectorId, psuIp) {
@@ -525,22 +564,25 @@ export function createChallengeService(
 
       if (step.done) {
         const values = await connectedValues(connector, step);
-        const won = await db.transaction(async (tx) => {
-          const [updated] = await tx
-            .update(challenges)
-            .set({ status: 'completed' })
-            .where(and(eq(challenges.id, row.id), eq(challenges.status, 'answering')))
-            .returning({ id: challenges.id });
-          if (!updated) return false;
-          await tx.update(connectors).set(values).where(eq(connectors.id, connector.id));
-          return true;
-        });
+        // Same per-connector lock as sync runs: the new session is never overwritten by a run's old state.
+        const won = await withConnectorLock(deps, connector.id, () =>
+          db.transaction(async (tx) => {
+            const [updated] = await tx
+              .update(challenges)
+              .set({ status: 'completed' })
+              .where(and(eq(challenges.id, row.id), eq(challenges.status, 'answering')))
+              .returning({ id: challenges.id });
+            if (!updated) return false;
+            await tx.update(connectors).set(values).where(eq(connectors.id, connector.id));
+            return true;
+          }),
+        );
         if (!won) return { status: await currentStatus(row.id) };
         await afterConnected(connector, step.state, psuIp);
         return { status: 'completed' };
       }
 
-      const expiresAt = ttlFor(now, step);
+      const expiresAt = ttlFor(now, step, row.createdAt);
       const kept = await settle({
         status: 'open',
         kind: step.challenge.kind,

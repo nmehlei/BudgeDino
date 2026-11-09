@@ -1,12 +1,17 @@
 import type { FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '@budgedino/server/app';
 import { expireChallenges } from '@budgedino/server/connectors/challenge-service';
 import { createFakeConnector } from '@budgedino/server/connectors/fake/fake-connector';
 import { createConnectorRegistry } from '@budgedino/server/connectors/registry';
 import type { Connector } from '@budgedino/server/connectors/types';
 import { accounts, challenges, connectors, syncRuns } from '@budgedino/server/db/schema';
+import {
+  decryptConnectorState,
+  encryptConnectorState,
+} from '@budgedino/server/repositories/connectors';
+import { ConnectorAuthError } from '@budgedino/server/connectors/types';
 import { Keyring } from '@budgedino/server/households/keyring';
 import { createLogger } from '@budgedino/server/observability/logger';
 import {
@@ -29,6 +34,9 @@ let bToken: string;
 let cancelCalls: number;
 let continueCalls: number;
 let continueDelayMs: number;
+let cancelUserPresent: boolean[];
+let fetchGate: Promise<void> | null;
+let startMode: 'ok' | 'fail' | 'refuse';
 
 beforeAll(async () => {
   database = await startTestDatabase();
@@ -49,8 +57,27 @@ function spyConnector(): Connector {
       if (continueDelayMs > 0) await new Promise((r) => setTimeout(r, continueDelayMs));
       return fake.continueAuth(dialog, answer, ctx);
     },
-    async cancelAuth() {
+    async cancelAuth(_dialog, ctx) {
       cancelCalls += 1;
+      cancelUserPresent.push(ctx.userPresent);
+    },
+    async fetchTransactions(state, ref, since, ctx) {
+      if (fetchGate) await fetchGate;
+      return fake.fetchTransactions(state, ref, since, ctx);
+    },
+  };
+}
+
+/** Fake connector (type `flaky-start`) whose startAuth can be made to fail. */
+function flakyStartConnector(): Connector {
+  const fake = createFakeConnector();
+  return {
+    ...fake,
+    type: 'flaky-start',
+    async startAuth(config, ctx) {
+      if (startMode === 'fail') throw new Error('bank down');
+      if (startMode === 'refuse') throw new ConnectorAuthError('declined');
+      return fake.startAuth(config, ctx);
     },
   };
 }
@@ -62,13 +89,20 @@ beforeEach(async () => {
   cancelCalls = 0;
   continueCalls = 0;
   continueDelayMs = 0;
+  cancelUserPresent = [];
+  fetchGate = null;
+  startMode = 'ok';
   const master = randomMasterKey();
   keyring = new Keyring(database.db, master);
   app = buildApp({
     db: database.db,
     keyring,
     master,
-    registry: createConnectorRegistry([createFakeConnector(), spyConnector()]),
+    registry: createConnectorRegistry([
+      createFakeConnector(),
+      spyConnector(),
+      flakyStartConnector(),
+    ]),
     logger: createLogger({ level: 'silent' }),
     now: () => new Date(nowMs),
   });
@@ -127,6 +161,9 @@ describe('connect', () => {
     expect((await connectorRow(connectorId)).status).toBe('needs_attention');
     expect(Date.parse(challenge.expiresAt)).toBe(T0 + 10 * 60 * 1000);
 
+    // the first poll is throttled from challenge creation, too
+    expect((await answer(bToken, challenge.id, { kind: 'decoupled' })).status).toBe(429);
+    nowMs += 1500;
     const first = await answer(bToken, challenge.id, { kind: 'decoupled' });
     expect(first.status).toBe(200);
     expect(first.json).toMatchObject({ status: 'open', challenge: { kind: 'decoupled' } });
@@ -163,6 +200,7 @@ describe('connect', () => {
   it('does not call the bank on a too-early decoupled poll, and GET never calls the bank', async () => {
     const res = await connect(bToken, { scenario: 'decoupled', pendingPolls: 2 }, 'spy');
     const id = res.json.challenge.id;
+    nowMs += 1500;
     await answer(bToken, id, { kind: 'decoupled' });
     expect(continueCalls).toBe(1);
     expect((await answer(bToken, id, { kind: 'decoupled' })).status).toBe(429);
@@ -281,7 +319,10 @@ describe('challenge lifecycle', () => {
     };
     expect(await expireChallenges(deps)).toBe(0);
     nowMs += 11 * 60 * 1000;
-    expect(await expireChallenges(deps)).toBe(2);
+    // the open one is due; the answering one gets a 2 minute grace
+    expect(await expireChallenges(deps)).toBe(1);
+    nowMs += 2 * 60 * 1000;
+    expect(await expireChallenges(deps)).toBe(1);
     expect(cancelCalls).toBe(2);
     for (const r of [a, b]) {
       expect((await call('GET', `/challenges/${r.json.challenge.id}`, bToken)).json).toEqual({
@@ -380,5 +421,108 @@ describe('dialog state', () => {
     const rows = await database.db.select().from(challenges);
     expect(rows.length).toBeGreaterThan(0);
     for (const r of rows) expect(r.payloadEnc.toString('latin1')).not.toContain(MARKER);
+  });
+});
+
+describe('failed connect', () => {
+  it('removes the new connector when startAuth fails, so a retry creates exactly one', async () => {
+    startMode = 'fail';
+    const failed = await connect(bToken, { scenario: 'code' }, 'flaky-start');
+    expect(failed.status).toBe(502);
+    expect(await database.db.select().from(connectors)).toHaveLength(0);
+    startMode = 'refuse';
+    expect((await connect(bToken, { scenario: 'code' }, 'flaky-start')).status).toBe(409);
+    expect(await database.db.select().from(connectors)).toHaveLength(0);
+    startMode = 'ok';
+    const ok = await connect(bToken, { scenario: 'code' }, 'flaky-start');
+    expect(ok.status).toBe(200);
+    expect(await database.db.select().from(connectors)).toHaveLength(1);
+  });
+
+  it('keeps an existing connector when a reconnect fails', async () => {
+    const res = await connect(bToken, { scenario: 'code' }, 'flaky-start');
+    startMode = 'fail';
+    const re = await call('POST', `/connectors/${res.json.connectorId}/reconnect`, bToken);
+    expect(re.status).toBe(502);
+    expect(await database.db.select().from(connectors)).toHaveLength(1);
+  });
+});
+
+describe('lifetime and sweeper hardening', () => {
+  it('renewals never stretch a challenge beyond 15 minutes', async () => {
+    const res = await connect(bToken, { scenario: 'decoupled', pendingPolls: 50 });
+    const id = res.json.challenge.id;
+    nowMs += 9 * 60 * 1000;
+    const polled = await answer(bToken, id, { kind: 'decoupled' });
+    expect(polled.json.status).toBe('open');
+    expect(Date.parse(polled.json.challenge.expiresAt)).toBe(T0 + 15 * 60 * 1000);
+    nowMs += 7 * 60 * 1000;
+    expect((await call('GET', `/challenges/${id}`, bToken)).json).toEqual({ status: 'expired' });
+  });
+
+  it('cancelAuth is user-present for user actions and not for the sweeper', async () => {
+    const a = await connect(bToken, { scenario: 'code' }, 'spy');
+    await call('DELETE', `/challenges/${a.json.challenge.id}`, bToken);
+    await connect(bToken, { scenario: 'code' }, 'spy');
+    nowMs += 11 * 60 * 1000;
+    await expireChallenges({
+      db: database.db,
+      keyring,
+      registry: app.ctx.registry,
+      logger: createLogger({ level: 'silent' }),
+      now: () => new Date(nowMs),
+    });
+    expect(cancelUserPresent).toEqual([true, false]);
+  });
+});
+
+describe('serialised with sync', () => {
+  async function startBlockedSync() {
+    let release!: () => void;
+    fetchGate = new Promise<void>((r) => (release = r));
+    const res = await connect(bToken, { scenario: 'happy' }, 'spy');
+    await vi.waitFor(async () => {
+      expect(await database.db.select().from(syncRuns)).toHaveLength(1);
+    });
+    return { connectorId: res.json.connectorId as string, release };
+  }
+  const stateOf = async (connectorId: string) => {
+    const row = await connectorRow(connectorId);
+    const dk = await keyring.forHousehold(row.householdId);
+    return { row, state: decryptConnectorState(dk, connectorId, row.stateEnc) };
+  };
+
+  it('a reconnect completing mid-sync keeps the new state and status ok', async () => {
+    const { connectorId, release } = await startBlockedSync();
+    const reconnect = call('POST', `/connectors/${connectorId}/reconnect`, bToken);
+    await new Promise((r) => setTimeout(r, 200)); // waits for the sync's connector lock
+    release();
+    expect((await reconnect).status).toBe(200);
+    await app.ctx.sync.idle();
+    const { row, state } = await stateOf(connectorId);
+    expect(row.status).toBe('ok');
+    expect(row.stateGeneration).toBe(2);
+    expect(state['fetchCount']).toBe(0); // the sync's rotated state (fetchCount 1) did not win
+  });
+
+  it('a run whose connector was re-authenticated does not write state or status', async () => {
+    const { connectorId, release } = await startBlockedSync();
+    const row = await connectorRow(connectorId);
+    const dk = await keyring.forHousehold(row.householdId);
+    await database.db
+      .update(connectors)
+      .set({
+        status: 'needs_attention',
+        stateGeneration: 5,
+        stateEnc: encryptConnectorState(dk, connectorId, { scenario: 'happy', fresh: true }),
+      })
+      .where(eq(connectors.id, connectorId));
+    release();
+    await app.ctx.sync.idle();
+    const after = await stateOf(connectorId);
+    expect(after.state['fresh']).toBe(true);
+    expect(after.row.status).toBe('needs_attention');
+    const [run] = await database.db.select().from(syncRuns);
+    expect(run?.outcome).toBe('skipped');
   });
 });

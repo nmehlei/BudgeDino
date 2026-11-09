@@ -120,6 +120,15 @@ Code: `src/server/src/connectors/{routes.ts,challenge-service.ts}`; schemas in `
   ends it (`cancelled`, `too_many_invalid_answers`). `ConnectorAuthError` = 200 `{status: cancelled|expired, reason}`.
   Decoupled: the app POSTs `{kind:'decoupled'}` repeatedly; earlier than `pollAfterMs` after the last bank call = 429 with
   `Retry-After`, no bank call.
+- **Lifetime:** a challenge never outlives createdAt + 15 min regardless of renewals. A decoupled challenge's first poll also
+  waits `pollAfterMs` from creation. The sweeper treats an `answering` claim as abandoned only 2 min after its expiry and
+  calls `cancelAuth` with `userPresent: false`.
+- **Failure on a reconnect of an `ok` connector** (terminal `ConnectorAuthError`, expiry, cancel) leaves it `ok`: the old
+  consent is still valid. A fresh connector stays `needs_attention`. If `startAuth` fails on `POST /connectors`, the
+  just-created connector row is deleted (the client never got its id), so retries do not pile up duplicates.
+- **State writes are serialised with sync:** the done write (state, status, consent) takes the same per-connector advisory
+  lock as `runSync` and bumps `connectors.state_generation`; a run only writes state/status while the generation it started
+  with is unchanged (otherwise it logs, writes nothing and ends `skipped`).
 - **At most one open challenge per connector;** a new reconnect cancels the previous one (`cancelAuth`).
 - **On `done`:** state stored encrypted, connector `ok`, `consent_expires_at` set, accounts discovered with `listAccounts`
   (new refs matched by blind index get visibility `household`, counts toward budgets), then a user-present sync is started

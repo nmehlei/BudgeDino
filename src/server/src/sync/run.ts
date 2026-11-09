@@ -310,13 +310,25 @@ async function executeRun(
 
   let state = decryptConnectorState(dk, connectorId, connector.stateEnc);
   // Committed immediately (own statement): a later failure in this run must not lose rotated state.
+  // A (re)authentication bumps `state_generation`; this run then must not overwrite its newer state or status.
+  const generation = connector.stateGeneration;
+  const unchanged = and(eq(connectors.id, connectorId), eq(connectors.stateGeneration, generation));
+  let superseded = false;
   const persistState = async (next: ConnectorState | undefined) => {
     if (next === undefined) return;
     state = next;
-    await db
+    const written = await db
       .update(connectors)
       .set({ stateEnc: encryptConnectorState(dk, connectorId, next) })
-      .where(eq(connectors.id, connectorId));
+      .where(unchanged)
+      .returning({ id: connectors.id });
+    if (written.length === 0) {
+      superseded = true;
+      deps.logger.warn(
+        { connectorId, runId },
+        'sync: connector re-authenticated mid-run, state kept',
+      );
+    }
   };
 
   const accountRows = await db.select().from(accounts).where(eq(accounts.connectorId, connectorId));
@@ -357,11 +369,12 @@ async function executeRun(
     });
   }
 
+  if (superseded) return finish('skipped', ingested.length > 0);
   if (failure === null) {
     await db
       .update(connectors)
       .set({ status: 'ok', lastSuccessAt: now, lastErrorCode: null })
-      .where(eq(connectors.id, connectorId));
+      .where(unchanged);
     return finish('ok', true);
   }
 
@@ -371,16 +384,10 @@ async function executeRun(
       : failure.reason === 'rate_limited'
         ? (['bank_rate_limited', ERROR_CODES.bank_rate_limited] as const)
         : (['temporary', ERROR_CODES.temporary] as const);
-  await db
-    .update(connectors)
-    .set({ lastErrorCode: errorCode })
-    .where(eq(connectors.id, connectorId));
+  await db.update(connectors).set({ lastErrorCode: errorCode }).where(unchanged);
   if (outcome === 'needs_attention' && connector.status !== 'needs_attention') {
     await db.transaction(async (tx) => {
-      await tx
-        .update(connectors)
-        .set({ status: 'needs_attention' })
-        .where(eq(connectors.id, connectorId));
+      await tx.update(connectors).set({ status: 'needs_attention' }).where(unchanged);
       await notifyAttention(tx, dk, connector, `${connector.type} needs your attention`);
     });
   }

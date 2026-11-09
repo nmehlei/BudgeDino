@@ -117,6 +117,8 @@ export const connectors = pgTable('connectors', {
     .default('ok'),
   configEnc: bytea('config_enc').notNull(),
   stateEnc: bytea('state_enc'),
+  /** Bumped by every (re)authentication; a sync run only writes state/status while it is unchanged. */
+  stateGeneration: integer('state_generation').notNull().default(0),
   lastSuccessAt: ts('last_success_at'),
   lastErrorCode: text('last_error_code'),
   consentExpiresAt: ts('consent_expires_at'),
