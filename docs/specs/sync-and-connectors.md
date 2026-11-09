@@ -160,7 +160,7 @@ Code: `src/server/src/sync/` (`run.ts`, `ingest.ts`, `rate-guard.ts`, `scheduler
 - **User syncs:** a request while a run of that connector is queued or active (no outcome, started < 15 min ago)
   returns that run's id with 202 (coalescing); user runs are spaced at least 2 minutes apart per connector
   (otherwise 429 `sync_throttled` with `Retry-After`).
-- **Cursor:** `since` = latest booked `booking_date` of the account minus 7 days (late bookings), or `null` on
+- **Cursor:** `since` = min(latest booked `booking_date` of the account, today in the household timezone) minus 7 days (late bookings; the cap keeps a future-dated row from skipping them), or `null` on
   the first sync.
 - **Triggers:** `schedule` runs only touch `ok` connectors and count against `maxUnattendedPerDay`
   (rolling 24 h over `sync_runs`; runs the guard or a status check skipped do not count). The 5th run is

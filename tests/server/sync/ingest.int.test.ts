@@ -328,4 +328,26 @@ describe('runSync wiring', () => {
     spy.mockRestore();
     expect(connectorId).toBeTruthy();
   });
+
+  it('caps the cursor at today (household timezone): a future-dated booked row does not push it forward', async () => {
+    const seeded = await seedFakeConnector(database.db, keyring, householdId, memberId, {
+      accountRef: 'fake-8',
+      transactions: [baseTx('t1', '2026-11-01'), baseTx('t-future', '2026-12-31')],
+    });
+    const deps: SyncDeps = {
+      db: database.db,
+      keyring,
+      registry,
+      logger: createLogger({ level: 'silent' }),
+      now: () => NOW,
+      onIngested: async () => {},
+    };
+    const spy = vi.spyOn(registry.get('fake'), 'fetchTransactions');
+    spy.mockClear();
+    await runSync(deps, seeded.connectorId, 'user');
+    await runSync(deps, seeded.connectorId, 'user');
+    // today is 2026-11-09 (Europe/Berlin): cursor = today - 7 days, not 2026-12-31 - 7 days
+    expect(spy.mock.calls[1]?.[2]?.toISOString().slice(0, 10)).toBe('2026-11-02');
+    spy.mockRestore();
+  });
 });

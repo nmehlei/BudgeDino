@@ -5,7 +5,14 @@ import { UnknownConnectorError } from '../connectors/registry.js';
 import type { ConnectorContext, ConnectorState, FetchResult } from '../connectors/types.js';
 import type { Db, DbOrTx } from '../db/client.js';
 import { newId } from '../db/ids.js';
-import { accounts, connectors, notifications, syncRuns, transactions } from '../db/schema.js';
+import {
+  accounts,
+  connectors,
+  households,
+  notifications,
+  syncRuns,
+  transactions,
+} from '../db/schema.js';
 import type { Keyring } from '../households/keyring.js';
 import type { Logger } from '../observability/logger.js';
 import { safeErrorInfo } from '../observability/redact.js';
@@ -391,6 +398,11 @@ async function executeRun(
 
   const accountRows = await db.select().from(accounts).where(eq(accounts.connectorId, connectorId));
   let failure: Exclude<FetchResult, { ok: true }> | null = null;
+  const [hh] = await db
+    .select({ timezone: households.timezone })
+    .from(households)
+    .where(eq(households.id, connector.householdId));
+  const today = localDate(now, hh?.timezone ?? 'UTC');
   for (const row of accountRows) {
     const ref = decryptExternalRef(dk, row);
     if (ref === null) {
@@ -400,7 +412,7 @@ async function executeRun(
       );
       continue;
     }
-    const since = await syncCursor(db, row.id);
+    const since = await syncCursor(db, row.id, today);
     const result = await impl.fetchTransactions(state, ref, since, ctx);
     await persistState(result.state);
     if (!result.ok) {
@@ -466,14 +478,28 @@ async function executeRun(
   return finish(outcome, ingested.length > 0, errorCode);
 }
 
-/** Latest booked date minus the overlap, or null before the first sync. */
-async function syncCursor(db: DbOrTx, accountId: string): Promise<Date | null> {
+/** `YYYY-MM-DD` of an instant in an IANA time zone. */
+function localDate(instant: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(instant);
+}
+
+/**
+ * min(latest booked date, today in the household timezone) minus the overlap, or null before the
+ * first sync. The cap keeps a future-dated booking from pushing the cursor past late bookings.
+ */
+async function syncCursor(db: DbOrTx, accountId: string, today: string): Promise<Date | null> {
   const [row] = await db
     .select({ latest: max(transactions.bookingDate) })
     .from(transactions)
     .where(and(eq(transactions.accountId, accountId), eq(transactions.status, 'booked')));
   if (!row?.latest) return null;
-  return new Date(Date.parse(`${row.latest}T00:00:00Z`) - CURSOR_OVERLAP_DAYS * DAY_MS);
+  const anchor = row.latest < today ? row.latest : today;
+  return new Date(Date.parse(`${anchor}T00:00:00Z`) - CURSOR_OVERLAP_DAYS * DAY_MS);
 }
 
 /** The body carries the connector type only: no amounts, payees or IBANs. */
