@@ -47,7 +47,8 @@ async function accountIbans(db: Db, dk: DataKey, householdId: string) {
  * `txIds`. Considers every household account, `owner_only` ones included, so a transfer into a hidden
  * account is still excluded from spending; visibility of the pair is decided by the normal gate on read.
  *
- * Candidates are ranked: counterparty IBAN equal to the other account's IBAN first, then the smallest date
+ * A pair is rejected when either side has a counterparty IBAN that differs from the other account's known
+ * IBAN (a third party, e.g. a merchant payment next to an unrelated deposit). Candidates are ranked: counterparty IBAN equal to the other account's IBAN first, then the smallest date
  * gap, then ids; each transaction ends up in at most one pair. Both rows get a shared `transfer_group_id`
  * and, unless manually categorized, the household's Transfer category with source `rule`.
  */
@@ -97,9 +98,16 @@ export async function detectTransfers(
       if (pairs.has(key)) continue;
       const aIban = ibans.get(a.accountId) ?? null;
       const bIban = ibans.get(b.accountId) ?? null;
-      const ibanMatch =
-        (aIban !== null && normIban(b.counterpartyIban) === aIban) ||
-        (bIban !== null && normIban(a.counterpartyIban) === bIban);
+      // A known counterparty IBAN that is not the other account's IBAN means a third party: no transfer.
+      const aCp = normIban(a.counterpartyIban);
+      const bCp = normIban(b.counterpartyIban);
+      if (
+        (aCp !== null && bIban !== null && aCp !== bIban) ||
+        (bCp !== null && aIban !== null && bCp !== aIban)
+      ) {
+        continue;
+      }
+      const ibanMatch = (aIban !== null && bCp === aIban) || (bIban !== null && aCp === bIban);
       pairs.set(key, { a, b, ibanMatch, gap });
     }
   }

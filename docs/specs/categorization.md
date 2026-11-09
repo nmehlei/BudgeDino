@@ -69,7 +69,9 @@ non-zero, have the transaction's sign and currency, and the parts must sum to th
 ### Transfers
 
 Opposite amounts (same currency and absolute minor units) on two *different* household accounts, both
-booked, at most 4 days apart, are paired. Ranking: counterparty IBAN equal to the other account's IBAN
+booked, at most 4 days apart, are paired. A candidate pair is rejected when either side has a known
+counterparty IBAN that differs from the other account's IBAN (a third party, e.g. a merchant payment
+next to an unrelated deposit); sides without IBANs are still paired. Ranking: counterparty IBAN equal to the other account's IBAN
 first, then smallest date gap; each transaction is in at most one pair. Both get a shared
 `transfer_group_id` and the Transfer category with source `rule` (a manual category is kept; the group
 id is still set so budgets can exclude the pair). Runs after categorization on ingest.

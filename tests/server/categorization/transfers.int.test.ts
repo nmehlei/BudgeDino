@@ -185,4 +185,43 @@ describe('detectTransfers', () => {
     expect(o.transferGroupId).toBe(i.transferGroupId);
     expect(i.categoryId).toBe(transferCategoryId);
   });
+
+  it('does not pair a merchant payment with an unrelated incoming payment of the same amount', async () => {
+    const pay = await add(aAccount, -5_000n, '2026-11-05', {
+      counterparty: 'Grocer',
+      counterpartyIban: 'DE75512108001245126199',
+    });
+    const refund = await add(bAccount, 5_000n, '2026-11-07', {
+      counterparty: 'Some Friend',
+      counterpartyIban: 'DE12500105170648489890',
+    });
+    await detect([pay]);
+    expect((await row(pay)).transferGroupId).toBeNull();
+    expect((await row(refund)).transferGroupId).toBeNull();
+  });
+
+  it('rejects a pair when one side names a counterparty IBAN that is not the other account', async () => {
+    const pay = await add(aAccount, -5_100n, '2026-11-05', {
+      counterpartyIban: 'DE75512108001245126199',
+    });
+    const inn = await add(bAccount, 5_100n, '2026-11-06');
+    await detect([pay]);
+    expect((await row(pay)).transferGroupId).toBeNull();
+    expect((await row(inn)).transferGroupId).toBeNull();
+  });
+
+  it('pairs a genuine transfer whose counterparty IBANs match the other accounts', async () => {
+    const out = await add(aAccount, -5_200n, '2026-11-05', { counterpartyIban: IBAN_B });
+    const inn = await add(bAccount, 5_200n, '2026-11-06', { counterpartyIban: IBAN_A });
+    await detect([out]);
+    expect((await row(out)).transferGroupId).not.toBeNull();
+    expect((await row(out)).transferGroupId).toBe((await row(inn)).transferGroupId);
+  });
+
+  it('still pairs when neither side carries a counterparty IBAN', async () => {
+    const out = await add(aAccount, -5_300n, '2026-11-05');
+    const inn = await add(bAccount, 5_300n, '2026-11-06');
+    await detect([out]);
+    expect((await row(out)).transferGroupId).toBe((await row(inn)).transferGroupId);
+  });
 });
