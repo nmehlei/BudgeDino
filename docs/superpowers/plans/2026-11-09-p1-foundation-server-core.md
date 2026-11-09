@@ -44,7 +44,7 @@
 - Create: `src/shared/package.json`, `src/shared/tsconfig.json`, `src/shared/src/index.ts`
 - Create: `src/server/package.json`, `src/server/tsconfig.json`, `src/server/src/index.ts`
 - Create: `.github/workflows/ci.yml`, `ci/check.sh`
-- Create: `AGENTS.md`, `CLAUDE.md`, `README.md`, `LICENSE` (license per owner decision)
+- Create: `AGENTS.md`, `CLAUDE.md`, `README.md`, `LICENSE` (AGPL-3.0, full official text; `"license": "AGPL-3.0-only"` in every package.json — owner decision 2026-11-09; record in `docs/adr/0008-agpl-license.md`)
 - Create: `docs/specs/household-and-access.md`, `docs/specs/sync-and-connectors.md`, `docs/specs/categorization.md`, `docs/specs/budgets.md`, `docs/specs/net-worth.md`, `docs/specs/security.md`, `docs/specs/self-hosting.md`, `docs/specs/README.md`
 - Create: `docs/adr/0001-typescript-throughout.md`, `0002-enable-banking-byo-key.md`, `0003-unofficial-broker-connectors.md`, `0004-envelope-encryption.md`, `0005-server-fetch-app-challenges.md`, `0006-no-push-service-v1.md`, `0007-shared-nme-pgsql.md`
 - Create: `docs/architecture.md` (Mermaid diagram: app ↔ API ↔ Postgres; jobs; connectors; master key source)
