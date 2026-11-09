@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '@budgedino/server/app';
 import { expireChallenges } from '@budgedino/server/connectors/challenge-service';
 import { createFakeConnector } from '@budgedino/server/connectors/fake/fake-connector';
@@ -43,6 +43,9 @@ let continueCalls: number;
 let continueDelayMs: number;
 let cancelUserPresent: boolean[];
 let fetchGate: Promise<void> | null;
+/** Resolves once a sync is blocked inside the bank call (it has then read connector state and generation). */
+let fetchEntered: Promise<void>;
+let signalFetchEntered: () => void;
 let fetchThrows: boolean;
 let startMode: 'ok' | 'fail' | 'refuse';
 
@@ -70,6 +73,7 @@ function spyConnector(): Connector {
       cancelUserPresent.push(ctx.userPresent);
     },
     async fetchTransactions(state, ref, since, ctx) {
+      signalFetchEntered();
       if (fetchGate) await fetchGate;
       if (fetchThrows) throw new Error('fetch crashed');
       return fake.fetchTransactions(state, ref, since, ctx);
@@ -100,6 +104,7 @@ beforeEach(async () => {
   continueDelayMs = 0;
   cancelUserPresent = [];
   fetchGate = null;
+  fetchEntered = new Promise<void>((r) => (signalFetchEntered = r));
   fetchThrows = false;
   startMode = 'ok';
   const master = randomMasterKey();
@@ -491,9 +496,8 @@ describe('serialised with sync', () => {
     let release!: () => void;
     fetchGate = new Promise<void>((r) => (release = r));
     const res = await connect(bToken, { scenario: 'happy' }, 'spy');
-    await vi.waitFor(async () => {
-      expect(await database.db.select().from(syncRuns)).toHaveLength(1);
-    });
+    // The sync_runs row exists long before the run reads the connector row, so wait for the bank call itself.
+    await fetchEntered;
     return { connectorId: res.json.connectorId as string, release };
   }
   const stateOf = async (connectorId: string) => {
@@ -524,9 +528,7 @@ describe('serialised with sync', () => {
     let release!: () => void;
     fetchGate = new Promise<void>((r) => (release = r));
     const res = await connect(bToken, { scenario: 'expired-consent' }, 'spy');
-    await vi.waitFor(async () => {
-      expect(await database.db.select().from(syncRuns)).toHaveLength(1);
-    });
+    await fetchEntered;
     await call('POST', `/connectors/${res.json.connectorId}/reconnect`, bToken);
     release();
     await app.ctx.sync.idle();
