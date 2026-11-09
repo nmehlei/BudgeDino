@@ -15,6 +15,7 @@ import type { AppContext, AppDeps } from './deps.js';
 import { HttpError } from './http/errors.js';
 import { householdRoutes } from './households/routes.js';
 import { fastifyLoggerOptions } from './observability/logger.js';
+import { safeErrorInfo } from './observability/redact.js';
 
 export const API_PREFIX = '/api/v1';
 
@@ -86,7 +87,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         message: STATUS_CODES[status] ?? 'Bad request',
       });
     }
-    req.log.error({ err }, 'unhandled error');
+    req.log.error({ error: safeErrorInfo(err) }, 'unhandled error');
     return reply.code(500).send({ error: 'internal_error', message: 'Internal server error' });
   });
   app.setNotFoundHandler((_req, reply) =>

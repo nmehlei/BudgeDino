@@ -162,18 +162,15 @@ export function authRoutes(app: FastifyInstance): void {
       const emailKey = keyring.blindIndex('login-rate-limit', normalizeEmail(body.email));
       const ipKey = req.ip;
 
-      for (const [limiter, key] of [
-        [loginEmailLimiter, emailKey],
-        [loginIpLimiter, ipKey],
-      ] as const) {
-        if (await limiter.isBlocked(key)) {
-          void reply.header('retry-after', String(await limiter.retryAfterSeconds(key)));
-          throw new HttpError(
-            429,
-            'too_many_attempts',
-            'Too many failed attempts, try again later',
-          );
-        }
+      // Count the attempt before any verification so parallel requests cannot all pass the check.
+      const email = await loginEmailLimiter.hit(emailKey);
+      const ip = await loginIpLimiter.hit(ipKey);
+      if (loginEmailLimiter.isOver(email) || loginIpLimiter.isOver(ip)) {
+        const wait = loginEmailLimiter.isOver(email)
+          ? await loginEmailLimiter.retryAfterSeconds(emailKey)
+          : await loginIpLimiter.retryAfterSeconds(ipKey);
+        void reply.header('retry-after', String(wait));
+        throw new HttpError(429, 'too_many_attempts', 'Too many failed attempts, try again later');
       }
 
       const at = now();
@@ -218,12 +215,9 @@ export function authRoutes(app: FastifyInstance): void {
         }
       }
 
-      if (!sessionToken) {
-        await loginEmailLimiter.recordFailure(emailKey);
-        await loginIpLimiter.recordFailure(ipKey);
-        throw invalidCredentials();
-      }
+      if (!sessionToken) throw invalidCredentials();
       await loginEmailLimiter.reset(emailKey);
+      await loginIpLimiter.release(ipKey);
       return { sessionToken };
     },
   );

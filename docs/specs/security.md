@@ -169,8 +169,13 @@ against a dummy hash runs for unknown emails. Registration does reveal "email al
 to holders of a valid invite. Error responses are built from fixed strings and never echo request
 bodies, parser messages or headers.
 
-**Rate limiting.** Failed logins: 5 per email per 15 min and 20 per client IP per 15 min, then
-`429` with `Retry-After` (the 6th attempt is refused even with correct credentials; a successful login
-clears the email counter). The counters are in memory (fixed window, bounded key count) behind the
+**Rate limiting.** Login attempts are counted atomically *before* verification (so a parallel burst
+cannot pass the check): 5 per email and 20 per client IP per 15 min, then `429` with `Retry-After`
+(the 6th attempt is refused even with correct credentials). A successful login clears the email counter
+and gives the IP attempt back.
+
+**Logging of errors.** Unexpected errors are logged as `{type, code, constraint}` only; `redact()` also
+masks any `params` key and the `\nparams:` tail of drizzle query-error messages, so bound query values
+(password hashes, token hashes) never reach logs or CLI output. The counters are in memory (fixed window, bounded key count) behind the
 `RateLimiter` interface; this is correct for one server instance, so move it to Postgres before running
 several instances. Behind a reverse proxy set `trustProxy` so the IP key is the client IP.

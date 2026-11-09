@@ -1,11 +1,17 @@
 /**
- * Failure counter with a fixed window. Behind an interface so the in-memory implementation (fine for
+ * Attempt counter with a fixed window. Behind an interface so the in-memory implementation (fine for
  * a single instance, P1) can be replaced by a Postgres-backed one when running several instances.
  */
 export interface RateLimiter {
-  /** True when `key` has used up its failures for the current window. */
-  isBlocked(key: string): Promise<boolean>;
-  recordFailure(key: string): Promise<void>;
+  /**
+   * Counts one attempt for `key` BEFORE the guarded work and returns the attempts in the current
+   * window including this one. Must be atomic so a parallel burst cannot slip past the check.
+   */
+  hit(key: string): Promise<number>;
+  /** True when a result of `hit` exceeds the limit (the caller must refuse). */
+  isOver(count: number): boolean;
+  /** Takes back one attempt (e.g. the IP counter after a successful login). */
+  release(key: string): Promise<void>;
   reset(key: string): Promise<void>;
   /** Seconds until the window of `key` ends (for `Retry-After`). */
   retryAfterSeconds(key: string): Promise<number>;
@@ -44,18 +50,24 @@ export class InMemoryRateLimiter implements RateLimiter {
     return entry;
   }
 
-  isBlocked(key: string): Promise<boolean> {
-    return Promise.resolve((this.live(key)?.count ?? 0) >= this.options.limit);
-  }
-
-  recordFailure(key: string): Promise<void> {
+  hit(key: string): Promise<number> {
     const entry = this.live(key);
     if (entry) {
       entry.count += 1;
-    } else {
-      if (this.entries.size >= this.maxKeys) this.evict();
-      this.entries.set(key, { count: 1, windowStart: this.now() });
+      return Promise.resolve(entry.count);
     }
+    if (this.entries.size >= this.maxKeys) this.evict();
+    this.entries.set(key, { count: 1, windowStart: this.now() });
+    return Promise.resolve(1);
+  }
+
+  isOver(count: number): boolean {
+    return count > this.options.limit;
+  }
+
+  release(key: string): Promise<void> {
+    const entry = this.live(key);
+    if (entry) entry.count = Math.max(0, entry.count - 1);
     return Promise.resolve();
   }
 

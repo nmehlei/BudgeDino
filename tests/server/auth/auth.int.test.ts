@@ -275,6 +275,37 @@ describe('registration, login, sessions', () => {
     expect(later.status).toBe(200);
   });
 
+  it('counts attempts before verification: a concurrent burst gets at most 5 attempts through', async () => {
+    const { secret } = await register('alice@example.test');
+    nowMs += 30_000;
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () =>
+        post('/auth/login', {
+          email: 'alice@example.test',
+          password: PASSWORD,
+          totpCode: wrongCode(secret),
+          deviceName: 'T',
+        }),
+      ),
+    );
+    const statuses = results.map((r) => r.status);
+    expect(statuses.filter((s) => s === 401)).toHaveLength(5);
+    expect(statuses.filter((s) => s === 429)).toHaveLength(5);
+  });
+
+  it('lets exactly one of two concurrent logins with the same TOTP code succeed', async () => {
+    const { secret } = await register('alice@example.test');
+    nowMs += 30_000;
+    const body = {
+      email: 'alice@example.test',
+      password: PASSWORD,
+      totpCode: codeFor(secret),
+      deviceName: 'T',
+    };
+    const results = await Promise.all([post('/auth/login', body), post('/auth/login', body)]);
+    expect(results.map((r) => r.status).sort()).toEqual([200, 401]);
+  });
+
   it('limits failed logins per IP to 20 across emails', async () => {
     for (let i = 0; i < 20; i += 1) {
       const res = await post(

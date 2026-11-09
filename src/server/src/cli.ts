@@ -11,6 +11,7 @@ import { migrate } from './db/migrate.js';
 import { bootstrapHousehold, isValidTimezone } from './households/bootstrap.js';
 import { createInvite } from './households/invites.js';
 import { Keyring } from './households/keyring.js';
+import { redactString } from './observability/redact.js';
 
 export interface CliIo {
   env: Record<string, string | undefined>;
@@ -61,7 +62,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
       return 2;
     }
     // Messages here never contain key material (see crypto module); no stack traces to the terminal.
-    err(`Error: ${e instanceof Error ? e.message : 'unknown failure'}\n`);
+    err(`Error: ${e instanceof Error ? redactString(e.message) : 'unknown failure'}\n`);
     return 1;
   }
 }

@@ -5,7 +5,7 @@ import { TracerProvider } from '@opentelemetry/sdk-trace';
 import Fastify from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createLogger, fastifyLoggerOptions } from '@budgedino/server/observability/logger';
-import { redact } from '@budgedino/server/observability/redact';
+import { redact, redactString, safeErrorInfo } from '@budgedino/server/observability/redact';
 import { startTelemetry } from '@budgedino/server/observability/otel';
 
 const IBAN = 'DE89370400440532013000';
@@ -177,5 +177,48 @@ describe('startTelemetry', () => {
     const t = startTelemetry({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:9' });
     expect(t.enabled).toBe(true);
     await t.shutdown().catch(() => undefined);
+  });
+});
+
+describe('query error redaction', () => {
+  const HASH = '$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHQ$c29tZWhhc2hzb21laGFzaA';
+
+  function drizzleLikeError() {
+    const err = new Error(
+      `Failed query: insert into "members" ("password_hash") values ($1)\nparams: ${HASH}`,
+    );
+    err.name = 'DrizzleQueryError';
+    Object.assign(err, { params: [HASH], query: 'insert into "members" ...' });
+    return err;
+  }
+
+  it('never lets bound query params reach a log line', () => {
+    const sink = capture();
+    const logger = createLogger({ destination: sink.stream });
+    const err = drizzleLikeError();
+    logger.error({ err }, err.message);
+    logger.error(err);
+    logger.error({ detail: err.message }, 'failed');
+    expect(sink.text()).not.toContain('argon2id');
+    expect(sink.text()).not.toContain('c29tZWhhc2g');
+    expect(sink.text()).toContain('DrizzleQueryError');
+  });
+
+  it('redacts a params key and the params tail of strings', () => {
+    expect(redact({ params: [HASH], other: 1 })).toEqual({ params: '[redacted]', other: 1 });
+    expect(redactString(`Failed query: select 1\nparams: ${HASH}`)).not.toContain('argon2id');
+  });
+
+  it('safeErrorInfo keeps only type, code and constraint', () => {
+    const err = Object.assign(drizzleLikeError(), {
+      cause: { code: '23505', constraint: 'members_email_bidx_unique', detail: HASH },
+    });
+    const info = safeErrorInfo(err);
+    expect(info).toEqual({
+      type: 'DrizzleQueryError',
+      code: '23505',
+      constraint: 'members_email_bidx_unique',
+    });
+    expect(JSON.stringify(info)).not.toContain('argon2id');
   });
 });
