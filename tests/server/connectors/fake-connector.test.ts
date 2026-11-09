@@ -9,7 +9,7 @@ import {
   createConnectorRegistry,
   UnknownConnectorError,
 } from '@budgedino/server/connectors/registry';
-import { ConnectorAuthError, type ConnectorConfig } from '@budgedino/server/connectors/types';
+import { InvalidAnswerError, type ConnectorConfig } from '@budgedino/server/connectors/types';
 import { authenticate, makeCtx, runConnectorContract } from './contract';
 
 const txs: FakeTx[] = [
@@ -62,7 +62,8 @@ for (const scenario of ['happy', 'decoupled', 'code', 'redirect', 'flaky'] as co
     config: cfg(scenario),
     answer: answerFor,
     accountRef: 'fake-1',
-    since: null,
+    since: scenario === 'happy' ? new Date('2026-01-10T00:00:00Z') : null,
+    failingState: () => authenticate(createFakeConnector(), cfg('expired-consent'), answerFor),
   });
 }
 
@@ -131,13 +132,13 @@ describe('FakeConnector', () => {
       { kind: 'redirect', callbackUrl: `budgedino://cb?code=ok&state=other` },
       ctx,
     );
-    await expect(bad1).rejects.toBeInstanceOf(ConnectorAuthError);
+    await expect(bad1).rejects.toBeInstanceOf(InvalidAnswerError);
     const bad2 = fake.continueAuth(
       step.dialog,
       { kind: 'redirect', callbackUrl: `budgedino://cb?code=no&state=${state}` },
       ctx,
     );
-    await expect(bad2).rejects.toBeInstanceOf(ConnectorAuthError);
+    await expect(bad2).rejects.toBeInstanceOf(InvalidAnswerError);
     const ok = await fake.continueAuth(
       step.dialog,
       { kind: 'redirect', callbackUrl: `budgedino://cb?code=ok&state=${state}` },
@@ -151,7 +152,32 @@ describe('FakeConnector', () => {
     if (step.done) throw new Error('expected challenge');
     await expect(
       fake.continueAuth(step.dialog, { kind: 'code', code: 'x' }, ctx),
-    ).rejects.toBeInstanceOf(ConnectorAuthError);
+    ).rejects.toBeInstanceOf(InvalidAnswerError);
+    // dialog stays valid after a client mistake
+    expect((await fake.continueAuth(step.dialog, { kind: 'decoupled' }, ctx)).done).toBe(true);
+  });
+
+  it('decoupled with pendingPolls: same challenge N times, then done; cancelAuth is safe', async () => {
+    let step = await fake.startAuth({ ...cfg('decoupled'), pendingPolls: 2 }, ctx);
+    for (let i = 0; i < 2; i++) {
+      if (step.done) throw new Error('expected pending');
+      expect(step.challenge.kind).toBe('decoupled');
+      step = await fake.continueAuth(
+        JSON.parse(JSON.stringify(step.dialog)),
+        { kind: 'decoupled' },
+        ctx,
+      );
+    }
+    if (step.done) throw new Error('expected still pending after 2 polls');
+    expect(step.challenge.kind).toBe('decoupled');
+    await expect(fake.cancelAuth?.(step.dialog, ctx)).resolves.toBeUndefined();
+    expect((await fake.continueAuth(step.dialog, { kind: 'decoupled' }, ctx)).done).toBe(true);
+  });
+
+  it('not-done steps carry expiresAt = now + 10 min', async () => {
+    const step = await fake.startAuth(cfg('code'), ctx);
+    if (step.done) throw new Error('expected challenge');
+    expect(step.expiresAt).toEqual(new Date(ctx.now().getTime() + 10 * 60 * 1000));
   });
 
   it('expired-consent: auth works, fetch needs attention', async () => {

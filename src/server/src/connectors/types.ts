@@ -34,7 +34,13 @@ export interface ConnectorContext {
 
 export type AuthStep =
   | { done: true; state: ConnectorState; consentExpiresAt?: Date }
-  | { done: false; challenge: Challenge; dialog: DialogState };
+  | {
+      done: false;
+      challenge: Challenge;
+      dialog: DialogState;
+      /** Hint when the bank dialog dies; the server uses min(own TTL, expiresAt). */
+      expiresAt?: Date;
+    };
 
 export interface ProviderAccount {
   ref: string;
@@ -70,14 +76,25 @@ export type FetchResult =
       state?: ConnectorState;
     };
 
-/** Terminal, user-visible auth failure (too many wrong answers, wrong answer kind, bad callback). */
+/**
+ * Terminal auth failure: the dialog is over (too many wrong codes, user declined at the bank,
+ * bank-side timeout). The server discards the dialog and surfaces the reason.
+ */
 export class ConnectorAuthError extends Error {
   constructor(
-    readonly reason: 'too_many_attempts' | 'invalid_answer',
+    readonly reason: 'too_many_attempts' | 'declined' | 'timeout',
     message?: string,
   ) {
     super(message ?? `Connector authentication failed: ${reason}`);
     this.name = 'ConnectorAuthError';
+  }
+}
+
+/** Client mistake (wrong answer kind, malformed callback): the dialog stays valid; map to 4xx. */
+export class InvalidAnswerError extends Error {
+  constructor(message = 'Invalid answer for the current challenge') {
+    super(message);
+    this.name = 'InvalidAnswerError';
   }
 }
 
@@ -87,11 +104,19 @@ export interface Connector {
   challengeKinds: ChallengeKind[];
   rateLimit: RateLimitPolicy;
   startAuth(config: ConnectorConfig, ctx: ConnectorContext): Promise<AuthStep>;
+  /**
+   * Advances the dialog. For a `decoupled` challenge, returning `{done:false}` with the same
+   * decoupled challenge means "still pending, poll again after pollAfterMs"; a decline or timeout
+   * throws ConnectorAuthError('declined' | 'timeout'). A wrong answer kind throws
+   * InvalidAnswerError (dialog stays valid).
+   */
   continueAuth(
     dialog: DialogState,
     answer: ChallengeAnswer,
     ctx: ConnectorContext,
   ): Promise<AuthStep>;
+  /** Optional: end a dialog early (user cancelled); must not throw. */
+  cancelAuth?(dialog: DialogState, ctx: ConnectorContext): Promise<void>;
   listAccounts(state: ConnectorState, ctx: ConnectorContext): Promise<ProviderAccount[]>;
   fetchTransactions(
     state: ConnectorState,

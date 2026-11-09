@@ -10,14 +10,14 @@ Pluggable connector architecture: each connector implements a common interface (
 fetch transactions since cursor, fetch balances, fetch holdings, auth/consent lifecycle, health).
 Replacing a connector must not affect the rest of the system. **[owner]**
 
-| Institution | Data | Route | Status |
-|---|---|---|---|
-| DKB | accounts, transactions, depot | FinTS 3.0 PIN/TAN (decoupled TAN) | official |
-| Comdirect | accounts, transactions, depot | FinTS 3.0 PIN/TAN | official |
-| C24 | accounts, transactions | Enable Banking (PSD2 AIS) | official via aggregator |
-| Revolut | accounts, transactions (incl. multi-currency) | Enable Banking | official via aggregator |
-| Trade Republic | cash, transactions, holdings | unofficial reverse-engineered API (port of pytr protocol to TS) | **experimental** |
-| Scalable Capital | holdings, transactions | unofficial (approach to be researched) | **experimental** |
+| Institution      | Data                                          | Route                                                           | Status                  |
+| ---------------- | --------------------------------------------- | --------------------------------------------------------------- | ----------------------- |
+| DKB              | accounts, transactions, depot                 | FinTS 3.0 PIN/TAN (decoupled TAN)                               | official                |
+| Comdirect        | accounts, transactions, depot                 | FinTS 3.0 PIN/TAN                                               | official                |
+| C24              | accounts, transactions                        | Enable Banking (PSD2 AIS)                                       | official via aggregator |
+| Revolut          | accounts, transactions (incl. multi-currency) | Enable Banking                                                  | official via aggregator |
+| Trade Republic   | cash, transactions, holdings                  | unofficial reverse-engineered API (port of pytr protocol to TS) | **experimental**        |
+| Scalable Capital | holdings, transactions                        | unofficial (approach to be researched)                          | **experimental**        |
 
 Further institutions come from the same connectors (any FinTS bank; any Enable Banking bank).
 
@@ -38,9 +38,10 @@ Further institutions come from the same connectors (any FinTS bank; any Enable B
 ## Sync
 
 ### Where bank interaction runs **[owner]**
+
 - **Data fetching runs on the server**: unattended, scheduled, within the consent's validity.
 - **Every interactive step runs in the app, started by the user.** When a bank needs the user (expired
-  consent, TAN, re-login), the server does *not* start a dialog on its own. It marks the connector
+  consent, TAN, re-login), the server does _not_ start a dialog on its own. It marks the connector
   `needs_attention` and notifies the connector's owner. The user taps the notification or "reconnect";
   only then does the server open the bank dialog and hand the app a **typed challenge**:
   - `redirect` — the app opens the bank URL in a browser tab; the bank redirects back into the app via
@@ -56,6 +57,7 @@ Further institutions come from the same connectors (any FinTS bank; any Enable B
 - See [ADR 0005](../adr/0005-server-fetch-app-challenges.md).
 
 ### Scheduling and data handling
+
 - Runs on the server: scheduled and on demand from the app. **Schedules are per connector type** and
   each connector declares its rate limits, which the scheduler enforces (a misconfiguration can never
   exceed a bank's limit). **[call]**
@@ -86,8 +88,15 @@ injected (no global); `get(type)` throws `UnknownConnectorError`.
 - **Challenge kinds:** `redirect` (url + return scheme; answer = callback URL), `decoupled` (message +
   poll interval; answer = confirm), `code` (answer = code), `image` (image + code).
 - **Failure reasons:** `fetchTransactions` never throws for bank-side problems; it returns
-  `{ ok: false, reason: 'needs_attention' | 'rate_limited' | 'temporary', retryAfter? }`. Auth throws
-  `ConnectorAuthError` only for terminal failures (too many wrong codes, invalid answer).
+  `{ ok: false, reason: 'needs_attention' | 'rate_limited' | 'temporary', retryAfter? }`.
+- **Decoupled polling:** `continueAuth` returning `{done:false}` with the same `decoupled` challenge
+  means "still pending, poll again after `pollAfterMs`". Terminal failures throw
+  `ConnectorAuthError` (`too_many_attempts` | `declined` | `timeout`); a client mistake (wrong answer
+  kind, bad callback) throws `InvalidAnswerError` and leaves the dialog valid (maps to 4xx).
+  Optional `cancelAuth` ends a dialog early; not-done steps may carry `expiresAt` (the server uses
+  min(own TTL, expiresAt)).
+- The server must serialise state writes per connector (concurrent per-account fetches each return
+  state; last-writer-wins would lose updates).
 - Config, state and dialog are opaque JSON (stored encrypted); dialog state never leaves the server.
 - `FakeConnector` (scenarios in its file header) and the reusable `runConnectorContract` suite
   (`tests/server/connectors/contract.ts`) back all sync/challenge tests and future connectors.
