@@ -12,7 +12,6 @@ import type { Logger } from '../observability/logger.js';
 import { safeErrorInfo } from '../observability/redact.js';
 import { createAccount } from '../repositories/accounts.js';
 import { encryptConnectorState } from '../repositories/connectors.js';
-import { withConnectorLock } from '../sync/run.js';
 import type { SyncService } from '../sync/service.js';
 import { UnknownConnectorError, type ConnectorRegistry } from './registry.js';
 import {
@@ -363,9 +362,7 @@ export function createChallengeService(
     }
     if (step.done) {
       const values = await connectedValues(connector, step);
-      await withConnectorLock(deps, connector.id, () =>
-        db.update(connectors).set(values).where(eq(connectors.id, connector.id)),
-      );
+      await db.update(connectors).set(values).where(eq(connectors.id, connector.id));
       await afterConnected(connector, step.state, psuIp);
       return undefined;
     }
@@ -564,19 +561,18 @@ export function createChallengeService(
 
       if (step.done) {
         const values = await connectedValues(connector, step);
-        // Same per-connector lock as sync runs: the new session is never overwritten by a run's old state.
-        const won = await withConnectorLock(deps, connector.id, () =>
-          db.transaction(async (tx) => {
-            const [updated] = await tx
-              .update(challenges)
-              .set({ status: 'completed' })
-              .where(and(eq(challenges.id, row.id), eq(challenges.status, 'answering')))
-              .returning({ id: challenges.id });
-            if (!updated) return false;
-            await tx.update(connectors).set(values).where(eq(connectors.id, connector.id));
-            return true;
-          }),
-        );
+        // One atomic write that bumps `state_generation`: a sync run that started earlier sees the change and
+        // no longer writes state or status (no lock wait, the user's answer never blocks behind a sync).
+        const won = await db.transaction(async (tx) => {
+          const [updated] = await tx
+            .update(challenges)
+            .set({ status: 'completed' })
+            .where(and(eq(challenges.id, row.id), eq(challenges.status, 'answering')))
+            .returning({ id: challenges.id });
+          if (!updated) return false;
+          await tx.update(connectors).set(values).where(eq(connectors.id, connector.id));
+          return true;
+        });
         if (!won) return { status: await currentStatus(row.id) };
         await afterConnected(connector, step.state, psuIp);
         return { status: 'completed' };

@@ -6,7 +6,14 @@ import { expireChallenges } from '@budgedino/server/connectors/challenge-service
 import { createFakeConnector } from '@budgedino/server/connectors/fake/fake-connector';
 import { createConnectorRegistry } from '@budgedino/server/connectors/registry';
 import type { Connector } from '@budgedino/server/connectors/types';
-import { accounts, challenges, connectors, syncRuns } from '@budgedino/server/db/schema';
+import { runSync } from '@budgedino/server/sync/run';
+import {
+  accounts,
+  challenges,
+  connectors,
+  notifications,
+  syncRuns,
+} from '@budgedino/server/db/schema';
 import {
   decryptConnectorState,
   encryptConnectorState,
@@ -36,6 +43,7 @@ let continueCalls: number;
 let continueDelayMs: number;
 let cancelUserPresent: boolean[];
 let fetchGate: Promise<void> | null;
+let fetchThrows: boolean;
 let startMode: 'ok' | 'fail' | 'refuse';
 
 beforeAll(async () => {
@@ -63,6 +71,7 @@ function spyConnector(): Connector {
     },
     async fetchTransactions(state, ref, since, ctx) {
       if (fetchGate) await fetchGate;
+      if (fetchThrows) throw new Error('fetch crashed');
       return fake.fetchTransactions(state, ref, since, ctx);
     },
   };
@@ -91,6 +100,7 @@ beforeEach(async () => {
   continueDelayMs = 0;
   cancelUserPresent = [];
   fetchGate = null;
+  fetchThrows = false;
   startMode = 'ok';
   const master = randomMasterKey();
   keyring = new Keyring(database.db, master);
@@ -492,17 +502,62 @@ describe('serialised with sync', () => {
     return { row, state: decryptConnectorState(dk, connectorId, row.stateEnc) };
   };
 
-  it('a reconnect completing mid-sync keeps the new state and status ok', async () => {
+  it('a reconnect completing mid-sync returns at once and keeps the new state and status ok', async () => {
     const { connectorId, release } = await startBlockedSync();
-    const reconnect = call('POST', `/connectors/${connectorId}/reconnect`, bToken);
-    await new Promise((r) => setTimeout(r, 200)); // waits for the sync's connector lock
+    // the sync is blocked in its bank call and holds the connector lock; the reconnect must not wait for it
+    const reconnect = await call('POST', `/connectors/${connectorId}/reconnect`, bToken);
+    expect(reconnect.status).toBe(200);
     release();
-    expect((await reconnect).status).toBe(200);
     await app.ctx.sync.idle();
     const { row, state } = await stateOf(connectorId);
     expect(row.status).toBe('ok');
     expect(row.stateGeneration).toBe(2);
     expect(state['fetchCount']).toBe(0); // the sync's rotated state (fetchCount 1) did not win
+    const [run] = await database.db.select().from(syncRuns);
+    expect(run?.outcome).toBe('skipped'); // superseded: wrote neither state nor status
+  });
+
+  it('a superseded run that errors neither sets status error nor notifies', async () => {
+    const { connectorId, release } = await startBlockedSync();
+    fetchThrows = true;
+    await call('POST', `/connectors/${connectorId}/reconnect`, bToken);
+    release();
+    await app.ctx.sync.idle();
+    const after = await connectorRow(connectorId);
+    expect(after.status).toBe('ok');
+    expect(after.lastErrorCode).toBeNull();
+    expect(await database.db.select().from(notifications)).toHaveLength(0);
+    const [run] = await database.db.select().from(syncRuns);
+    expect(run?.outcome).toBe('error');
+  });
+
+  it('a reconnect resets the error streak: two old errors plus one new do not flip to error', async () => {
+    const res = await connect(bToken, { scenario: 'happy' }, 'spy');
+    const { connectorId } = res.json;
+    await app.ctx.sync.idle();
+    const old = [1, 2].map((n) => ({
+      connectorId,
+      trigger: 'schedule' as const,
+      startedAt: new Date(Date.now() + n * 1000),
+      finishedAt: new Date(),
+      outcome: 'error',
+      errorCode: 'sync_failed',
+      connectorGeneration: 0, // before the authentication
+    }));
+    await database.db.insert(syncRuns).values(old);
+    fetchThrows = true;
+    const deps = {
+      db: database.db,
+      keyring,
+      registry: app.ctx.registry,
+      logger: createLogger({ level: 'silent' }),
+      now: () => new Date(Date.now() + 60_000),
+      onIngested: async () => {},
+    };
+    const result = await runSync(deps, connectorId, 'user');
+    expect(result.outcome).toBe('error');
+    expect((await connectorRow(connectorId)).status).toBe('ok');
+    expect(await database.db.select().from(notifications)).toHaveLength(0);
   });
 
   it('a run whose connector was re-authenticated does not write state or status', async () => {

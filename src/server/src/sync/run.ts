@@ -102,15 +102,33 @@ export async function runSync(
   const runId = options.runId ?? (await createSyncRun(db, connectorId, trigger, deps.now()));
   const ingested: string[] = [];
   return withConnectorLock(deps, connectorId, async () => {
+    // Authentication does not take this lock; the generation read here guards every write of this run.
+    const [current] = await db
+      .select({ generation: connectors.stateGeneration })
+      .from(connectors)
+      .where(eq(connectors.id, connectorId));
+    const generation = current?.generation ?? -1;
+    await db
+      .update(syncRuns)
+      .set({ connectorGeneration: generation })
+      .where(eq(syncRuns.id, runId));
     try {
-      const result = await executeRun(deps, connectorId, trigger, runId, options, ingested);
+      const result = await executeRun(
+        deps,
+        connectorId,
+        trigger,
+        runId,
+        options,
+        ingested,
+        generation,
+      );
       await callHook(deps, result.householdId, result.fetched ? ingested : null, connectorId);
       return { runId, outcome: result.outcome };
     } catch (err) {
       const code =
         err instanceof UnknownConnectorError ? ERROR_CODES.unknown_connector : ERROR_CODES.failed;
       logger.error({ connectorId, runId, error: safeErrorInfo(err) }, 'sync failed');
-      await recordError(deps, connectorId, runId, code);
+      await recordError(deps, connectorId, runId, code, generation);
       if (ingested.length > 0) {
         const [row] = await db
           .select({ householdId: connectors.householdId })
@@ -211,12 +229,17 @@ async function callHook(
   }
 }
 
-/** Records an unexpected failure; after 3 consecutive failed runs the connector goes to `error`. */
+/**
+ * Records an unexpected failure; after 3 consecutive failed runs (of the current authentication, a reconnect
+ * resets the streak) the connector goes to `error`. Connector writes only apply while the run's generation
+ * is still current; a superseded run changes neither status nor error code and notifies nobody.
+ */
 async function recordError(
   deps: SyncDeps,
   connectorId: string,
   runId: string,
   code: string,
+  generation: number,
 ): Promise<void> {
   const { db } = deps;
   await db.transaction(async (tx) => {
@@ -224,7 +247,13 @@ async function recordError(
       .update(syncRuns)
       .set({ outcome: 'error', errorCode: code, finishedAt: deps.now() })
       .where(eq(syncRuns.id, runId));
-    await tx.update(connectors).set({ lastErrorCode: code }).where(eq(connectors.id, connectorId));
+    const guard = and(eq(connectors.id, connectorId), eq(connectors.stateGeneration, generation));
+    const marked = await tx
+      .update(connectors)
+      .set({ lastErrorCode: code })
+      .where(guard)
+      .returning({ id: connectors.id });
+    if (marked.length === 0) return; // superseded by a reconnect
     const [connector] = await tx.select().from(connectors).where(eq(connectors.id, connectorId));
     if (!connector || connector.status === 'error' || connector.status === 'disabled') return;
     // runs that never reached the bank do not break or extend a streak
@@ -234,13 +263,19 @@ async function recordError(
       .where(
         and(
           eq(syncRuns.connectorId, connectorId),
+          eq(syncRuns.connectorGeneration, generation),
           or(isNull(syncRuns.outcome), notInArray(syncRuns.outcome, ['rate_limited', 'skipped'])),
         ),
       )
       .orderBy(desc(syncRuns.startedAt), desc(syncRuns.id))
       .limit(ERROR_STREAK_LIMIT);
     if (recent.length === ERROR_STREAK_LIMIT && recent.every((r) => r.outcome === 'error')) {
-      await tx.update(connectors).set({ status: 'error' }).where(eq(connectors.id, connectorId));
+      const flipped = await tx
+        .update(connectors)
+        .set({ status: 'error' })
+        .where(guard)
+        .returning({ id: connectors.id });
+      if (flipped.length === 0) return;
       await notifyAttention(
         tx,
         await deps.keyring.forHousehold(connector.householdId),
@@ -265,6 +300,7 @@ async function executeRun(
   runId: string,
   options: RunSyncOptions,
   ingested: string[],
+  generation: number,
 ): Promise<RunDone> {
   const { db } = deps;
   const now = deps.now();
@@ -311,7 +347,6 @@ async function executeRun(
   let state = decryptConnectorState(dk, connectorId, connector.stateEnc);
   // Committed immediately (own statement): a later failure in this run must not lose rotated state.
   // A (re)authentication bumps `state_generation`; this run then must not overwrite its newer state or status.
-  const generation = connector.stateGeneration;
   const unchanged = and(eq(connectors.id, connectorId), eq(connectors.stateGeneration, generation));
   let superseded = false;
   const persistState = async (next: ConnectorState | undefined) => {

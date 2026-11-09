@@ -126,9 +126,11 @@ Code: `src/server/src/connectors/{routes.ts,challenge-service.ts}`; schemas in `
 - **Failure on a reconnect of an `ok` connector** (terminal `ConnectorAuthError`, expiry, cancel) leaves it `ok`: the old
   consent is still valid. A fresh connector stays `needs_attention`. If `startAuth` fails on `POST /connectors`, the
   just-created connector row is deleted (the client never got its id), so retries do not pile up duplicates.
-- **State writes are serialised with sync:** the done write (state, status, consent) takes the same per-connector advisory
-  lock as `runSync` and bumps `connectors.state_generation`; a run only writes state/status while the generation it started
-  with is unchanged (otherwise it logs, writes nothing and ends `skipped`).
+- **State writes vs. sync (generation guard, no lock wait):** the done write is one atomic update that bumps
+  `connectors.state_generation`; it never waits for a running sync or the sync slots. A run records the generation it
+  started with (`sync_runs.connector_generation`) and only writes state, status, `last_error_code` or the error-streak
+  `error` flip while that generation is current (a superseded run logs, writes nothing, notifies nobody and ends
+  `skipped`, or `error` when it crashed). A reconnect resets the error streak: only runs of the current generation count.
 - **At most one open challenge per connector;** a new reconnect cancels the previous one (`cancelAuth`).
 - **On `done`:** state stored encrypted, connector `ok`, `consent_expires_at` set, accounts discovered with `listAccounts`
   (new refs matched by blind index get visibility `household`, counts toward budgets), then a user-present sync is started

@@ -266,6 +266,8 @@ export const syncRuns = pgTable('sync_runs', {
   finishedAt: ts('finished_at'),
   outcome: text('outcome'),
   errorCode: text('error_code'),
+  /** `connectors.state_generation` the run executed against (null while queued); scopes the error streak. */
+  connectorGeneration: integer('connector_generation'),
 });
 
 export const challenges = pgTable('challenges', {
