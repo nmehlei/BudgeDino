@@ -118,6 +118,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
         now: clock,
       }),
     connectorManager: createConnectorManager({
+      onIngested: deps.onIngested ?? createIngestHook({ ...deps, now: clock }),
       db: deps.db,
       keyring: deps.keyring,
       registry,

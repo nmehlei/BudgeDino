@@ -190,7 +190,7 @@ function RenameDialog({
   const [name, setName] = useState(connectorTitle(connector));
   const trimmed = name.trim();
   return (
-    <Dialog visible onDismiss={onCancel} testID="rename-dialog">
+    <Dialog visible onDismiss={() => !busy && onCancel()} testID="rename-dialog">
       <Dialog.Title>Rename connection</Dialog.Title>
       <Dialog.Content>
         <TextInput
@@ -244,7 +244,7 @@ function DeleteDialog({
   const title = connectorTitle(connector);
   if (confirmPurge) {
     return (
-      <Dialog visible onDismiss={onCancel} testID="purge-dialog">
+      <Dialog visible onDismiss={() => !busy && onCancel()} testID="purge-dialog">
         <Dialog.Title>Delete everything?</Dialog.Title>
         <Dialog.Content style={styles.dialogContent}>
           <Text variant="bodyMedium">
@@ -267,7 +267,7 @@ function DeleteDialog({
     );
   }
   return (
-    <Dialog visible onDismiss={onCancel} testID="delete-dialog">
+    <Dialog visible onDismiss={() => !busy && onCancel()} testID="delete-dialog">
       <Dialog.Title>Remove connection</Dialog.Title>
       <Dialog.Content style={styles.dialogContent}>
         <Text variant="bodyMedium">{`What should happen to the data of ${title}?`}</Text>
@@ -275,7 +275,8 @@ function DeleteDialog({
           Remove connection, keep history
         </WrappingButton>
         <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-          Accounts and transactions stay and keep counting toward budgets.
+          Accounts and transactions stay and keep counting toward budgets. Connecting this bank
+          again reuses them, without duplicates.
         </Text>
         <WrappingButton
           mode="text"

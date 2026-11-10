@@ -210,11 +210,21 @@ Code: `src/server/src/connectors/{remove.ts,bank.ts,bank-backfill.ts}`, `routes.
 - **`DELETE /connectors/:id?mode=keep|purge`** (member, owner only; anyone else, admins included, and unknown ids get 404;
   `mode` is required). 204 on success. Open challenges are cancelled first (best-effort `cancelAuth`). The delete then runs
   while holding the connector's sync advisory lock, so it waits for a running sync and no sync interleaves with it; a run
-  queued behind it finds no connector and ends `error` without writing (the scheduled-job worker skips vanished connectors).
+  queued behind it finds no connector and ends `skipped` without writing and without a run row; a scheduled job whose
+  connector vanished between its start and the run-row insert (FK violation) also completes as `skipped`, never as a failure.
   Credentials, state, sync runs and challenges go with the connector row.
   - `keep` **[owner]**: the accounts stay with `connector_id = null` and `disconnected_at` set; they and their transactions
-    keep counting toward budgets, balances and net worth. Reconnecting a bank later creates new accounts (no re-linking).
+    keep counting toward budgets, balances and net worth. **Re-link [call]:** connecting the same bank again for the same
+    owner re-attaches a disconnected account instead of creating a second one: `createAccount` first looks for an account of
+    the same household and owner with `connector_id IS NULL` and the same `external_ref_bidx`, sets its new `connector_id`,
+    clears `disconnected_at`, keeps its visibility and `countsTowardBudgets` (the new connector's account defaults only apply
+    to new accounts) and returns it, so the normal transaction dedup applies: no duplicate account, no duplicate
+    transactions, the balance counts once in net worth. Another member's disconnected accounts are never re-linked.
   - `purge` **[owner]**: additionally deletes the accounts with their transactions, splits, dedup aliases and balances.
+    **Transfer partners [call]:** in the same database transaction, before the accounts go, the surviving halves of transfer
+    pairs that reach into the purged accounts lose their `transfer_group_id` (and a non-manual Transfer category the pairing
+    set), so they count toward budgets again and can be paired anew. After the purge the ingest hook (categorize, detect
+    transfers, budget alerts) runs for those rows, best effort.
 - **Account household [call]:** `accounts.household_id` (backfilled from the connector) replaces the join through
   `connectors` for household scoping, because a disconnected account has no connector. `visibleAccountIds` and the
   repositories scope by it. `AccountInfo.connectorId` is nullable and `AccountInfo.disconnected` says so.
@@ -224,20 +234,26 @@ Code: `src/server/src/connectors/{remove.ts,bank.ts,bank-backfill.ts}`, `routes.
   no bank concept) and, for the owner only, `displayName` (nullable). Other members' entries carry `bank` but no
   `displayName` (it may reveal a person). `connectors.bank` is a plaintext column written at create time from the config.
   **Backfill [call]:** a one-time startup step (`backfillConnectorBanks`, after the SQL migrations) decrypts the config of
-  rows without `bank` once and writes it; rows that cannot be decrypted are left null and read as their type.
+  rows without `bank` once and writes it; rows that cannot be decrypted or name an unknown bank get the connector type as `bank`, so they are not rescanned on
+  every startup.
+- **Indexes:** `accounts_household` (migration 0012) on `accounts.household_id`, the household scoping column.
 
 ## Bank icons (implementation summary)
 
 Code: `src/server/src/connectors/bank-icons.ts`, route in `connectors/routes.ts`; `iconUrl` per bank in `connectors/fints/banks.ts`.
 
 - **`GET /banks/:bank/icon`** (member): the bank's logo as an image (`image/png|jpeg|webp|gif`), `Cache-Control: private,
-max-age=86400` so the app caches it. 404 for an unknown bank, a bank without an icon (`fake`), or a failed fetch. No
+max-age=86400` so the app caches it, and `X-Content-Type-Options: nosniff`. 404 for an unknown bank, a bank without an icon (`fake`), or a failed fetch. No
   trademarked image files live in the repo **[owner]**: the server fetches the logo lazily from the bank's official site.
 - **No SSRF [call]:** the URL comes only from the fixed allow-list in `banks.ts` (`iconUrl`, https, official domain), never
-  from user input. Redirects are followed manually (at most 3) and only to https URLs on the same host. The response must
-  have an allow-listed raster content type (no SVG) and at most 256 KiB, with a 5 s timeout. Anything else counts as a failed fetch.
+  from user input. Redirects are followed manually (at most 3) and only to https URLs on the same host. The body is read as a
+  stream and aborted once it exceeds 256 KiB (5 s timeout); the body of a redirect response is cancelled before following it.
+  **Magic bytes [call]:** the type is derived from the bytes (PNG, JPEG, GIF, WebP) and that derived type is what is stored
+  and served; the upstream `Content-Type` is ignored. Anything else (SVG, HTML, ...) counts as a failed fetch. Stored rows
+  are re-checked on read; a row that is not a known raster format is treated as missing.
 - **Cache:** table `bank_icons` (`bank`, `content_type`, `data`, `fetched_at`), TTL 30 days. A failed refresh serves the stale
-  copy when there is one; a failed fetch without a copy is remembered in memory for 10 minutes (no hammering), then retried.
+  copy when there is one; every failed fetch, with or without a copy, is remembered in memory for 10 minutes (no
+  hammering), then retried.
 
 ## Sync engine (implementation summary)
 

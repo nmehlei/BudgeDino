@@ -11,7 +11,8 @@ import type { ConnectorConfig } from './types.js';
 /**
  * One-time startup step after the SQL migrations: connectors created before `connectors.bank` existed keep
  * the bank only inside their encrypted config, so decrypt it once and write the plaintext id. Rows that cannot
- * be decrypted are left null (they read as their type) and never block startup. Returns the rows filled.
+ * be decrypted or name an unknown bank get the connector type as bank (so they are not rescanned on every
+ * startup) and never block startup. Returns the rows filled.
  */
 export async function backfillConnectorBanks(
   db: Db,
@@ -40,7 +41,16 @@ export async function backfillConnectorBanks(
         .where(eq(connectors.id, row.id));
       filled += 1;
     } catch (err) {
-      logger.warn({ connectorId: row.id, error: safeErrorInfo(err) }, 'bank backfill: skipped');
+      logger.warn({ connectorId: row.id, error: safeErrorInfo(err) }, 'bank backfill: fallback');
+      // Not decryptable: the connector type is the bank, so the row is not rescanned on every startup.
+      try {
+        await db.update(connectors).set({ bank: row.type }).where(eq(connectors.id, row.id));
+      } catch (updateErr) {
+        logger.warn(
+          { connectorId: row.id, error: safeErrorInfo(updateErr) },
+          'bank backfill: skipped',
+        );
+      }
     }
   }
   return filled;

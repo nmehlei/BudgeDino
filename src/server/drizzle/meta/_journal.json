@@ -85,6 +85,13 @@
       "when": 1794328692177,
       "tag": "0011_bank_icons",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794343212890,
+      "tag": "0012_accounts_household_index",
+      "breakpoints": true
     }
   ]
 }

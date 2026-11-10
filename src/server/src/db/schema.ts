@@ -165,7 +165,10 @@ export const accounts = pgTable(
     balanceEnc: bytea('balance_enc'),
     balanceAt: ts('balance_at'),
   },
-  (t) => [uniqueIndex('accounts_connector_external_ref').on(t.connectorId, t.externalRefBidx)],
+  (t) => [
+    uniqueIndex('accounts_connector_external_ref').on(t.connectorId, t.externalRefBidx),
+    index('accounts_household').on(t.householdId),
+  ],
 );
 
 export const categories = pgTable('categories', {

@@ -141,7 +141,10 @@ describe('errors and serialisation', () => {
     expect(res.outcome).toBe('error');
     const [c] = await database.db.select().from(connectors).where(eq(connectors.id, connectorId));
     expect(c?.lastErrorCode).toBe('sync_failed');
-    const [run] = await database.db.select().from(syncRuns).where(eq(syncRuns.id, res.runId));
+    const [run] = await database.db
+      .select()
+      .from(syncRuns)
+      .where(eq(syncRuns.id, res.runId as string));
     expect(run).toMatchObject({ outcome: 'error', errorCode: 'sync_failed' });
     expect(run?.finishedAt).not.toBeNull();
   });

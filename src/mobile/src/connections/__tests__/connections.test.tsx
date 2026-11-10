@@ -399,6 +399,23 @@ describe('delete dialog', () => {
     }
   });
 
+  it('ignores a dismiss (backdrop, back) while the removal is running', async () => {
+    let finish!: () => void;
+    mockApi.listConnectors.mockResolvedValue({ connectors: [own({ displayName: 'Anna DKB' })] });
+    mockApi.deleteConnector.mockReturnValue(new Promise<void>((resolve) => (finish = resolve)));
+    await renderWithProviders(<ConnectionsScreen />);
+    await openMenu('c1');
+    await pressAct('delete-c1');
+    await pressAct('delete-keep');
+    expect(mockApi.deleteConnector).toHaveBeenCalledTimes(1);
+    await fireEvent.press(screen.getByLabelText('Close modal'));
+    expect(screen.getByTestId('delete-dialog')).toBeTruthy();
+    await act(async () => {
+      finish();
+    });
+    expect(screen.queryByTestId('delete-dialog')).toBeNull();
+  });
+
   it('purge: asks a second confirmation before sending mode purge', async () => {
     const invalidate = await openDelete();
     await pressAct('delete-purge');

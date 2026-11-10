@@ -4,6 +4,7 @@ import {
   ICON_TTL_MS,
   MAX_ICON_BYTES,
   createBankIconService,
+  sniffIconType,
   type BankIcon,
   type BankIconStore,
 } from '@budgedino/server/connectors/bank-icons';
@@ -142,9 +143,13 @@ describe('bank icon service', () => {
   });
 
   it('rejects non-raster content types, oversize and empty bodies', async () => {
-    const svg = setup([() => png({ headers: { 'content-type': 'image/svg+xml' } })]);
+    const svg = setup([
+      () => png({ headers: { 'content-type': 'image/svg+xml' } }, Buffer.from('<svg/>')),
+    ]);
     expect(await svg.service.get('dkb')).toBeNull();
-    const html = setup([() => png({ headers: { 'content-type': 'text/html' } })]);
+    const html = setup([
+      () => png({ headers: { 'content-type': 'text/html' } }, Buffer.from('<html>')),
+    ]);
     expect(await html.service.get('dkb')).toBeNull();
     const big = setup([() => png({}, new Uint8Array(MAX_ICON_BYTES + 1))]);
     expect(await big.service.get('dkb')).toBeNull();
@@ -157,6 +162,82 @@ describe('bank icon service', () => {
     const [a, b] = await Promise.all([t.service.get('dkb'), t.service.get('dkb')]);
     expect(a).toEqual(b);
     expect(t.fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('magic bytes', () => {
+  it('derives the type from the bytes and rejects everything else', () => {
+    expect(sniffIconType(PNG)).toBe('image/png');
+    expect(sniffIconType(Buffer.from('ffd8ffe0', 'hex'))).toBe('image/jpeg');
+    expect(sniffIconType(Buffer.from('GIF89a....'))).toBe('image/gif');
+    expect(sniffIconType(Buffer.from('GIF87a....'))).toBe('image/gif');
+    expect(sniffIconType(Buffer.from('RIFF\0\0\0\0WEBPVP8 '))).toBe('image/webp');
+    for (const bad of ['<svg xmlns="x"/>', '<html>', 'RIFF\0\0\0\0WAVEfmt ', '', 'GIF']) {
+      expect(sniffIconType(Buffer.from(bad)), bad).toBeNull();
+    }
+  });
+
+  it('ignores the upstream content type: bytes decide, and a lying header does not help', async () => {
+    const jpg = Buffer.from('ffd8ffe000104a464946', 'hex');
+    const t = setup([() => png({}, jpg)]); // header says png
+    expect((await t.service.get('dkb'))?.contentType).toBe('image/jpeg');
+    expect(t.store.rows.get('dkb')?.contentType).toBe('image/jpeg');
+    const html = setup([() => png({}, Buffer.from('<html>'))]); // header says png
+    expect(await html.service.get('dkb')).toBeNull();
+    const noHeader = setup([() => png({ headers: {} }, PNG)]);
+    expect((await noHeader.service.get('dkb'))?.contentType).toBe('image/png');
+  });
+
+  it('aborts reading a body that exceeds the limit without a content-length', async () => {
+    let pulled = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1;
+        controller.enqueue(new Uint8Array(64 * 1024).fill(1));
+        if (pulled > 100) controller.close();
+      },
+    });
+    const t = setup([() => new Response(stream, { status: 200 })]);
+    expect(await t.service.get('dkb')).toBeNull();
+    expect(pulled).toBeLessThan(10);
+  });
+
+  it('serves a stored row by its bytes and refetches rows that are not an image', async () => {
+    const t = setup([() => png()]);
+    t.store.rows.set('dkb', {
+      contentType: 'image/svg+xml',
+      data: Buffer.from('<svg/>'),
+      fetchedAt: new Date(Date.parse('2026-11-10T09:00:00Z')),
+    });
+    expect((await t.service.get('dkb'))?.data.equals(PNG)).toBe(true);
+    expect(t.fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('backs off after a failed refresh also when a stale copy is served', async () => {
+    const t = setup([() => png(), () => new Response('x', { status: 500 }), () => png()]);
+    await t.service.get('dkb');
+    t.advance(ICON_TTL_MS + 1000);
+    expect(await t.service.get('dkb')).not.toBeNull();
+    expect(await t.service.get('dkb')).not.toBeNull();
+    expect(t.fetchImpl).toHaveBeenCalledTimes(2); // no refetch per request
+    t.advance(FAILURE_BACKOFF_MS + 1000);
+    await t.service.get('dkb');
+    expect(t.fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it('cancels the body of a redirect response before following it', async () => {
+    let cancelled = false;
+    const body = new ReadableStream({ cancel: () => void (cancelled = true) });
+    const t = setup([
+      () =>
+        new Response(body, {
+          status: 302,
+          headers: { location: 'https://www.dkb.de/a.png' },
+        }),
+      () => png(),
+    ]);
+    expect(await t.service.get('dkb')).not.toBeNull();
+    expect(cancelled).toBe(true);
   });
 });
 

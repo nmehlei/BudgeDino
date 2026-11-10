@@ -75,6 +75,7 @@ describe('GET /banks/:bank/icon', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toBe('image/png');
     expect(res.headers['cache-control']).toBe('private, max-age=86400');
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
     expect(res.rawPayload.equals(PNG)).toBe(true);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(String(fetchImpl.mock.calls[0]?.[0])).toBe('https://www.dkb.de/apple-touch-icon.png');
@@ -84,6 +85,26 @@ describe('GET /banks/:bank/icon', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1); // from the DB cache
     const { rows } = await database.pool.query<{ bank: string }>('select bank from bank_icons');
     expect(rows).toEqual([{ bank: 'dkb' }]);
+  });
+
+  it('serves the type of the magic bytes, not the upstream header, and rejects non-images', async () => {
+    fetchImpl.mockResolvedValueOnce(
+      new Response(PNG, { status: 200, headers: { 'content-type': 'image/jpeg' } }),
+    );
+    const res = await get('dkb');
+    expect(res.headers['content-type']).toBe('image/png');
+    const { rows } = await database.pool.query<{ content_type: string }>(
+      'select content_type from bank_icons',
+    );
+    expect(rows).toEqual([{ content_type: 'image/png' }]);
+
+    fetchImpl.mockResolvedValueOnce(
+      new Response('<html><script>alert(1)</script></html>', {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      }),
+    );
+    expect((await get('comdirect')).statusCode).toBe(404);
   });
 
   it('answers 404 for unknown banks, the demo bank and failed fetches', async () => {

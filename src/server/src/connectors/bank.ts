@@ -8,7 +8,7 @@ import { FINTS_BANKS } from './fints/banks.js';
 export function bankIdFor(type: string, config: ConnectorConfig): string {
   if (type === 'fints') {
     const bank = config['bank'];
-    if (typeof bank === 'string' && bank in FINTS_BANKS) return bank;
+    if (typeof bank === 'string' && Object.hasOwn(FINTS_BANKS, bank)) return bank;
   }
   return type;
 }

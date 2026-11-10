@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '@budgedino/server/app';
 import { visibleAccountIds } from '@budgedino/server/access/visibility';
 import type { DataKey, MasterKey } from '@budgedino/server/crypto';
+import { accounts } from '@budgedino/server/db/schema';
 import { Keyring } from '@budgedino/server/households/keyring';
 import { createLogger } from '@budgedino/server/observability/logger';
 import { createAccount, getAccount, listAccounts } from '@budgedino/server/repositories/accounts';
@@ -25,6 +27,7 @@ import { OWNER_POSITIVE_CONTROL_EXEMPT, resolveRouteUrl } from '../../support/ro
 const CANARY_PAYEE = 'CANARY-PAYEE-OWNERONLY';
 const CANARY_ACCOUNT_NAME = 'CANARY-ACCOUNT-OWNERONLY';
 const CANARY_IBAN = 'DE89370400440532013000';
+const CANARY_DISCONNECTED_NAME = 'CANARY-DISCONNECTED-OWNERONLY';
 
 let database: TestDatabase;
 let master: MasterKey;
@@ -50,6 +53,8 @@ interface Seed {
   hiddenAccountId: string;
   hiddenTransactionIds: string[];
   aOwnAccountId: string;
+  /** B's owner-only account whose connection was removed (keep history): invisible to everyone else. */
+  disconnectedId: string;
   hiddenChallengeId: string;
 }
 
@@ -117,6 +122,20 @@ beforeEach(async () => {
     kind: 'checking',
     currency: 'EUR',
   });
+  const disconnectedId = await createAccount(database.db, dk, {
+    connectorId: bConnector,
+    ownerMemberId: bId,
+    externalRef: 'b-disconnected-ref',
+    name: CANARY_DISCONNECTED_NAME,
+    kind: 'savings',
+    currency: 'EUR',
+    visibility: 'owner_only',
+    balanceMinor: 777_777n,
+  });
+  await database.db
+    .update(accounts)
+    .set({ connectorId: null, disconnectedAt: new Date() })
+    .where(eq(accounts.id, disconnectedId));
   seed = {
     householdId,
     dk,
@@ -127,6 +146,7 @@ beforeEach(async () => {
     hiddenAccountId,
     hiddenTransactionIds,
     aOwnAccountId,
+    disconnectedId,
     hiddenChallengeId,
   };
 });
@@ -204,6 +224,7 @@ async function expectOwnerReachesData() {
         ...seed.hiddenTransactionIds,
         CANARY_ACCOUNT_NAME,
         CANARY_PAYEE,
+        seed.disconnectedId,
       ];
       expect(
         canaries.some((c) => r.body.includes(c)),
@@ -219,6 +240,9 @@ function expectNoLeak(text: string) {
   for (const id of seed.hiddenTransactionIds) expect(text).not.toContain(id);
   expect(text).not.toContain(CANARY_PAYEE);
   expect(text).not.toContain(CANARY_ACCOUNT_NAME);
+  expect(text).not.toContain(seed.disconnectedId);
+  expect(text).not.toContain(CANARY_DISCONNECTED_NAME);
+  expect(text).not.toContain('"777777"');
   expect(text).not.toContain('•••• 3000'); // masked IBAN
   expect(text).not.toContain('"424242"'); // balance
 }
@@ -273,7 +297,31 @@ describe('visibility enforcement', () => {
       memberId: seed.bId,
       householdId: seed.householdId,
     });
-    expect([...bIds].sort()).toEqual([seed.hiddenAccountId, seed.aOwnAccountId].sort());
+    expect([...bIds].sort()).toEqual(
+      [seed.hiddenAccountId, seed.aOwnAccountId, seed.disconnectedId].sort(),
+    );
+  });
+
+  it('a disconnected owner-only account stays invisible to the other member and to admins, visible to its owner', async () => {
+    // A is the admin: admins get no override for owner-only accounts
+    const aIds = await visibleAccountIds(database.db, {
+      memberId: seed.aId,
+      householdId: seed.householdId,
+    });
+    expect([...aIds]).not.toContain(seed.disconnectedId);
+    const bIds = await visibleAccountIds(database.db, {
+      memberId: seed.bId,
+      householdId: seed.householdId,
+    });
+    expect([...bIds]).toContain(seed.disconnectedId);
+    const sweep = joined(await sweepAllGetRoutes(seed.aToken));
+    expect(sweep).not.toContain(seed.disconnectedId);
+    expect(sweep).not.toContain(CANARY_DISCONNECTED_NAME);
+    expect(sweep).not.toContain('"777777"');
+    const own = await get('/api/v1/accounts', seed.bToken);
+    expect(own.body).toContain(seed.disconnectedId);
+    expect(own.body).toContain('"disconnected":true');
+    await expectOwnerReachesData();
   });
 
   it('does not see accounts of another household', async () => {

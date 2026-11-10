@@ -3,6 +3,8 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '@budgedino/server/app';
 import { visibleAccountIds } from '@budgedino/server/access/visibility';
+import { DEFAULT_CATEGORIES } from '@budgedino/server/categorization/defaults';
+import { detectTransfers } from '@budgedino/server/categorization/transfers';
 import { backfillConnectorBanks } from '@budgedino/server/connectors/bank-backfill';
 import { createFakeConnector } from '@budgedino/server/connectors/fake/fake-connector';
 import { createConnectorRegistry } from '@budgedino/server/connectors/registry';
@@ -11,6 +13,7 @@ import { encryptField } from '@budgedino/server/crypto';
 import { newId } from '@budgedino/server/db/ids';
 import {
   accounts,
+  categories,
   challenges,
   connectors,
   syncRuns,
@@ -214,6 +217,60 @@ describe('DELETE /connectors/:id', () => {
     });
   });
 
+  it('purge releases the surviving halves of transfer pairs so they count again and can be re-paired', async () => {
+    await database.db.insert(categories).values(
+      DEFAULT_CATEGORIES.map((c) => ({
+        householdId,
+        name: c.name,
+        isIncome: c.isIncome ?? false,
+        isTransfer: c.isTransfer ?? false,
+      })),
+    );
+    const dk = await keyring.forHousehold(householdId);
+    const purged = await seedFakeConnector(database.db, keyring, householdId, bId);
+    const kept = await seedFakeConnector(database.db, keyring, householdId, bId, {
+      accountRef: 'fake-2',
+    });
+    const tx = (accountId: string, dedupKey: string, amountMinor: bigint) =>
+      createTransaction(database.db, dk, {
+        accountId,
+        dedupKey,
+        status: 'booked',
+        bookingDate: '2026-11-03',
+        amountMinor,
+        currency: 'EUR',
+        counterparty: 'Own account',
+      });
+    const outId = await tx(purged.accountId, 'out', -25_000n);
+    const inId = await tx(kept.accountId, 'in', 25_000n);
+    await detectTransfers(database.db, keyring, householdId, [outId, inId]);
+    const row = async (id: string) => {
+      const [r] = await database.db.select().from(transactions).where(eq(transactions.id, id));
+      return r as typeof transactions.$inferSelect;
+    };
+    const paired = await row(inId);
+    expect(paired.transferGroupId).not.toBeNull();
+    const transferCategoryId = paired.categoryId;
+    expect(transferCategoryId).not.toBeNull();
+
+    const del = await call('DELETE', `/connectors/${purged.connectorId}?mode=purge`, bToken);
+    expect(del.statusCode).toBe(204);
+    const survivor = await row(inId);
+    expect(survivor.transferGroupId).toBeNull(); // counts toward budgets again
+    expect(survivor.categoryId).not.toBe(transferCategoryId); // no stale Transfer category
+    expect((await database.db.select().from(transactions)).length).toBe(1);
+
+    // a later connection can pair it again
+    const again = await seedFakeConnector(database.db, keyring, householdId, bId, {
+      accountRef: 'fake-3',
+    });
+    const outAgain = await tx(again.accountId, 'out-again', -25_000n);
+    await detectTransfers(database.db, keyring, householdId, [outAgain]);
+    const repaired = await row(inId);
+    expect(repaired.transferGroupId).not.toBeNull();
+    expect((await row(outAgain)).transferGroupId).toBe(repaired.transferGroupId);
+  });
+
   it('only touches the removed connector', async () => {
     const first = await seedConnectorWithData();
     const other = await seedFakeConnector(database.db, keyring, householdId, bId, {
@@ -285,11 +342,82 @@ describe('DELETE /connectors/:id', () => {
       connectorId,
       'user',
     ).catch((err: unknown) => err);
-    // either an 'error' outcome or the FK rejection of the run row: never a successful write
-    expect(result instanceof Error || (result as { outcome: string }).outcome === 'error').toBe(
-      true,
-    );
+    // the connector vanished: the run ends skipped (no failure, no run row, no write)
+    expect(result).toEqual({ runId: null, outcome: 'skipped' });
+    expect(await database.db.select().from(syncRuns)).toEqual([]);
     expect((await counts()).accounts).toBe(0);
+  });
+});
+
+describe('reconnecting after keep', () => {
+  const fakeTx = {
+    providerId: 'p-1',
+    status: 'booked',
+    bookingDate: '2026-11-05',
+    amountMinor: '-5000',
+    currency: 'EUR',
+    counterparty: 'Supermarket',
+  };
+  const connect = async (token: string, accountDefaults?: object) => {
+    const res = await call('POST', '/connectors', token, {
+      type: 'fake',
+      config: { scenario: 'happy', transactions: [fakeTx] },
+      ...(accountDefaults ? { accountDefaults } : {}),
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    await app.ctx.sync.idle();
+    return res.json<{ connectorId: string }>().connectorId;
+  };
+  const worth = async (token: string) =>
+    (await call('GET', '/net-worth', token)).json<{ total: { minor: string } }>().total.minor;
+
+  it('re-links the disconnected account: one account, no duplicate transactions, balance counted once', async () => {
+    const first = await connect(bToken, { visibility: 'owner_only' });
+    const [original] = await database.db.select().from(accounts);
+    const originalId = (original as { id: string }).id;
+    const dk = await keyring.forHousehold(householdId);
+    await database.db
+      .update(accounts)
+      .set({
+        balanceEnc: encryptField(dk, '123400', {
+          table: 'accounts',
+          column: 'balance',
+          rowId: originalId,
+        }),
+        balanceAt: new Date(),
+        countsTowardBudgets: true, // the user changed it after connecting
+      })
+      .where(eq(accounts.id, originalId));
+    expect((await counts()).transactions).toBe(1);
+    expect(await worth(bToken)).toBe('123400');
+
+    expect((await call('DELETE', `/connectors/${first}?mode=keep`, bToken)).statusCode).toBe(204);
+    // the new connection asks for other defaults; the kept account keeps what the user set
+    const second = await connect(bToken, { visibility: 'household' });
+
+    const rows = await database.db.select().from(accounts);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: originalId,
+      connectorId: second,
+      disconnectedAt: null,
+      visibility: 'owner_only',
+      countsTowardBudgets: true,
+    });
+    expect((await counts()).transactions).toBe(1);
+    expect(await worth(bToken)).toBe('123400');
+    // the other member still cannot see it
+    const others = await call('GET', '/accounts', aToken);
+    expect(others.json<{ accounts: unknown[] }>().accounts).toEqual([]);
+  });
+
+  it("does not re-link another member's disconnected account", async () => {
+    const first = await connect(bToken);
+    await call('DELETE', `/connectors/${first}?mode=keep`, bToken);
+    await connect(aToken);
+    const rows = await database.db.select().from(accounts);
+    expect(rows).toHaveLength(2);
+    expect(rows.filter((r) => r.connectorId === null)).toHaveLength(1);
   });
 });
 
@@ -387,10 +515,21 @@ describe('connector bank id', () => {
     const comdirect = await make('fints', { bank: 'comdirect', userId: 'u', pin: 'p' });
     const fake = await make('fake', {});
     const logger = createLogger({ level: 'silent' });
-    expect(await backfillConnectorBanks(database.db, keyring, logger)).toBe(3);
+    const unknown = await make('fints', { bank: 'nobank', userId: 'u', pin: 'p' });
+    const garbage = newId();
+    await database.db.insert(connectors).values({
+      id: garbage,
+      householdId,
+      ownerMemberId: bId,
+      type: 'fints',
+      configEnc: Buffer.from('not decryptable'),
+    });
+    expect(await backfillConnectorBanks(database.db, keyring, logger)).toBe(4);
     const rows = await database.db.select().from(connectors);
     const bankOf = (id: string) => rows.find((r) => r.id === id)?.bank;
     expect([bankOf(dkb), bankOf(comdirect), bankOf(fake)]).toEqual(['dkb', 'comdirect', 'fake']);
+    // unknown bank and undecryptable config fall back to the type, so they are not rescanned
+    expect([bankOf(unknown), bankOf(garbage)]).toEqual(['fints', 'fints']);
     expect(await backfillConnectorBanks(database.db, keyring, logger)).toBe(0);
   });
 });

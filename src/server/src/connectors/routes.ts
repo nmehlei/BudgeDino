@@ -66,6 +66,7 @@ export function connectorRoutes(app: FastifyInstance): void {
       if (!icon) throw new HttpError(404, 'not_found', 'No icon for this bank');
       return reply
         .header('content-type', icon.contentType)
+        .header('x-content-type-options', 'nosniff')
         .header('cache-control', 'private, max-age=86400')
         .send(icon.data as never); // binary body: no response schema for 200
     },

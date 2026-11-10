@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { blindIndex, decryptString, encryptField, type DataKey } from '../crypto/index.js';
 import type { Db } from '../db/client.js';
 import { newId } from '../db/ids.js';
@@ -40,6 +40,13 @@ export interface Account {
   balanceAt: Date | null;
 }
 
+/**
+ * Creates the account, or re-links an existing disconnected one. After a "keep history" delete the account
+ * stays with `connector_id = null`; connecting the same bank again for the same owner (same household, same
+ * blind-indexed bank reference) re-attaches that account (new connector, `disconnected_at` cleared) instead
+ * of creating a duplicate, and returns its id so the usual transaction dedup applies. Its visibility and
+ * `countsTowardBudgets` are kept as the user left them; the passed values only apply to new accounts.
+ */
 export async function createAccount(db: Db, dk: DataKey, input: NewAccount): Promise<string> {
   const id = newId();
   const visibility = input.visibility ?? 'household';
@@ -48,12 +55,35 @@ export async function createAccount(db: Db, dk: DataKey, input: NewAccount): Pro
     .from(connectors)
     .where(eq(connectors.id, input.connectorId));
   if (!connector) throw new Error('Connector not found');
+  const externalRefBidx = blindIndex(dk, 'account-external-ref', input.externalRef);
+  const [orphan] = await db
+    .select({ id: accounts.id })
+    .from(accounts)
+    .where(
+      and(
+        eq(accounts.householdId, connector.householdId),
+        eq(accounts.ownerMemberId, input.ownerMemberId),
+        isNull(accounts.connectorId),
+        eq(accounts.externalRefBidx, externalRefBidx),
+      ),
+    )
+    .orderBy(asc(accounts.id))
+    .limit(1);
+  if (orphan) {
+    // `connector_id IS NULL` in the guard: a concurrent re-link of the same row loses cleanly
+    const relinked = await db
+      .update(accounts)
+      .set({ connectorId: input.connectorId, disconnectedAt: null })
+      .where(and(eq(accounts.id, orphan.id), isNull(accounts.connectorId)))
+      .returning({ id: accounts.id });
+    if (relinked.length > 0) return orphan.id;
+  }
   await db.insert(accounts).values({
     id,
     householdId: connector.householdId,
     connectorId: input.connectorId,
     ownerMemberId: input.ownerMemberId,
-    externalRefBidx: blindIndex(dk, 'account-external-ref', input.externalRef),
+    externalRefBidx,
     externalRefEnc: encryptField(dk, input.externalRef, aad('external_ref', id)),
     nameEnc: encryptField(dk, input.name, aad('name', id)),
     ibanEnc: input.iban === undefined ? null : encryptField(dk, input.iban, aad('iban', id)),

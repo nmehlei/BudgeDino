@@ -63,7 +63,8 @@ export interface RunSyncOptions {
 }
 
 export interface RunSyncResult {
-  runId: string;
+  /** Null when the connector vanished before the run row could be created (nothing was written). */
+  runId: string | null;
   outcome: SyncOutcome;
 }
 
@@ -80,6 +81,15 @@ const ERROR_CODES = {
   unknown_connector: 'unknown_connector',
   failed: 'sync_failed',
 } as const;
+
+/** The connector was deleted while a run was queued or starting: not a failure, the run just ends. */
+class ConnectorGoneError extends Error {}
+
+const PG_FOREIGN_KEY_VIOLATION = '23503';
+function isForeignKeyViolation(err: unknown): boolean {
+  const e = err as { code?: unknown; cause?: { code?: unknown } } | null;
+  return e?.code === PG_FOREIGN_KEY_VIOLATION || e?.cause?.code === PG_FOREIGN_KEY_VIOLATION;
+}
 
 /** Inserts the `sync_runs` row for a run; the API uses this to hand out the run id up front. */
 export async function createSyncRun(
@@ -116,7 +126,14 @@ export async function runSync(
   options: RunSyncOptions = {},
 ): Promise<RunSyncResult> {
   const { db, logger } = deps;
-  const runId = options.runId ?? (await createSyncRun(db, connectorId, trigger, deps.now()));
+  let runId: string;
+  try {
+    runId = options.runId ?? (await createSyncRun(db, connectorId, trigger, deps.now()));
+  } catch (err) {
+    // The connector was deleted between the caller's liveness check and the insert (FK on connector_id).
+    if (isForeignKeyViolation(err)) return { runId: null, outcome: 'skipped' };
+    throw err;
+  }
   const ingested: string[] = [];
   const generation: RunGeneration = { value: -1 };
   let superseded = false;
@@ -135,6 +152,8 @@ export async function runSync(
       await callHook(deps, result.householdId, result.fetched ? ingested : null, connectorId);
       return { runId, outcome: result.outcome };
     } catch (err) {
+      // Deleted while queued behind the delete (which holds this lock): nothing to record, nothing to report.
+      if (err instanceof ConnectorGoneError) return { runId, outcome: 'skipped' };
       const code =
         err instanceof UnknownConnectorError ? ERROR_CODES.unknown_connector : ERROR_CODES.failed;
       logger.error({ connectorId, runId, error: safeErrorInfo(err) }, 'sync failed');
@@ -330,7 +349,7 @@ async function executeRun(
   const { db } = deps;
   const now = deps.now();
   const [connector] = await db.select().from(connectors).where(eq(connectors.id, connectorId));
-  if (!connector) throw new Error('Connector not found');
+  if (!connector) throw new ConnectorGoneError('Connector not found');
   // One row read gives both the state this run works on and the generation that guards its writes.
   generation.value = connector.stateGeneration;
   await db

@@ -1,10 +1,11 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, notInArray } from 'drizzle-orm';
 import type { DeleteConnectorQuery } from '@budgedino/shared';
-import { accounts, challenges, connectors } from '../db/schema.js';
+import { accounts, categories, challenges, connectors, transactions } from '../db/schema.js';
 import type { AuthContext } from '../deps.js';
 import { HttpError } from '../http/errors.js';
 import { encryptDisplayName } from '../repositories/connectors.js';
 import { withConnectorLock } from '../sync/run.js';
+import { safeErrorInfo } from '../observability/redact.js';
 import { closeChallenge, type ChallengeDeps } from './challenge-service.js';
 
 export type DeleteMode = DeleteConnectorQuery['mode'];
@@ -20,9 +21,67 @@ export interface ConnectorManager {
   rename(auth: AuthContext, connectorId: string, displayName: string | null): Promise<void>;
 }
 
+type Tx = Parameters<Parameters<ChallengeDeps['db']['transaction']>[0]>[0];
+
+/**
+ * Before a purge deletes a connector's accounts: the surviving halves of transfer pairs that reach into those
+ * accounts lose their `transfer_group_id` (otherwise they stay excluded from budgets and can never be paired
+ * again). A non-manual Transfer category set by the pairing is reset so categorization can run again.
+ * Returns the ids of the released rows.
+ */
+async function releaseTransferPartners(
+  tx: Tx,
+  householdId: string,
+  connectorId: string,
+): Promise<string[]> {
+  const purged = tx
+    .select({ id: accounts.id })
+    .from(accounts)
+    .where(eq(accounts.connectorId, connectorId));
+  const groups = await tx
+    .selectDistinct({ group: transactions.transferGroupId })
+    .from(transactions)
+    .where(and(isNotNull(transactions.transferGroupId), inArray(transactions.accountId, purged)));
+  const groupIds = groups.map((g) => g.group).filter((g): g is string => g !== null);
+  if (groupIds.length === 0) return [];
+  const released = await tx
+    .update(transactions)
+    .set({ transferGroupId: null })
+    .where(
+      and(
+        inArray(transactions.transferGroupId, groupIds),
+        notInArray(transactions.accountId, purged),
+      ),
+    )
+    .returning({ id: transactions.id });
+  const ids = released.map((r) => r.id);
+  if (ids.length > 0) {
+    const transferCategories = tx
+      .select({ id: categories.id })
+      .from(categories)
+      .where(and(eq(categories.householdId, householdId), eq(categories.isTransfer, true)));
+    await tx
+      .update(transactions)
+      .set({ categoryId: null, categorySource: 'none', categorySetAt: null })
+      .where(
+        and(
+          inArray(transactions.id, ids),
+          inArray(transactions.categoryId, transferCategories),
+          inArray(transactions.categorySource, ['rule', 'learned', 'heuristic']),
+        ),
+      );
+  }
+  return ids;
+}
+
 const notFound = () => new HttpError(404, 'not_found', 'Connector not found');
 
-export function createConnectorManager(deps: ChallengeDeps): ConnectorManager {
+export interface ConnectorManagerDeps extends ChallengeDeps {
+  /** The post-ingest hook (categorize, detect transfers, alerts); re-run for rows a purge un-paired. */
+  onIngested?: (householdId: string, txIds: string[]) => Promise<void>;
+}
+
+export function createConnectorManager(deps: ConnectorManagerDeps): ConnectorManager {
   const { db } = deps;
 
   async function loadOwned(auth: AuthContext, id: string) {
@@ -56,9 +115,11 @@ export function createConnectorManager(deps: ChallengeDeps): ConnectorManager {
       for (const row of open) {
         await closeChallenge(deps, row, connector, 'cancelled', ['open', 'answering']);
       }
+      let unpaired: string[] = [];
       await withConnectorLock(deps, connectorId, async () => {
         await db.transaction(async (tx) => {
           if (mode === 'purge') {
+            unpaired = await releaseTransferPartners(tx, connector.householdId, connectorId);
             // transactions, splits and dedup aliases cascade from the account
             await tx.delete(accounts).where(eq(accounts.connectorId, connectorId));
           } else {
@@ -75,6 +136,14 @@ export function createConnectorManager(deps: ChallengeDeps): ConnectorManager {
           if (deleted.length === 0) throw notFound(); // a concurrent delete won
         });
       });
+      if (unpaired.length > 0 && deps.onIngested) {
+        // Best effort: the purge is done; a failure here only leaves the rows to the next detection.
+        try {
+          await deps.onIngested(connector.householdId, unpaired);
+        } catch (err) {
+          deps.logger.error({ connectorId, error: safeErrorInfo(err) }, 'purge: re-pairing failed');
+        }
+      }
     },
 
     async rename(auth, connectorId, displayName) {

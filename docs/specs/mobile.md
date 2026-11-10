@@ -102,7 +102,8 @@ of other members only read "Shared by another member". A successful update inval
   `PATCH /connectors/:id {displayName}` (an empty input clears the name). The list is refetched.
 - **Delete.** A dialog with two full-width choices: "Remove connection, keep history" (`DELETE /connectors/:id?mode=keep`,
   accounts and transactions stay and keep counting) and "Delete connection and all its data" (destructive styling; asks a
-  second confirmation before sending `mode=purge`). Both invalidate `connectors`, `home`, `transactions`, `accounts`
+  second confirmation before sending `mode=purge`). The keep choice says that connecting the bank again reuses the kept
+  accounts without duplicates. While a removal runs, dismissing the dialog (backdrop, back) is ignored. Both invalidate `connectors`, `home`, `transactions`, `accounts`
   and `net-worth`.
 - **Add bank.** DKB or Comdirect (static list matching the server catalog), user id and PIN, and "Keep these
   accounts private" (`accountDefaults.visibility: owner_only`), sent as `POST /connectors {type:'fints', config:{bank,userId,pin}}`.

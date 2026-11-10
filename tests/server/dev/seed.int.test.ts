@@ -54,7 +54,8 @@ async function count(
   return (await database.db.select().from(table)).length;
 }
 
-describe('devSeed', () => {
+// Slow under load: each test seeds a household with Argon2 hashing and a full app.
+describe('devSeed', { timeout: 30_000 }, () => {
   it('creates the household and an invite, is idempotent, and gives a fresh invite per run', async () => {
     const { keyring } = setup();
     const first = await devSeed({ db: database.db, keyring }, { withData: false, env, now: NOW });
