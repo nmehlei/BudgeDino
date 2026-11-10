@@ -94,3 +94,9 @@ follow the same rule, attributed to the owner of the account they were learned o
 
 `?from&to&accountId&categoryId&cursor&limit` (limit 1-200, default 50): visible transactions only,
 decrypted, newest booking date first, keyset cursor `<bookingDate>|<id>`, with splits.
+
+### Categories: `GET /categories`
+
+Member route. The caller's household categories (`id`, `name`, `group`, `isIncome`, `isTransfer`,
+`archived`), ordered by name, archived ones included so old transactions still resolve. Never another
+household's. No path parameters, so the visibility harness probes it without a fixture.

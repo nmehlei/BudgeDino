@@ -40,3 +40,12 @@ export function useAppTheme(): MD3Theme {
 export function useWarningColor(): string {
   return useAppTheme().dark ? WARNING_DARK : WARNING_LIGHT;
 }
+
+/** Semantic "success" green (incoming money); Paper's theme has no such token. */
+export const SUCCESS_LIGHT = '#2E7D32';
+export const SUCCESS_DARK = '#81C784';
+
+/** Green for positive amounts; follows the system colour scheme. */
+export function useSuccessColor(): string {
+  return useAppTheme().dark ? SUCCESS_DARK : SUCCESS_LIGHT;
+}

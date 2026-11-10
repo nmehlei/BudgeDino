@@ -1,5 +1,5 @@
-import { ComingSoon } from '../../src/home/ComingSoon';
+import { TransactionsScreen } from '../../src/transactions/TransactionsScreen';
 
 export default function Transactions() {
-  return <ComingSoon title="Transactions" />;
+  return <TransactionsScreen />;
 }

@@ -5,5 +5,6 @@ export * from './accounts';
 export * from './accounts';
 export * from './challenges';
 export * from './connectors';
+export * from './categories';
 export * from './transactions';
 export * from './budgets';

@@ -4,6 +4,7 @@ import {
   ackNotificationsResponse,
   budgetArchivedResponse,
   budgetListResponse,
+  categoryListResponse,
   budgetResponse,
   challengeAnswerResponse,
   challengeStatusResponse,
@@ -214,6 +215,10 @@ export function createApiClient(options: ApiClientOptions) {
         body: input,
         schema: accountInfo,
       }),
+
+    // categories
+    listCategories: () =>
+      request({ method: 'GET', path: '/categories', schema: categoryListResponse }),
 
     // connectors
     listConnectors: () =>

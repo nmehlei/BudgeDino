@@ -54,6 +54,8 @@ export default function AppLayout() {
         name="settings"
         options={{ title: 'Settings', tabBarIcon: tabIcon('cog-outline') }}
       />
+      {/* Pushed from the list; not a tab of its own. */}
+      <Tabs.Screen name="transaction/[id]" options={{ href: null }} />
     </Tabs>
   );
 }

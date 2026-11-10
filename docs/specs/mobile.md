@@ -28,8 +28,8 @@ The Expo Android app (development build, never Expo Go) talks to one self-hosted
 
 ## Home screen
 
-Bottom tabs: Home, Transactions, Connections, Settings (the last three are placeholders until their
-screens land). The `(app)` layout is also the root gate (splash, onboarding redirect, tabs).
+Bottom tabs: Home, Transactions, Connections, Settings (Connections is a placeholder until its
+screen lands). The `(app)` layout is also the root gate (splash, onboarding redirect, tabs).
 
 - **Data.** `GET /home?period=current|previous`, switched with a segmented control. Budget cards show
   name, period kind (weekly/monthly), the spent amount large, "of <amount>" and a progress bar. Below:
@@ -52,3 +52,29 @@ screens land). The `(app)` layout is also the root gate (splash, onboarding redi
 - **Precision note.** Money is formatted by passing an exact decimal string to `Intl.NumberFormat`; a Hermes without Intl v3 coerces it to a Number, which loses precision beyond 2^53 minor units.
 - **Period header.** Monthly shows "November 2026", weekly "10–16 Nov" (or "28 Oct – 3 Nov" across months), from `period.start`/`end` (end exclusive) in Europe/Berlin.
 - **Sync errors.** A non-429 failure while syncing on pull-to-refresh shows a "Sync failed" snackbar; the refetch still runs.
+
+## Transactions
+
+- **List.** `GET /transactions` with the server's cursor (`limit` 50), loaded as an infinite list on
+  end-reached and refreshed by pull-to-refresh. Grouped by booking date; headers read "Today",
+  "Yesterday" or "Mon, 9 Nov 2026", with "today" taken in Europe/Berlin. Each row shows counterparty,
+  category name (from `GET /categories`; "Split" for split transactions, "Uncategorized" otherwise),
+  a "Pending" badge for pending ones and the amount (negative in the neutral text colour, positive green).
+  Offline, cached pages stay visible under a banner with Retry.
+- **Detail.** Counterparty, purpose, account, booking date, category. Tapping a category sends
+  `PATCH /transactions/:id {categoryId}`; the "Always use this for <counterparty>" switch (only shown
+  when there is a counterparty) adds `applyToCounterparty: true`. The change is **optimistic** in every
+  cached transaction list and **rolls back** on any error (422, network, 5xx) with a snackbar message.
+  On success the `home` and `transactions` queries are invalidated (a rule can touch many rows and
+  moves budgets). Split transactions are shown read-only. The detail reads the transaction from the
+  cached list (there is no single-transaction endpoint).
+- **Accessibility.** Rows and fields wrap instead of truncating, so they stay usable at font scale 2.
+
+## Settings > Accounts
+
+Settings lists "Accounts". `GET /accounts` shows every visible account (name, masked IBAN, balance).
+Only the user's own accounts (`isOwner`) have the switches "Private (only me)" (`visibility`
+`owner_only`/`household`) and "Counts toward budgets". Updates are not optimistic: the server derives
+`countsTowardBudgets` from visibility, so the screen shows the account the server returned. Accounts
+of other members only read "Shared by another member". A successful update invalidates `home` and
+`transactions`.

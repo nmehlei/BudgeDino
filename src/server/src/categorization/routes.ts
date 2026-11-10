@@ -1,7 +1,8 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import {
+  categoryListResponse,
   errorResponse,
   listTransactionsQuery,
   listTransactionsResponse,
@@ -81,6 +82,36 @@ export function categorizationRoutes(app: FastifyInstance): void {
     if (!req.auth) throw new Error('unreachable: the access hook authenticates');
     return req.auth;
   };
+
+  r.get(
+    '/categories',
+    {
+      config: { access: 'member' },
+      schema: {
+        tags: ['categories'],
+        security,
+        response: { 200: categoryListResponse, '4xx': errorResponse },
+      },
+    },
+    async (req) => {
+      const auth = authOf(req);
+      const rows = await app.ctx.db
+        .select()
+        .from(categories)
+        .where(eq(categories.householdId, auth.householdId))
+        .orderBy(asc(categories.name), asc(categories.id));
+      return {
+        categories: rows.map((c) => ({
+          id: c.id,
+          name: c.name,
+          group: c.group,
+          isIncome: c.isIncome,
+          isTransfer: c.isTransfer,
+          archived: c.archived,
+        })),
+      };
+    },
+  );
 
   r.get(
     '/transactions',

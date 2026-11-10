@@ -1,0 +1,178 @@
+import type {
+  AccountInfo,
+  CategoryInfo,
+  ListTransactionsResponse,
+  TransactionInfo,
+  UpdateAccountRequest,
+} from '@budgedino/shared';
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type InfiniteData,
+  type QueryClient,
+} from '@tanstack/react-query';
+
+import { isApiClientError } from '../api/errors';
+import { useApi } from '../api/useApi';
+
+export const PAGE_SIZE = 50;
+
+export const txKeys = {
+  all: ['transactions'] as const,
+  list: ['transactions', 'list'] as const,
+};
+export const categoriesKey = ['categories'] as const;
+export const accountsKey = ['accounts'] as const;
+
+export type TransactionPages = InfiniteData<ListTransactionsResponse, string | undefined>;
+
+export function useTransactionsList() {
+  const api = useApi();
+  return useInfiniteQuery<
+    ListTransactionsResponse,
+    Error,
+    TransactionPages,
+    readonly string[],
+    string | undefined
+  >({
+    queryKey: txKeys.list,
+    queryFn: ({ pageParam }) => api.listTransactions({ cursor: pageParam, limit: PAGE_SIZE }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+}
+
+export function useCategories() {
+  const api = useApi();
+  return useQuery({
+    queryKey: categoriesKey,
+    queryFn: async () => (await api.listCategories()).categories,
+  });
+}
+
+export function useAccounts() {
+  const api = useApi();
+  return useQuery({
+    queryKey: accountsKey,
+    queryFn: async () => (await api.listAccounts()).accounts,
+  });
+}
+
+export function flattenPages(data: TransactionPages | undefined): TransactionInfo[] {
+  return data?.pages.flatMap((p) => p.transactions) ?? [];
+}
+
+/** Returns a copy of the pages with one transaction's category replaced (manual, as the server will). */
+export function withCategory(
+  data: TransactionPages,
+  id: string,
+  categoryId: string,
+): TransactionPages {
+  return {
+    ...data,
+    pages: data.pages.map((page) => ({
+      ...page,
+      transactions: page.transactions.map((t) =>
+        t.id === id ? { ...t, categoryId, categorySource: 'manual' as const } : t,
+      ),
+    })),
+  };
+}
+
+export type RecategorizeVars = {
+  id: string;
+  categoryId: string;
+  applyToCounterparty: boolean;
+};
+
+interface Snapshot {
+  key: readonly unknown[];
+  data: TransactionPages | undefined;
+}
+
+/** Cancels in-flight list fetches, applies the new category in every cached list, returns the undo. */
+export async function applyOptimisticCategory(
+  client: QueryClient,
+  vars: RecategorizeVars,
+): Promise<Snapshot[]> {
+  await client.cancelQueries({ queryKey: txKeys.all });
+  const snapshots: Snapshot[] = client
+    .getQueriesData<TransactionPages>({ queryKey: txKeys.all })
+    .map(([key, data]) => ({ key, data }));
+  for (const { key, data } of snapshots) {
+    if (data)
+      client.setQueryData<TransactionPages>(key, withCategory(data, vars.id, vars.categoryId));
+  }
+  return snapshots;
+}
+
+export function rollbackCategory(client: QueryClient, snapshots: readonly Snapshot[]): void {
+  for (const { key, data } of snapshots) client.setQueryData(key, data);
+}
+
+/** User-facing text for a failed write. Never includes request or response data. */
+export function describeWriteError(error: unknown): string {
+  if (isApiClientError(error)) {
+    switch (error.error.kind) {
+      case 'network':
+        return "No connection, the change wasn't saved.";
+      case 'validation':
+        return 'The server rejected this change, so it was undone.';
+      case 'rate_limited':
+        return `Too many requests, try again in ${error.error.retryAfterSec} s.`;
+      case 'unauthorized':
+        return 'Your session expired.';
+      default:
+        break;
+    }
+  }
+  return "Couldn't save the change, it was undone.";
+}
+
+/**
+ * Recategorizes one transaction. The list updates immediately and rolls back on any error; on
+ * success home and the transaction queries are refetched (a counterparty rule can touch many rows
+ * and moves budgets).
+ */
+export function useRecategorize() {
+  const api = useApi();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: RecategorizeVars) =>
+      api.patchTransaction(vars.id, {
+        categoryId: vars.categoryId,
+        ...(vars.applyToCounterparty ? { applyToCounterparty: true } : {}),
+      }),
+    onMutate: (vars) => applyOptimisticCategory(client, vars),
+    onError: (_error, _vars, snapshots) => {
+      if (snapshots) rollbackCategory(client, snapshots);
+    },
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['home'] });
+      void client.invalidateQueries({ queryKey: txKeys.all });
+    },
+  });
+}
+
+export function useUpdateAccount() {
+  const api = useApi();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: UpdateAccountRequest }) =>
+      api.updateAccount(id, patch),
+    // Not optimistic: the server derives countsTowardBudgets from visibility, so show its answer.
+    onSuccess: (updated: AccountInfo) => {
+      client.setQueryData<AccountInfo[]>(accountsKey, (old) =>
+        old?.map((a) => (a.id === updated.id ? updated : a)),
+      );
+      void client.invalidateQueries({ queryKey: ['home'] });
+      void client.invalidateQueries({ queryKey: txKeys.all });
+    },
+  });
+}
+
+export function categoryNameMap(categories: readonly CategoryInfo[] | undefined) {
+  return new Map((categories ?? []).map((c) => [c.id, c.name]));
+}
