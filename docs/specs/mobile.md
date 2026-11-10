@@ -94,7 +94,7 @@ of other members only read "Shared by another member". A successful update inval
   query cache or MMKV. If it is missing (app restarted), `GET /challenges/:id` decides: a finished challenge shows its
   outcome, an open one offers "Cancel request".
 - **decoupled.** Message, spinner and "I've confirmed in my banking app". Polls `POST /challenges/:id/answer
-  {kind:'decoupled'}` every `pollAfterMs`, at least 2 s; a 429 waits `Retry-After` (also after returning from
+{kind:'decoupled'}` every `pollAfterMs`, at least 2 s; a 429 waits `Retry-After` (also after returning from
   the background). Polling stops while the app is backgrounded (the user is in the bank's app) and resumes on return
   as soon as the schedule allows. A timer on `expiresAt` checks `GET /challenges/:id` and shows the expired state; it
   also fires right after returning from the background if the challenge lapsed meanwhile.
