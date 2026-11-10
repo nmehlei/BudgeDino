@@ -28,7 +28,7 @@ The Expo Android app (development build, never Expo Go) talks to one self-hosted
 
 ## Home screen
 
-Bottom tabs: Home, Transactions, Connections, Settings. The `(app)` layout is also the root gate (splash, onboarding redirect, tabs).
+Bottom tabs: Home, Transactions, Connections, More. The `(app)` layout is also the root gate (splash, onboarding redirect, tabs).
 
 - **Data.** `GET /home?period=current|previous`, switched with a segmented control. Budget cards show
   name, period kind (weekly/monthly), the spent amount large, "of <amount>" and a progress bar. Below:
@@ -71,7 +71,7 @@ Bottom tabs: Home, Transactions, Connections, Settings. The `(app)` layout is al
 
 ## Settings > Accounts
 
-Settings lists "Accounts". `GET /accounts` shows every visible account (name, masked IBAN, balance).
+Settings (More > Settings) lists "Accounts". `GET /accounts` shows every visible account (name, masked IBAN, balance).
 Only the user's own accounts (`isOwner`) have the switches "Private (only me)" (`visibility`
 `owner_only`/`household`) and "Counts toward budgets". Updates are not optimistic: the server derives
 `countsTowardBudgets` from visibility, so the screen shows the account the server returned. Accounts
@@ -132,8 +132,8 @@ of other members only read "Shared by another member". A successful update inval
   `expiredNotice` flag in the MMKV prefs; the login screen shows "Session expired, please sign in again" once and
   clears it. A user sign-out never sets it. Sign-out also clears the in-memory challenge and pending-registration
   hand-overs.
-- **Settings.** Lock toggle, notification permission, signed-in devices (`GET /auth/sessions`; "Sign out" on
-  another device calls `DELETE /auth/sessions/:id`), the server URL, and Sign out. On sign-out the periodic background task is unregistered and delivered notifications are dismissed (best effort). A signed-out start (hydrate finds no session) wipes the persisted cache and the query client before anything renders, so data left behind by an earlier session is never shown to the next user. Sign out first revokes this
+- **More and Settings.** The last tab, More, is a list with one entry, Settings (room for more later). Routes: `/more`, `/more/settings`, and under it `appearance`, `security`, `devices`, `accounts`, `server`; each has a back header and wraps at font scale 2. Settings lists Appearance, Security, Devices, Accounts, Server and, at the bottom, Sign out (with confirmation). **Security** holds the lock toggle and the notification permission row. **Devices** lists signed-in devices (`GET /auth/sessions`; "Sign out" on
+  another device calls `DELETE /auth/sessions/:id`). **Server** shows the server URL. On sign-out the periodic background task is unregistered and delivered notifications are dismissed (best effort). A signed-out start (hydrate finds no session) wipes the persisted cache and the query client before anything renders, so data left behind by an earlier session is never shown to the next user. Sign out first revokes this
   device's session on the server (best effort; network errors are ignored), then wipes the token, the MMKV cache
   and the query cache through the session store. A 401 sign-out stays local.
 
@@ -143,7 +143,7 @@ flow `connect-demo-bank.yaml`). Dev loop and seed: [self-hosting.md](self-hostin
 
 ## Appearance
 
-- Settings has an "Appearance" section with System / Light / Dark (radio list, wraps at large font
+- Settings > Appearance offers System / Light / Dark (radio list, wraps at large font
   scales). Default: System, which follows the OS colour scheme.
 - The choice is stored in the non-secret MMKV prefs (`budgedino-prefs`, key `themePreference`; absent
   means System) and applies immediately, no restart. It survives sign-out.

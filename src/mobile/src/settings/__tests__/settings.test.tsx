@@ -1,6 +1,7 @@
 import type { SessionInfo } from '@budgedino/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import type { ReactElement } from 'react';
 import { Alert, Appearance, Text, type AlertButton } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 
@@ -12,6 +13,11 @@ import {
 } from '../../session/session-store';
 import { useAppTheme } from '../../theme';
 import { createThemeStore, setThemeStore } from '../../theme-store';
+import { MoreScreen } from '../../more/MoreScreen';
+import { AppearanceScreen } from '../AppearanceScreen';
+import { DevicesScreen } from '../DevicesScreen';
+import { SecurityScreen } from '../SecurityScreen';
+import { ServerScreen } from '../ServerScreen';
 import { SettingsScreen } from '../SettingsScreen';
 
 const mockRouter = { push: jest.fn() };
@@ -71,13 +77,11 @@ function makeStore() {
 }
 
 let queryClient: QueryClient;
-async function renderSettings() {
+async function renderSettings(ui: ReactElement = <SettingsScreen />) {
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   await render(
     <QueryClientProvider client={queryClient}>
-      <PaperProvider>
-        <SettingsScreen />
-      </PaperProvider>
+      <PaperProvider>{ui}</PaperProvider>
     </QueryClientProvider>,
   );
 }
@@ -103,9 +107,13 @@ beforeEach(() => {
 afterEach(() => jest.restoreAllMocks());
 
 describe('SettingsScreen', () => {
-  it('shows the server URL and the devices, marking this one', async () => {
-    await renderSettings();
+  it('shows the server URL', async () => {
+    await renderSettings(<ServerScreen />);
     expect(screen.getByText('https://budget.example.test')).toBeTruthy();
+  });
+
+  it('lists the devices, marking this one', async () => {
+    await renderSettings(<DevicesScreen />);
     expect(await screen.findByText('Pixel 9 (this device)')).toBeTruthy();
     expect(screen.getByText('Old tablet')).toBeTruthy();
     expect(screen.queryByTestId('settings-revoke-s-current')).toBeNull();
@@ -113,7 +121,7 @@ describe('SettingsScreen', () => {
   });
 
   it('revokes another device after confirmation and reloads the list', async () => {
-    await renderSettings();
+    await renderSettings(<DevicesScreen />);
     await screen.findByText('Old tablet');
     await act(async () => {
       await fireEvent.press(screen.getByTestId('settings-revoke-s-tablet'));
@@ -126,7 +134,6 @@ describe('SettingsScreen', () => {
 
   it('sign-out revokes the current session on the server, then wipes token and caches', async () => {
     await renderSettings();
-    await screen.findByText('Old tablet');
     await act(async () => {
       await fireEvent.press(screen.getByTestId('settings-signout'));
     });
@@ -143,7 +150,6 @@ describe('SettingsScreen', () => {
   it('sign-out still wipes locally when the server cannot be reached', async () => {
     mockApi.revokeSession.mockRejectedValue(new ApiClientError({ kind: 'network' }));
     await renderSettings();
-    await screen.findByText('Old tablet');
     await act(async () => {
       await fireEvent.press(screen.getByTestId('settings-signout'));
     });
@@ -156,7 +162,6 @@ describe('SettingsScreen', () => {
   it('sign-out works when the devices list never loaded', async () => {
     mockApi.listSessions.mockRejectedValue(new ApiClientError({ kind: 'network' }));
     await renderSettings();
-    await screen.findByTestId('settings-sessions-retry');
     await act(async () => {
       await fireEvent.press(screen.getByTestId('settings-signout'));
     });
@@ -167,7 +172,7 @@ describe('SettingsScreen', () => {
   });
 
   it('turning the lock off needs authentication and is stored in prefs', async () => {
-    await renderSettings();
+    await renderSettings(<SecurityScreen />);
     await act(async () => {
       await fireEvent(screen.getByTestId('settings-lock'), 'valueChange', false);
     });
@@ -182,19 +187,27 @@ describe('SettingsScreen', () => {
 
   it('keeps the lock on when authentication fails', async () => {
     mockAuth.mockResolvedValue('failed');
-    await renderSettings();
+    await renderSettings(<SecurityScreen />);
     await act(async () => {
       await fireEvent(screen.getByTestId('settings-lock'), 'valueChange', false);
     });
     expect(mockStore.getSnapshot().lockEnabled).toBe(true);
   });
 
-  it('links to the accounts settings', async () => {
+  it('links to the settings sub-screens', async () => {
     await renderSettings();
-    await act(async () => {
-      await fireEvent.press(screen.getByTestId('settings-accounts'));
-    });
-    expect(mockRouter.push).toHaveBeenCalledWith('/settings/accounts');
+    for (const [id, href] of [
+      ['settings-accounts', '/more/settings/accounts'],
+      ['settings-appearance', '/more/settings/appearance'],
+      ['settings-security', '/more/settings/security'],
+      ['settings-devices', '/more/settings/devices'],
+      ['settings-server-entry', '/more/settings/server'],
+    ] as const) {
+      await act(async () => {
+        await fireEvent.press(screen.getByTestId(id));
+      });
+      expect(mockRouter.push).toHaveBeenLastCalledWith(href);
+    }
   });
 });
 
@@ -218,7 +231,7 @@ describe('Appearance setting', () => {
       <QueryClientProvider client={queryClient}>
         <PaperProvider>
           <Probe />
-          <SettingsScreen />
+          <AppearanceScreen />
         </PaperProvider>
       </QueryClientProvider>,
     );
@@ -235,5 +248,21 @@ describe('Appearance setting', () => {
     expect(themeStore.getPreference()).toBe('system');
     expect(screen.getByTestId('theme-probe').props.children).toBe('light');
     setThemeStore(undefined);
+  });
+});
+
+describe('More tab navigation', () => {
+  it('leads from More to Settings to Appearance', async () => {
+    await renderSettings(<MoreScreen />);
+    await act(async () => {
+      await fireEvent.press(screen.getByTestId('more-settings'));
+    });
+    expect(mockRouter.push).toHaveBeenLastCalledWith('/more/settings');
+    screen.unmount();
+    await renderSettings(<SettingsScreen />);
+    await act(async () => {
+      await fireEvent.press(screen.getByTestId('settings-appearance'));
+    });
+    expect(mockRouter.push).toHaveBeenLastCalledWith('/more/settings/appearance');
   });
 });
