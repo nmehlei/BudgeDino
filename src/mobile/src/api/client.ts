@@ -10,6 +10,7 @@ import {
   challengeStatusResponse,
   connectStartedResponse,
   connectorListResponse,
+  connectorTypesResponse,
   createInviteResponse,
   errorResponse,
   healthResponse,
@@ -223,6 +224,8 @@ export function createApiClient(options: ApiClientOptions) {
     // connectors
     listConnectors: () =>
       request({ method: 'GET', path: '/connectors', schema: connectorListResponse }),
+    listConnectorTypes: () =>
+      request({ method: 'GET', path: '/connectors/types', schema: connectorTypesResponse }),
     createConnector: (input: CreateConnectorRequest) =>
       request({
         method: 'POST',

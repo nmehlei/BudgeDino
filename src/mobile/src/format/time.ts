@@ -19,6 +19,14 @@ export function formatDateTime(epochMs: number): string {
   return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}., ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/** "09.11.2026" in the device time zone. */
+export function formatDate(value: string | number): string {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return 'unknown';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`;
+}
+
 export const HOUSEHOLD_TZ_FALLBACK = 'Europe/Berlin';
 
 const MONTHS = [

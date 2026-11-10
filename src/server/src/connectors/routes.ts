@@ -7,6 +7,7 @@ import {
   challengeStatusResponse,
   connectStartedResponse,
   connectorIdParams,
+  connectorTypesResponse,
   createConnectorRequest,
   errorResponse,
   reconnectResponse,
@@ -26,6 +27,19 @@ function authOf(req: { auth: AuthContext | null }): AuthContext {
 export function connectorRoutes(app: FastifyInstance): void {
   const r = app.withTypeProvider<ZodTypeProvider>();
   const security = [{ bearer: [] }];
+
+  r.get(
+    '/connectors/types',
+    {
+      config: { access: 'member' },
+      schema: {
+        tags: ['connectors'],
+        security,
+        response: { 200: connectorTypesResponse, '4xx': errorResponse },
+      },
+    },
+    () => ({ types: app.ctx.registry.types() }),
+  );
 
   r.post(
     '/connectors',

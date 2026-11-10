@@ -249,6 +249,8 @@ Code: `src/server/src/sync/` (`run.ts`, `ingest.ts`, `rate-guard.ts`, `scheduler
   `{cron}` (evaluated in the household time zone). pg-boss queues: `sync.tick` (every 5 minutes, enqueues due
   `ok` connectors) and `sync.connector` (policy `exclusive`, `singletonKey: connectorId`). `startJobs(deps, ...)`
   wires them (plus `challenges.expire` every minute and, with an `fxSource`, `fx.refresh` daily; the production entry `main.ts` passes the ECB source and the same `onIngested` hook as the API); `onIngested(householdId, txIds)` is called once per run after commit (categorizer hook).
+- **`GET /connectors/types`** (member): `{types: string[]}`, the connector types the server has enabled
+  (`BUDGEDINO_CONNECTORS`, from the connector registry). The app uses it to show "Demo bank" only when `fake` is enabled.
 - **`GET /connectors`:** own connectors with status, `lastSuccessAt`, `lastErrorCode`, `consentExpiresAt`,
   `type`, `experimental`; others' connectors behind household-visible accounts only as
   `{id, type, status, lastSuccessAt}`.

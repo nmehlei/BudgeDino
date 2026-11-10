@@ -68,3 +68,7 @@ export type ConnectStartedResponse = z.infer<typeof connectStartedResponse>;
 
 export const reconnectResponse = z.object({ challenge: challengeView.optional() });
 export type ReconnectResponse = z.infer<typeof reconnectResponse>;
+
+/** `GET /connectors/types`: connector types the server has enabled (e.g. `fints`, `fake`). */
+export const connectorTypesResponse = z.object({ types: z.array(z.string()) });
+export type ConnectorTypesResponse = z.infer<typeof connectorTypesResponse>;

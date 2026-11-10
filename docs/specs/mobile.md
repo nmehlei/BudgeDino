@@ -28,8 +28,7 @@ The Expo Android app (development build, never Expo Go) talks to one self-hosted
 
 ## Home screen
 
-Bottom tabs: Home, Transactions, Connections, Settings (Connections is a placeholder until its
-screen lands). The `(app)` layout is also the root gate (splash, onboarding redirect, tabs).
+Bottom tabs: Home, Transactions, Connections, Settings. The `(app)` layout is also the root gate (splash, onboarding redirect, tabs).
 
 - **Data.** `GET /home?period=current|previous`, switched with a segmented control. Budget cards show
   name, period kind (weekly/monthly), the spent amount large, "of <amount>" and a progress bar. Below:
@@ -78,3 +77,32 @@ Only the user's own accounts (`isOwner`) have the switches "Private (only me)" (
 `countsTowardBudgets` from visibility, so the screen shows the account the server returned. Accounts
 of other members only read "Shared by another member". A successful update invalidates `home` and
 `transactions`.
+
+## Connections and bank challenges
+
+- **List.** `GET /connectors`: own connectors show type, status, last sync and consent expiry; "Sync now"
+  (`POST /connectors/:id/sync`, status `ok`) and "Reconnect" (`POST /connectors/:id/reconnect`, status
+  `needs_attention`/`error`). Other members' connectors are read-only. Both actions are user-present: the server
+  never starts a bank dialog on its own. The list shows the type ("Bank (FinTS)"), not the bank, because the API does not expose it.
+- **Add bank.** DKB or Comdirect (static list matching the server catalog), user id and PIN, and "Keep these
+  accounts private" (`accountDefaults.visibility: owner_only`), sent as `POST /connectors {type:'fints', config:{bank,userId,pin}}`.
+  "Demo bank" (`type:'fake'`) appears only if `GET /connectors/types` lists `fake`. The PIN field is secure text
+  entry with autofill, autocorrect and the context menu off. User id and PIN live only in component state: the
+  request is made directly (not through a mutation, so nothing is kept in React Query), and both fields are cleared
+  before the request is awaited, also when it fails. They are never logged or stored.
+- **Challenge hand-off.** The challenge payload (message, photoTAN image) is kept in an in-memory store, not the
+  query cache or MMKV. If it is missing (app restarted), `GET /challenges/:id` decides: a finished challenge shows its
+  outcome, an open one offers "Cancel request".
+- **decoupled.** Message, spinner and "I've confirmed in my banking app". Polls `POST /challenges/:id/answer
+  {kind:'decoupled'}` every `pollAfterMs`, at least 2 s; a 429 waits `Retry-After` (also after returning from
+  the background). Polling stops while the app is backgrounded (the user is in the bank's app) and resumes on return
+  as soon as the schedule allows. A timer on `expiresAt` checks `GET /challenges/:id` and shows the expired state; it
+  also fires right after returning from the background if the challenge lapsed meanwhile.
+- **code / image.** Numeric input and submit (`{kind:'code'|'image', code}`); a 400/422 shows "Invalid input" and
+  keeps the screen; the entered code is cleared after each submit. The image is a `data:` URI from `mimeType` and
+  `imageBase64`, tap to enlarge. **redirect** is not used by FinTS and renders "Not supported yet" with Cancel.
+- **Outcome.** `completed` shows a success screen then Connections (connectors, home, accounts and transactions are
+  refetched). `expired`/`cancelled` show the reason (`declined`, `too_many_invalid_answers`) and "Try again", which
+  reconnects. Cancel calls `DELETE /challenges/:id`.
+- **Accessibility.** The screen scrolls and buttons wrap (Paper's Button truncates labels to one line, so the
+  challenge screen uses its own wrapping button), so it stays usable at font scale 2.
