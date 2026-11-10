@@ -78,4 +78,6 @@ Strong testing is a core requirement. **[owner]** **[call]** on specifics:
 
 ## Versioning
 
-Semantic versioning via GitVersion 5.x, Mainline mode. **[call]** (owner default)
+Semantic versioning via GitVersion 5.x, Mainline mode. **[call]** (owner default) Every commit gets its
+own version; app, server and CI share `scripts/version.cjs`
+([ADR 0010](adr/0010-gitversion-mainline.md)).
