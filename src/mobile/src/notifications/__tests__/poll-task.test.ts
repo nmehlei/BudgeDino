@@ -1,4 +1,5 @@
 import type { NotificationsResponse } from '@budgedino/shared';
+import * as mockNotifications from 'expo-notifications';
 import * as mockBackgroundTask from 'expo-background-task';
 import * as mockTaskManager from 'expo-task-manager';
 
@@ -9,6 +10,7 @@ import {
   type TokenStorage,
 } from '../../session/session-store';
 import {
+  clearNotificationState,
   defineNotificationTask,
   NOTIFICATION_TASK,
   pollNotifications,
@@ -17,9 +19,15 @@ import {
   type PollDeps,
 } from '../poll-task';
 
+let mockDefaultStore: unknown;
+let mockDefaultApi: unknown;
+jest.mock('../../session/instance', () => ({
+  getSessionStore: () => mockDefaultStore,
+  createSessionApiClient: () => mockDefaultApi,
+}));
 jest.mock('react-native-mmkv', () => ({ createMMKV: jest.fn(), deleteMMKV: jest.fn() }));
 jest.mock('expo-secure-store', () => ({}));
-jest.mock('expo-notifications', () => ({}));
+jest.mock('expo-notifications', () => ({ dismissAllNotificationsAsync: jest.fn() }));
 jest.mock('expo-task-manager', () => ({
   defineTask: jest.fn(),
   isTaskRegisteredAsync: jest.fn(),
@@ -27,6 +35,7 @@ jest.mock('expo-task-manager', () => ({
 jest.mock('expo-background-task', () => ({
   getStatusAsync: jest.fn(),
   registerTaskAsync: jest.fn(),
+  unregisterTaskAsync: jest.fn(),
   BackgroundTaskResult: { Success: 1, Failed: 2 },
   BackgroundTaskStatus: { Restricted: 1, Available: 2 },
 }));
@@ -171,13 +180,41 @@ describe('pollNotifications', () => {
 });
 
 describe('background task wiring', () => {
-  it('defines the task under its name and maps the result', async () => {
+  it('defines the task under its name and maps the poll result to Success/Failed', async () => {
     defineNotificationTask();
-    expect(jest.mocked(mockTaskManager.defineTask)).toHaveBeenCalledWith(
+    expect(mockTaskManager.defineTask).toHaveBeenCalledWith(
       NOTIFICATION_TASK,
       expect.any(Function),
     );
     expect(NOTIFICATION_TASK).toBe('budgedino-notifications');
+    const run = jest.mocked(mockTaskManager.defineTask).mock.calls[0]?.[1] as () => Promise<number>;
+    const { store } = setup();
+    mockDefaultStore = store;
+    mockDefaultApi = {
+      listNotifications: jest.fn().mockResolvedValue(page()),
+      ackNotifications: jest.fn(),
+    };
+    await expect(run()).resolves.toBe(mockBackgroundTask.BackgroundTaskResult.Success);
+    mockDefaultApi = { listNotifications: jest.fn().mockRejectedValue(new Error('x')) };
+    await expect(run()).resolves.toBe(mockBackgroundTask.BackgroundTaskResult.Failed);
+  });
+
+  it('the entry module defines the task at import time, with no UI imports', () => {
+    jest.isolateModules(() => {
+      jest.requireActual('../define-task');
+    });
+    expect(mockTaskManager.defineTask).toHaveBeenCalledWith(
+      NOTIFICATION_TASK,
+      expect.any(Function),
+    );
+  });
+
+  it('sign-out cleanup unregisters the task and dismisses notifications, tolerating failures', async () => {
+    jest.mocked(mockBackgroundTask.unregisterTaskAsync).mockRejectedValue(new Error('x'));
+    jest.mocked(mockNotifications.dismissAllNotificationsAsync).mockResolvedValue(undefined);
+    await expect(clearNotificationState()).resolves.toBeUndefined();
+    expect(mockBackgroundTask.unregisterTaskAsync).toHaveBeenCalledWith(NOTIFICATION_TASK);
+    expect(mockNotifications.dismissAllNotificationsAsync).toHaveBeenCalled();
   });
 
   it('registers with a 15 minute interval, once', async () => {

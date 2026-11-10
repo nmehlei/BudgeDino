@@ -11,7 +11,8 @@ import { authenticateDevice, type DeviceAuthResult } from './device-auth';
 /** Returning from the background after longer than this locks the app again. */
 export const RELOCK_AFTER_MS = 60_000;
 
-type Phase = 'locked' | 'notice' | 'unlocked';
+/** `covered`: backgrounded while unlocked; opaque, no prompt (it may still be within the grace period). */
+type Phase = 'locked' | 'notice' | 'unlocked' | 'covered';
 
 interface AppLockProps {
   children: ReactNode;
@@ -84,21 +85,35 @@ export function AppLock({
   useEffect(() => {
     const sub = AppState.addEventListener('change', (next) => {
       if (next === 'background') {
-        // The system credential screen can background the app mid-prompt; that is not a relock cause.
-        if (!authenticating.current) backgroundedAt.current ??= Date.now();
+        // The system credential screen can background the app mid-prompt; that is neither a cover nor a
+        // relock cause. Otherwise cover at once: Android redraws the last frame on resume before React
+        // could commit a lock state.
+        if (authenticating.current || !store.getSnapshot().lockEnabled) return;
+        // Wall clock on purpose: elapsedRealtime is not available in JS, and a clock set back is treated
+        // as expired (negative elapsed) below.
+        backgroundedAt.current ??= Date.now();
+        setPhase((p) => (p === 'unlocked' ? 'covered' : p));
         return;
       }
       if (next !== 'active') return;
       const since = backgroundedAt.current;
       backgroundedAt.current = null;
-      if (since === null || !store.getSnapshot().lockEnabled) return;
-      if (Date.now() - since > RELOCK_AFTER_MS) {
-        setPhase('locked');
-        void attempt();
+      if (since === null) return;
+      const elapsed = Date.now() - since;
+      if (!store.getSnapshot().lockEnabled || (elapsed >= 0 && elapsed <= RELOCK_AFTER_MS)) {
+        setPhase((p) => (p === 'covered' ? 'unlocked' : p));
+        return;
       }
+      setPhase('locked');
+      void attempt();
     });
     return () => sub.remove();
   }, [attempt, store]);
+
+  const signOut = () => {
+    // The no-permanent-lockout escape: wipes the session and every cache.
+    store.signOut().catch(() => undefined);
+  };
 
   const continueFromNotice = () => {
     store.markLockNoticeSeen();
@@ -109,11 +124,17 @@ export function AppLock({
     <View style={styles.flex}>
       {shown ? (
         <View
-          style={[styles.flex, phase !== 'unlocked' && styles.hidden]}
+          style={[styles.flex, (phase === 'locked' || phase === 'notice') && styles.hidden]}
           importantForAccessibility={phase === 'unlocked' ? 'auto' : 'no-hide-descendants'}
         >
           {children}
         </View>
+      ) : null}
+      {phase === 'covered' ? (
+        <View
+          style={[styles.cover, { backgroundColor: theme.colors.background }]}
+          testID="app-lock-cover"
+        />
       ) : null}
       {phase === 'locked' ? (
         <View
@@ -124,6 +145,9 @@ export function AppLock({
           <Text variant="titleLarge">BudgeDino is locked</Text>
           <Button mode="contained" onPress={() => void attempt()} testID="app-lock-unlock">
             Unlock
+          </Button>
+          <Button mode="text" onPress={signOut} testID="app-lock-signout">
+            Sign out
           </Button>
         </View>
       ) : null}

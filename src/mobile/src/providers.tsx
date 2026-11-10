@@ -50,11 +50,31 @@ export function AppProviders({
 
   useEffect(() => {
     let cancelled = false;
+    // Hydrating first: a signed-out start (cache left behind by a 401 in the headless task, a failed
+    // wipe, or the previous member) must not show or restore anyone's cached data. The wipe runs
+    // before the persist provider mounts, so a restore cannot race it.
+    const hydrated = store.hydrate();
+    const wipeIfSignedOut = async (opened: SecureCache | 'unavailable') => {
+      await hydrated;
+      if (store.getSnapshot().status !== 'signed_out') return;
+      queryClient.clear();
+      if (opened === 'unavailable') {
+        try {
+          deleteMMKV(CACHE_STORE_ID);
+        } catch {
+          // best effort
+        }
+      } else {
+        opened.clear();
+      }
+    };
     openCache().then(
-      (opened) => {
+      async (opened) => {
+        await wipeIfSignedOut(opened).catch(() => undefined);
         if (!cancelled) setCache(opened);
       },
-      () => {
+      async () => {
+        await wipeIfSignedOut('unavailable').catch(() => undefined);
         if (!cancelled) setCache('unavailable');
       },
     );
@@ -62,7 +82,6 @@ export function AppProviders({
     const offQueries = store.onSignOut(() => {
       queryClient.clear();
     });
-    void store.hydrate();
     return () => {
       cancelled = true;
       offQueries();

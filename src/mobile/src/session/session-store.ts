@@ -59,6 +59,8 @@ export function createSessionStore({ prefs, token }: SessionStoreDeps) {
   };
   /** Set when the user signed in during this process: they just authenticated, so no lock prompt. */
   let signedInAt: number | null = null;
+  /** True during a sign-out: in-flight 401s must not flag the session as expired. */
+  let signingOut = false;
   const listeners = new Set<() => void>();
   const wipeHooks = new Set<() => void | Promise<void>>();
 
@@ -67,6 +69,36 @@ export function createSessionStore({ prefs, token }: SessionStoreDeps) {
     listeners.forEach((l) => {
       l();
     });
+  }
+
+  async function runSignOut() {
+    const failures: unknown[] = [];
+    // Marker first: if removal fails, the next hydrate still treats the session as signed out.
+    try {
+      prefs.set(SIGNED_OUT_KEY, '1');
+    } catch (e) {
+      failures.push(e); // a failing marker write must not skip the wipe steps below
+    }
+    try {
+      try {
+        await token.remove();
+      } catch {
+        await token.remove(); // one retry
+      }
+      prefs.remove(SIGNED_OUT_KEY);
+    } catch (e) {
+      failures.push(e);
+    }
+    for (const hook of wipeHooks) {
+      try {
+        await hook();
+      } catch (e) {
+        failures.push(e);
+      }
+    }
+    signedInAt = null;
+    update({ status: 'signed_out' });
+    if (failures.length > 0) throw failures[0];
   }
 
   const store = {
@@ -149,37 +181,18 @@ export function createSessionStore({ prefs, token }: SessionStoreDeps) {
      * first failure is rethrown afterwards. The status flips to `signed_out` regardless.
      */
     async signOut() {
-      const failures: unknown[] = [];
-      // Marker first: if removal fails, the next hydrate still treats the session as signed out.
+      signingOut = true;
       try {
-        prefs.set(SIGNED_OUT_KEY, '1');
-      } catch (e) {
-        failures.push(e); // a failing marker write must not skip the wipe steps below
+        await runSignOut();
+      } finally {
+        signingOut = false;
       }
-      try {
-        try {
-          await token.remove();
-        } catch {
-          await token.remove(); // one retry
-        }
-        prefs.remove(SIGNED_OUT_KEY);
-      } catch (e) {
-        failures.push(e);
-      }
-      for (const hook of wipeHooks) {
-        try {
-          await hook();
-        } catch (e) {
-          failures.push(e);
-        }
-      }
-      signedInAt = null;
-      update({ status: 'signed_out' });
-      if (failures.length > 0) throw failures[0];
     },
 
     /** A 401 wiped the session: flags it so the login screen can say why, then signs out. */
     async expireSession(): Promise<void> {
+      // A user-initiated sign-out in progress: in-flight 401s are just its own revocation noise.
+      if (signingOut) return;
       update({ expired: true });
       await store.signOut();
     },

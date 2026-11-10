@@ -141,6 +141,45 @@ describe('AppProviders', () => {
     }
   });
 
+  it('a signed-out start wipes a leftover persisted cache and the query client', async () => {
+    const s = setup();
+    await s.store.signOut(); // no token: hydrate resolves to signed_out
+    // Leave data behind as a headless 401 would.
+    const seed = await s.openCache();
+    await seed.persister.persistClient({
+      timestamp: Date.now(),
+      buster: seed.buster,
+      clientState: { mutations: [], queries: [] },
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1500);
+    });
+    expect(s.cacheStore.data.size).toBe(1);
+    s.queryClient.setQueryData(['accounts'], { x: 1 });
+    await renderReady(s);
+    expect(s.cacheStore.data.size).toBe(0);
+    expect(s.queryClient.getQueryCache().getAll()).toHaveLength(0);
+  });
+
+  it('a signed-out start with an unavailable cache deletes the MMKV store', async () => {
+    const s = setup();
+    await s.store.signOut();
+    const { deleteMMKV } = jest.requireMock<{ deleteMMKV: jest.Mock }>('react-native-mmkv');
+    await render(
+      <AppProviders
+        queryClient={s.queryClient}
+        sessionStore={s.store}
+        openCache={() => Promise.reject(new Error('no'))}
+      >
+        <Text>child</Text>
+      </AppProviders>,
+    );
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10);
+    });
+    expect(deleteMMKV).toHaveBeenCalled();
+  });
+
   it('never persists mutations (a paused login must not write the password)', async () => {
     const s = setup();
     await renderReady(s);

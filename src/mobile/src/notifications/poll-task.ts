@@ -114,3 +114,11 @@ export async function registerNotificationTask(): Promise<void> {
     minimumInterval: POLL_INTERVAL_MINUTES,
   });
 }
+
+/** Sign-out cleanup (best effort): stop the periodic task and dismiss delivered notifications. */
+export async function clearNotificationState(): Promise<void> {
+  await Promise.allSettled([
+    BackgroundTask.unregisterTaskAsync(NOTIFICATION_TASK),
+    Notifications.dismissAllNotificationsAsync(),
+  ]);
+}

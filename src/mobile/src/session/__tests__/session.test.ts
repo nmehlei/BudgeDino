@@ -143,6 +143,22 @@ describe('session store', () => {
     expect(store.getSignedInAt()).toBeNull();
   });
 
+  it('a 401 during a user sign-out does not flag the session as expired', async () => {
+    const { store } = setup();
+    await store.signIn('t');
+    let release: () => void = () => undefined;
+    const off = store.onSignOut(() => new Promise<void>((r) => (release = r)));
+    const out = store.signOut();
+    await store.expireSession();
+    expect(store.getSnapshot().expired).toBe(false);
+    release();
+    await out;
+    off();
+    await store.signIn('t');
+    await store.expireSession();
+    expect(store.getSnapshot().expired).toBe(true);
+  });
+
   it('keeps the lock preference across signOut', async () => {
     const { store } = setup();
     store.setLockEnabled(false);

@@ -1,7 +1,7 @@
 import type { SessionInfo } from '@budgedino/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import {
   ActivityIndicator,
@@ -45,7 +45,19 @@ export function SettingsScreen() {
   const client = useQueryClient();
   const { serverUrl, lockEnabled, setLockEnabled } = useSession();
   const notifications = useNotificationPermission();
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessageState] = useState<string | null>(null);
+  const mounted = useRef(true);
+  const lockBusy = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  // Sign-out unmounts this screen while requests are still settling.
+  const setMessage = (m: string | null) => {
+    if (mounted.current) setMessageState(m);
+  };
   const [busyId, setBusyId] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
 
@@ -55,17 +67,23 @@ export function SettingsScreen() {
   });
 
   const toggleLock = async (next: boolean) => {
-    if (next) {
-      setLockEnabled(true);
-      return;
+    if (lockBusy.current) return;
+    lockBusy.current = true;
+    try {
+      if (next) {
+        setLockEnabled(true);
+        return;
+      }
+      // Turning the lock off needs the lock to be passed once (skipped when the device has no screen lock).
+      const result = await authenticateDevice('Turn off the app lock');
+      if (result === 'failed') {
+        setMessage('The app lock stays on.');
+        return;
+      }
+      setLockEnabled(false);
+    } finally {
+      lockBusy.current = false;
     }
-    // Turning the lock off needs the lock to be passed once (skipped when the device has no screen lock).
-    const result = await authenticateDevice('Turn off the app lock');
-    if (result === 'failed') {
-      setMessage('The app lock stays on.');
-      return;
-    }
-    setLockEnabled(false);
   };
 
   const revoke = (session: SessionInfo) => {
@@ -78,11 +96,11 @@ export function SettingsScreen() {
           setBusyId(session.id);
           api.revokeSession(session.id).then(
             () => {
-              setBusyId(null);
+              if (mounted.current) setBusyId(null);
               void client.invalidateQueries({ queryKey: sessionsKey });
             },
             () => {
-              setBusyId(null);
+              if (mounted.current) setBusyId(null);
               setMessage("Couldn't sign out that device. Try again.");
             },
           );
@@ -107,7 +125,7 @@ export function SettingsScreen() {
     } catch {
       setMessage('Signed out, but some local data could not be cleared.');
     } finally {
-      setSigningOut(false);
+      if (mounted.current) setSigningOut(false);
     }
   };
 

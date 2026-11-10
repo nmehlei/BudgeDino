@@ -11,6 +11,7 @@ import { confirmErrorMessage } from '../../src/auth/messages';
 import { pendingRegistration } from '../../src/auth/pending-registration';
 import { TotpField } from '../../src/auth/TotpField';
 import { isCompleteTotp, parseTotpSecret } from '../../src/auth/validation';
+import { useScreenProtection } from '../../src/security/useScreenProtection';
 import { useSession } from '../../src/session/useSession';
 
 /** expo-router's navigation type omits the stack events; `beforeRemove` exists on every navigator. */
@@ -21,6 +22,8 @@ interface BeforeRemoveEmitter {
 const MAX_QR = 240;
 
 export default function RegisterTotpScreen() {
+  // Shows the TOTP secret and QR code: keep it out of screenshots and the recents thumbnail.
+  useScreenProtection('budgedino-totp-setup');
   const router = useRouter();
   const session = useSession();
   const { width } = useWindowDimensions();

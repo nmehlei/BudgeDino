@@ -2,7 +2,9 @@ import * as Notifications from 'expo-notifications';
 import { useEffect } from 'react';
 import { AppState } from 'react-native';
 
+import { getSessionStore } from '../session/instance';
 import {
+  clearNotificationState,
   ensureNotificationChannel,
   pollNotifications,
   registerNotificationTask,
@@ -30,10 +32,14 @@ export function NotificationPoller() {
     void ensureNotificationChannel().catch(() => undefined);
     void registerNotificationTask().catch(() => undefined);
     void pollNotifications();
+    const offSignOut = getSessionStore().onSignOut(() => clearNotificationState());
     const sub = AppState.addEventListener('change', (next) => {
       if (next === 'active') void pollNotifications();
     });
-    return () => sub.remove();
+    return () => {
+      sub.remove();
+      offSignOut();
+    };
   }, []);
 
   useEffect(() => {

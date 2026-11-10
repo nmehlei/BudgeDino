@@ -163,6 +163,88 @@ describe('AppLock', () => {
   });
 });
 
+describe('AppLock resume cover and edge cases', () => {
+  it('covers the content immediately on background, without prompting', async () => {
+    const authenticate = auth('success');
+    await renderLock(makeStore().store, authenticate);
+    await setAppState('background');
+    expect(screen.getByTestId('app-lock-cover')).toBeTruthy();
+    expect(authenticate).toHaveBeenCalledTimes(1);
+    await setAppState('active');
+    expect(screen.queryByTestId('app-lock-cover')).toBeNull();
+    expect(screen.getByText('secret content')).toBeTruthy();
+  });
+
+  it('re-locks when the clock was set back while backgrounded', async () => {
+    const authenticate = auth('success', 'failed');
+    await renderLock(makeStore().store, authenticate);
+    await setAppState('background');
+    jest.setSystemTime(Date.now() - 5 * 60_000);
+    await setAppState('active');
+    await flush();
+    expect(authenticate).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('app-lock')).toBeTruthy();
+  });
+
+  it('backgrounding during a pending prompt neither relocks nor covers; cancel stays locked', async () => {
+    let resolve: (r: DeviceAuthResult) => void = () => undefined;
+    const authenticate = jest.fn().mockReturnValue(new Promise((r) => (resolve = r)));
+    await renderLock(makeStore().store, authenticate);
+    await setAppState('background');
+    await act(() => jest.advanceTimersByTimeAsync(120_000));
+    await setAppState('active');
+    await flush();
+    expect(authenticate).toHaveBeenCalledTimes(1);
+    await act(async () => resolve('failed'));
+    expect(screen.getByTestId('app-lock')).toBeTruthy();
+    expect(screen.queryByText('secret content')).toBeNull();
+  });
+
+  it('shows the no-screen-lock notice when a relock finds no screen lock', async () => {
+    const authenticate = auth('success', 'unavailable');
+    await renderLock(makeStore().store, authenticate);
+    await setAppState('background');
+    await act(() => jest.advanceTimersByTimeAsync(61_000));
+    await setAppState('active');
+    await flush();
+    expect(screen.getByTestId('app-lock-notice')).toBeTruthy();
+  });
+
+  it('the lock screen offers Sign out, which wipes the session', async () => {
+    const { store } = makeStore();
+    const spy = jest.spyOn(store, 'signOut').mockResolvedValue(undefined);
+    await renderLock(store, auth('failed'));
+    await act(async () => {
+      await fireEvent.press(screen.getByTestId('app-lock-signout'));
+    });
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('after sign-out and sign-in a fresh mount starts unlocked; a restored session starts locked', async () => {
+    const { store, signIn } = makeStore();
+    await store.signOut();
+    await signIn();
+    const authenticate = auth('success');
+    const first = await render(
+      <PaperProvider>
+        <AppLock store={store} authenticate={authenticate}>
+          <Text>secret content</Text>
+        </AppLock>
+      </PaperProvider>,
+    );
+    await flush();
+    expect(authenticate).not.toHaveBeenCalled();
+    expect(screen.getByText('secret content')).toBeTruthy();
+    await first.unmount();
+
+    await store.signOut();
+    const restored = auth('failed');
+    await renderLock(store, restored);
+    expect(restored).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('app-lock')).toBeTruthy();
+  });
+});
+
 describe('useScreenProtection', () => {
   it('prevents capture while mounted and allows it again on unmount', async () => {
     jest.mocked(mockScreenCapture.preventScreenCaptureAsync).mockResolvedValue(undefined);

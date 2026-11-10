@@ -120,14 +120,14 @@ of other members only read "Shared by another member". A successful update inval
   logged. The app asks for `POST_NOTIFICATIONS` once (Settings shows an "Allow" row while it is undecided).
 - **App lock** wraps the authenticated tree only. On a cold start (not right after a password sign-in in this
   process) and after more than 60 s in the background it requires biometric authentication with the device
-  credential as fallback (`authenticateAsync`). Failure or cancel keeps the app locked with an "Unlock" button;
+  credential as fallback (`authenticateAsync`). Failure or cancel keeps the app locked with an "Unlock" button and a "Sign out" escape (wipes everything, so a broken biometric can never lock the user out for good). When the app goes to the background an opaque cover appears at once (no prompt) so the recents/resume frame never shows content; a return within 60 s removes it, later (or after the clock was set back) locks;
   children are not mounted before the first unlock and are hidden while re-locked. If the device has neither a
   biometric nor a screen lock enrolled (`getEnrolledLevelAsync` is `NONE`), a one-time notice explains that the
   app lock needs a screen lock and the user is let in. The preference "App lock" (default on) is stored in MMKV
-  prefs; turning it off requires passing the lock once.
+  prefs; turning it off requires passing the lock once (authentication is skipped only when the device has no screen lock).
 - **Screen protection.** Authenticated screens call `preventScreenCaptureAsync`, so screenshots and the recents
   thumbnail are blocked; the login screens are not protected.
 - **Settings.** Lock toggle, notification permission, signed-in devices (`GET /auth/sessions`; "Sign out" on
-  another device calls `DELETE /auth/sessions/:id`), the server URL, and Sign out. Sign out first revokes this
+  another device calls `DELETE /auth/sessions/:id`), the server URL, and Sign out. On sign-out the periodic background task is unregistered and delivered notifications are dismissed (best effort). A signed-out start (hydrate finds no session) wipes the persisted cache and the query client before anything renders, so data left behind by an earlier session is never shown to the next user. Sign out first revokes this
   device's session on the server (best effort; network errors are ignored), then wipes the token, the MMKV cache
   and the query cache through the session store. A 401 sign-out stays local.
