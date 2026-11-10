@@ -10,7 +10,7 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test": "jest",
-    "start": "expo start --dev-client"
+    "start": "APP_VARIANT=development expo start --dev-client"
   },
   "dependencies": {
     "@budgedino/shared": "workspace:*",

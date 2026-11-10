@@ -44,8 +44,11 @@ const MONTHS = [
   'December',
 ];
 
-/** Calendar year, month (0-based) and day of an instant in a time zone. */
-function zonedYmd(epochMs: number, timeZone: string): { y: number; m: number; d: number } {
+/** Calendar year, month (0-based), day and `YYYY-MM-DD` string of an instant in a time zone. */
+export function zonedYmd(
+  epochMs: number,
+  timeZone: string = HOUSEHOLD_TZ_FALLBACK,
+): { y: number; m: number; d: number; iso: string } {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone,
     year: 'numeric',
@@ -53,7 +56,11 @@ function zonedYmd(epochMs: number, timeZone: string): { y: number; m: number; d:
     day: 'numeric',
   }).formatToParts(new Date(epochMs));
   const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
-  return { y: get('year'), m: get('month') - 1, d: get('day') };
+  const y = get('year');
+  const m = get('month') - 1;
+  const d = get('day');
+  const iso = `${String(y).padStart(4, '0')}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  return { y, m, d, iso };
 }
 
 /**

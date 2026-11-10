@@ -1,6 +1,6 @@
 import type { TransactionInfo } from '@budgedino/shared';
 
-import { formatDateHeader, groupByBookingDate, zonedIsoDate } from '../group';
+import { formatDateHeader, groupByBookingDate } from '../group';
 
 const tx = (id: string, bookingDate: string): TransactionInfo => ({
   id,
@@ -23,7 +23,6 @@ describe('formatDateHeader', () => {
   const now = Date.parse('2026-11-09T23:30:00Z');
 
   it('uses the Berlin calendar day for Today and Yesterday', () => {
-    expect(zonedIsoDate(now)).toBe('2026-11-10');
     expect(formatDateHeader('2026-11-10', now)).toBe('Today');
     expect(formatDateHeader('2026-11-09', now)).toBe('Yesterday');
   });

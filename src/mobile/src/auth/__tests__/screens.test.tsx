@@ -27,6 +27,7 @@ const mockSession = {
   setServerUrl: jest.fn(),
   setDeviceName: jest.fn(),
   signIn: jest.fn<Promise<void>, [string]>().mockResolvedValue(undefined),
+  dismissExpiredNotice: jest.fn(),
 };
 const mockApi = {
   health: jest.fn(),
@@ -243,6 +244,7 @@ describe('login', () => {
     mockSession.expired = true;
     await renderScreen(<LoginScreen />);
     expect(screen.getByText('Session expired, please sign in again')).toBeTruthy();
+    expect(mockSession.dismissExpiredNotice).toHaveBeenCalledTimes(1);
   });
 });
 

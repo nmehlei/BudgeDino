@@ -159,6 +159,40 @@ describe('session store', () => {
     expect(store.getSnapshot().expired).toBe(true);
   });
 
+  it('persists the expired notice across restarts until the login screen dismisses it', async () => {
+    const prefs = fakeMmkv();
+    const token: TokenStorage = {
+      get: async () => 't',
+      set: async () => undefined,
+      remove: async () => undefined,
+    };
+    const a = createSessionStore({ prefs: prefs as PrefsStorage, token });
+    await a.signIn('t');
+    await a.expireSession();
+    const b = createSessionStore({ prefs: prefs as PrefsStorage, token });
+    expect(b.getSnapshot().expired).toBe(true);
+    b.dismissExpiredNotice();
+    expect(b.getSnapshot().expired).toBe(false);
+    expect(createSessionStore({ prefs: prefs as PrefsStorage, token }).getSnapshot().expired).toBe(
+      false,
+    );
+  });
+
+  it('a user sign-out never persists the expired notice', async () => {
+    const prefs = fakeMmkv();
+    const token: TokenStorage = {
+      get: async () => 't',
+      set: async () => undefined,
+      remove: async () => undefined,
+    };
+    const a = createSessionStore({ prefs: prefs as PrefsStorage, token });
+    await a.signIn('t');
+    await a.userSignOut();
+    expect(createSessionStore({ prefs: prefs as PrefsStorage, token }).getSnapshot().expired).toBe(
+      false,
+    );
+  });
+
   it('userSignOut raises the flag before the revoke: a 401 between revoke and wipe is not "expired"', async () => {
     const { store, readSecret } = setup();
     await store.signIn('t');

@@ -1,7 +1,19 @@
 import { e2eLockBypass } from '../e2e';
 
+const globals = globalThis as unknown as { __DEV__: boolean };
+const originalDev = globals.__DEV__;
+afterEach(() => {
+  globals.__DEV__ = originalDev;
+});
+
 describe('e2eLockBypass', () => {
-  it('is on only for the development variant built with BUDGEDINO_E2E=1', () => {
+  it('is never on in a release bundle (__DEV__ false), whatever the config says', () => {
+    globals.__DEV__ = false;
+    expect(e2eLockBypass({ allowCleartext: true, e2e: true })).toBe(false);
+  });
+
+  it('is on only for the development variant started with BUDGEDINO_E2E=1', () => {
+    globals.__DEV__ = true;
     expect(e2eLockBypass({ allowCleartext: true, e2e: true })).toBe(true);
   });
 

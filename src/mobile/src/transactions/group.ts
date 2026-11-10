@@ -1,6 +1,6 @@
 import type { TransactionInfo } from '@budgedino/shared';
 
-import { HOUSEHOLD_TZ_FALLBACK } from '../format/time';
+import { HOUSEHOLD_TZ_FALLBACK, zonedYmd } from '../format/time';
 
 export interface TransactionSection {
   /** `YYYY-MM-DD` booking date. */
@@ -11,18 +11,6 @@ export interface TransactionSection {
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-/** `YYYY-MM-DD` of an instant in a time zone. */
-export function zonedIsoDate(epochMs: number, timeZone: string = HOUSEHOLD_TZ_FALLBACK): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date(epochMs));
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
-  return `${get('year')}-${get('month')}-${get('day')}`;
-}
 
 function shiftIsoDate(iso: string, days: number): string {
   const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
@@ -42,7 +30,7 @@ export function formatDateHeader(
   if (!match) return isoDate;
   let today: string;
   try {
-    today = zonedIsoDate(now, timeZone);
+    today = zonedYmd(now, timeZone).iso;
   } catch {
     today = '';
   }

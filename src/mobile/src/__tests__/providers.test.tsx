@@ -5,6 +5,8 @@ import { Text } from 'react-native';
 import { createApiClient } from '../api/client';
 import { openSecureCache, type SecureCacheDeps } from '../cache/secure-cache';
 import { ApiClientError } from '../api/errors';
+import { pendingRegistration } from '../auth/pending-registration';
+import { challengeStore } from '../connections/challenge-store';
 import { clearNotificationState } from '../notifications/poll-task';
 import { AppProviders, shouldRetryQuery } from '../providers';
 import { createSessionStore } from '../session/session-store';
@@ -179,6 +181,21 @@ describe('AppProviders', () => {
       await s.store.signOut();
     });
     expect(clearNotificationState).toHaveBeenCalledTimes(1);
+  });
+
+  it('sign-out clears the in-memory challenge and pending-registration hand-overs', async () => {
+    const s = setup();
+    await renderReady(s);
+    challengeStore.set({
+      view: { id: 'c1' } as never,
+      connectorId: 'k1',
+    });
+    pendingRegistration.set({ pendingId: 'p', totpProvisioningUri: 'otpauth://x' });
+    await act(async () => {
+      await s.store.signOut();
+    });
+    expect(challengeStore.get('c1')).toBeUndefined();
+    expect(pendingRegistration.get()).toBeNull();
   });
 
   it('a signed-out start with an unavailable cache deletes the MMKV store', async () => {

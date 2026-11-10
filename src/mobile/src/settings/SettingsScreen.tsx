@@ -19,6 +19,7 @@ import { formatRelative } from '../format/time';
 import { useNotificationPermission } from '../notifications/useNotificationPermission';
 import { authenticateDevice } from '../security/device-auth';
 import { getSessionStore } from '../session/instance';
+import { revokeCurrentSession } from '../session/revoke-current';
 import { useSession } from '../session/useSession';
 import { useAppTheme } from '../theme';
 
@@ -113,13 +114,8 @@ export function SettingsScreen() {
     if (signingOut) return;
     setSigningOut(true);
     try {
-      await getSessionStore().userSignOut({
-        revoke: async () => {
-          const list = sessions.data ?? (await api.listSessions()).sessions;
-          const current = list.find((x) => x.current);
-          if (current) await api.revokeSession(current.id);
-        },
-      });
+      const store = getSessionStore();
+      await store.userSignOut({ revoke: () => revokeCurrentSession(store, sessions.data) });
     } catch {
       setMessage('Signed out, but some local data could not be cleared.');
     } finally {

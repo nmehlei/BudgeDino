@@ -8,6 +8,8 @@ import { deleteMMKV } from 'react-native-mmkv';
 
 import { isApiClientError } from './api/errors';
 import { CACHE_STORE_ID, openSecureCache, type SecureCache } from './cache/secure-cache';
+import { pendingRegistration } from './auth/pending-registration';
+import { challengeStore } from './connections/challenge-store';
 import { clearNotificationState } from './notifications/poll-task';
 import { getSessionStore } from './session/instance';
 import type { SessionStore } from './session/session-store';
@@ -86,10 +88,16 @@ export function AppProviders({
     });
     // Always mounted, so it also runs for a sign-out from the lock screen before the first unlock.
     const offNotifications = store.onSignOut(() => clearNotificationState());
+    // In-memory hand-over state must not outlive the session (pending TOTP secret, bank challenges).
+    const offHandovers = store.onSignOut(() => {
+      challengeStore.clear();
+      pendingRegistration.clear();
+    });
     return () => {
       cancelled = true;
       offQueries();
       offNotifications();
+      offHandovers();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- open once per mount
   }, []);

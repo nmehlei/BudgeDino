@@ -33,6 +33,7 @@ export interface SessionStoreDeps {
 const SERVER_URL_KEY = 'serverUrl';
 const DEVICE_NAME_KEY = 'deviceName';
 const SIGNED_OUT_KEY = 'signedOut';
+const EXPIRED_NOTICE_KEY = 'expiredNotice';
 const LOCK_DISABLED_KEY = 'lockDisabled';
 const LOCK_NOTICE_SEEN_KEY = 'lockNoticeSeen';
 
@@ -54,7 +55,8 @@ export function createSessionStore({ prefs, token }: SessionStoreDeps) {
     status: 'loading',
     serverUrl: prefs.getString(SERVER_URL_KEY) ?? null,
     deviceName: prefs.getString(DEVICE_NAME_KEY) ?? null,
-    expired: false,
+    // Persisted: a 401 in the headless notification task has no UI to flag, so the next start shows it.
+    expired: prefs.getString(EXPIRED_NOTICE_KEY) === '1',
     lockEnabled: prefs.getString(LOCK_DISABLED_KEY) !== '1',
   };
   /** Set when the user signed in during this process: they just authenticated, so no lock prompt. */
@@ -149,7 +151,14 @@ export function createSessionStore({ prefs, token }: SessionStoreDeps) {
       await token.set(sessionToken);
       prefs.remove(SIGNED_OUT_KEY);
       signedInAt = Date.now();
+      prefs.remove(EXPIRED_NOTICE_KEY);
       update({ status: 'signed_in', expired: false });
+    },
+
+    /** The login screen has shown the "session expired" notice: forget it. */
+    dismissExpiredNotice() {
+      prefs.remove(EXPIRED_NOTICE_KEY);
+      update({ expired: false });
     },
 
     /** Epoch ms of a sign-in in this process, or null when the session was restored from storage. */
@@ -211,6 +220,11 @@ export function createSessionStore({ prefs, token }: SessionStoreDeps) {
     async expireSession(): Promise<void> {
       // A user-initiated sign-out in progress: in-flight 401s are just its own revocation noise.
       if (signingOut > 0) return;
+      try {
+        prefs.set(EXPIRED_NOTICE_KEY, '1');
+      } catch {
+        // the in-memory flag below still covers this process
+      }
       update({ expired: true });
       await store.signOut();
     },

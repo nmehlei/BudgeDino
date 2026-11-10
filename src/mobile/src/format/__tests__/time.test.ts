@@ -1,4 +1,19 @@
-import { formatPeriodLabel } from '../time';
+import { formatPeriodLabel, zonedYmd } from '../time';
+
+describe('zonedYmd', () => {
+  it('uses the Berlin calendar day by default (23:30Z is already the next day)', () => {
+    expect(zonedYmd(Date.parse('2026-11-09T23:30:00Z'))).toEqual({
+      y: 2026,
+      m: 10,
+      d: 10,
+      iso: '2026-11-10',
+    });
+  });
+
+  it('respects an explicit time zone', () => {
+    expect(zonedYmd(Date.parse('2026-11-09T23:30:00Z'), 'UTC').iso).toBe('2026-11-09');
+  });
+});
 
 describe('formatPeriodLabel', () => {
   it('monthly: Berlin midnight on the 1st (23:00Z the day before) is not off by one', () => {

@@ -6,11 +6,6 @@ name: Login with the seeded demo member
 ---
 - launchApp:
     clearState: true
-- runFlow:
-    when:
-      visible: 'Allow'
-    commands:
-      - tapOn: 'Allow'
 - tapOn:
     id: 'server-url'
 - eraseText: 60
@@ -33,4 +28,10 @@ name: Login with the seeded demo member
 - tapOn:
     text: 'Sign in'
     index: 1
+# The notification permission prompt appears after the first sign-in.
+- runFlow:
+    when:
+      visible: 'Allow'
+    commands:
+      - tapOn: 'Allow'
 - assertVisible: 'Groceries'

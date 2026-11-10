@@ -101,5 +101,8 @@ Development only; none of this runs in a production deployment. Step-by-step for
   `src/mobile/maestro/{login,home,connect-demo-bank}.yaml` against the USB-attached **physical** phone
   (the runner refuses when no physical device is attached; emulators are not supported).
 - **App lock in E2E builds.** The Maestro flows relaunch the app, which the app lock would block. The lock is
-  skipped only when the build is the development variant (`extra.allowCleartext`) **and** was prebuilt with
-  `BUDGEDINO_E2E=1` (`extra.e2e`); release builds never honour it. A normal `pnpm mobile:android` restores the lock.
+  skipped only in a `__DEV__` JS bundle of the development variant (`extra.allowCleartext`) that was started with
+  `BUDGEDINO_E2E=1` (`extra.e2e`). Both JS flags come from the Metro (`expo start`) process env, not from prebuild
+  (only the native cleartext flag is fixed at prebuild); release bundles are never `__DEV__` and ignore both. Stop any
+  running Metro on port 8081 before `BUDGEDINO_E2E=1 pnpm mobile:android`; restarting Metro without the variable
+  (`pnpm --filter ./src/mobile start`) restores the lock.

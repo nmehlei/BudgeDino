@@ -21,7 +21,10 @@ jest.mock('react-native-mmkv', () => ({ createMMKV: jest.fn(), deleteMMKV: jest.
 jest.mock('expo-secure-store', () => ({}));
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
 jest.mock('../../api/useApi', () => ({ useApi: () => mockApi }));
-jest.mock('../../session/instance', () => ({ getSessionStore: () => mockStore }));
+jest.mock('../../session/instance', () => ({
+  getSessionStore: () => mockStore,
+  createSessionApiClient: () => mockApi,
+}));
 jest.mock('../../security/device-auth', () => ({
   authenticateDevice: (m: string) => mockAuth(m) as unknown,
 }));

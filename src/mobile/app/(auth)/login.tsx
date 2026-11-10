@@ -1,6 +1,6 @@
 import * as Device from 'expo-device';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button, HelperText, Text, TextInput } from 'react-native-paper';
 
 import { createAuthApi } from '../../src/auth/api';
@@ -18,6 +18,12 @@ export default function LoginScreen() {
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Shown once: remembered locally, the persisted flag is cleared right away.
+  const [showExpired] = useState(session.expired);
+  const dismissExpiredNotice = session.dismissExpiredNotice;
+  useEffect(() => {
+    if (showExpired) dismissExpiredNotice();
+  }, [showExpired, dismissExpiredNotice]);
 
   const ready = email.trim() !== '' && password !== '' && isCompleteTotp(code);
 
@@ -48,7 +54,7 @@ export default function LoginScreen() {
   return (
     <AuthScreen>
       <Text variant="headlineMedium">Sign in</Text>
-      {session.expired ? (
+      {showExpired ? (
         <Text variant="bodyMedium" testID="expired-message">
           {SESSION_EXPIRED_MESSAGE}
         </Text>

@@ -11,29 +11,28 @@
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { networkInterfaces } from 'node:os';
+import { networkInterfaces, type NetworkInterfaceInfo } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { generateTotpCode } from '../src/server/src/auth/totp.js';
+import { parseTotpSecret } from './maestro-env.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const FLOWS = ['login.yaml', 'home.yaml', 'connect-demo-bank.yaml'];
 
-function loadEnvFile(): Record<string, string> {
+/** Reads only BUDGEDINO_DEV_TOTP_SECRET from the env file (other lines hold shell syntax such as `${PORT:-8080}`). */
+function loadTotpSecret(): string | undefined {
   const file = [`${root}.env.dev`, `${root}.env.dev.example`].find((f) => existsSync(f));
-  const values: Record<string, string> = {};
-  if (!file) return values;
-  for (const line of readFileSync(file, 'utf8').split('\n')) {
-    const m = /^\s*([A-Z0-9_]+)=(.*)$/.exec(line);
-    if (m?.[1] && !line.trimStart().startsWith('#')) values[m[1]] = m[2] ?? '';
-  }
-  return values;
+  return file ? parseTotpSecret(readFileSync(file, 'utf8')) : undefined;
 }
 
 function lanIp(): string {
-  for (const addrs of Object.values(networkInterfaces())) {
-    for (const a of addrs ?? []) if (a.family === 'IPv4' && !a.internal) return a.address;
-  }
-  throw new Error('No LAN IPv4 address found; set SERVER_URL');
+  const all = networkInterfaces();
+  const pick = (addrs: NetworkInterfaceInfo[] | undefined) =>
+    addrs?.find((a) => a.family === 'IPv4' && !a.internal)?.address;
+  const ip = pick(all['en0']) ?? Object.values(all).map(pick).find(Boolean);
+  if (!ip) throw new Error('No LAN IPv4 address found; set SERVER_URL');
+  process.stderr.write(`Using LAN IP ${ip} for the server URL (override with SERVER_URL).\n`);
+  return ip;
 }
 
 function physicalDevice(): string {
@@ -61,17 +60,17 @@ function physicalDevice(): string {
   return serials[0] as string;
 }
 
-const env = { ...loadEnvFile(), ...process.env };
-const secret = env['BUDGEDINO_DEV_TOTP_SECRET'];
+const secret = process.env['BUDGEDINO_DEV_TOTP_SECRET'] ?? loadTotpSecret();
 if (!secret) throw new Error('BUDGEDINO_DEV_TOTP_SECRET is not set (see .env.dev.example)');
-if (env['NODE_ENV'] === 'production') throw new Error('Refusing to run with NODE_ENV=production');
+if (process.env['NODE_ENV'] === 'production')
+  throw new Error('Refusing to run with NODE_ENV=production');
 
 process.stderr.write(
-  'Reminder: the flows need a build with the app lock skipped: `BUDGEDINO_E2E=1 pnpm mobile:android`.\n' +
-    'Afterwards a normal `pnpm mobile:android` restores the lock.\n',
+  'Reminder: the flows need a build with the app lock skipped: `BUDGEDINO_E2E=1 pnpm mobile:android` (stop any running Metro on port 8081 first; the flag comes from the Metro env).\n' +
+    'Afterwards restart Metro without it (`pnpm --filter ./src/mobile start`) to restore the lock.\n',
 );
 const device = physicalDevice();
-const serverUrl = process.env['SERVER_URL'] ?? `http://${lanIp()}:${env['PORT'] ?? '8080'}`;
+const serverUrl = process.env['SERVER_URL'] ?? `http://${lanIp()}:${process.env['PORT'] ?? '8080'}`;
 const result = spawnSync(
   'maestro',
   [

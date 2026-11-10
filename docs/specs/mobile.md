@@ -7,8 +7,8 @@ The Expo Android app (development build, never Expo Go) talks to one self-hosted
 - **Server URL.** The user enters the server address; "Check" calls the public `GET /api/v1/health`
   before continuing. The URL is normalised: scheme and host lowercased, trailing slashes and a pasted
   `/api/v1` removed, any other path kept. Only `https://` is accepted; `http://` is accepted only in the
-  development variant (`extra.allowCleartext`, which also enables Android cleartext traffic). Release
-  builds reject it.
+  development variant (`extra.allowCleartext`, read from the Metro env and honoured only when `__DEV__`; the native
+  cleartext flag is fixed at prebuild). Release builds reject it.
 - **Registration.** Invite token, email, display name, password (minimum 12 characters, strength hint)
   and device name (prefilled from the device model) go to `POST /auth/register`. The next screen shows
   the TOTP QR code and the secret for manual entry; a 6-digit code confirms and stores the session token
@@ -126,7 +126,12 @@ of other members only read "Shared by another member". A successful update inval
   app lock needs a screen lock and the user is let in. The preference "App lock" (default on) is stored in MMKV
   prefs; turning it off requires passing the lock once (authentication is skipped only when the device has no screen lock).
 - **Screen protection.** Authenticated screens call `preventScreenCaptureAsync`, so screenshots and the recents
-  thumbnail are blocked; the login screens are not protected.
+  thumbnail are blocked; the login screens are not protected, except the TOTP setup screen (it shows the
+  provisioning secret), which is.
+- **Session-expired notice.** `expireSession` (also from the headless background task) persists an
+  `expiredNotice` flag in the MMKV prefs; the login screen shows "Session expired, please sign in again" once and
+  clears it. A user sign-out never sets it. Sign-out also clears the in-memory challenge and pending-registration
+  hand-overs.
 - **Settings.** Lock toggle, notification permission, signed-in devices (`GET /auth/sessions`; "Sign out" on
   another device calls `DELETE /auth/sessions/:id`), the server URL, and Sign out. On sign-out the periodic background task is unregistered and delivered notifications are dismissed (best effort). A signed-out start (hydrate finds no session) wipes the persisted cache and the query client before anything renders, so data left behind by an earlier session is never shown to the next user. Sign out first revokes this
   device's session on the server (best effort; network errors are ignored), then wipes the token, the MMKV cache
