@@ -5,6 +5,8 @@ import { useAppTheme } from '../theme';
 
 interface Props {
   mode?: 'contained' | 'text';
+  /** Destructive actions use the theme's error colours. */
+  destructive?: boolean;
   onPress: () => void;
   disabled?: boolean;
   loading?: boolean;
@@ -18,6 +20,7 @@ interface Props {
  */
 export function WrappingButton({
   mode = 'contained',
+  destructive = false,
   onPress,
   disabled = false,
   loading = false,
@@ -27,7 +30,9 @@ export function WrappingButton({
   const theme = useAppTheme();
   const contained = mode === 'contained';
   const off = disabled || loading;
-  const fg = contained ? theme.colors.onPrimary : theme.colors.primary;
+  const accent = destructive ? theme.colors.error : theme.colors.primary;
+  const onAccent = destructive ? theme.colors.onError : theme.colors.onPrimary;
+  const fg = contained ? onAccent : accent;
   return (
     <Pressable
       onPress={onPress}
@@ -41,7 +46,7 @@ export function WrappingButton({
           backgroundColor: contained
             ? disabled
               ? theme.colors.surfaceDisabled
-              : theme.colors.primary
+              : accent
             : 'transparent',
         },
       ]}

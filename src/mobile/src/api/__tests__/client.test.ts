@@ -39,6 +39,7 @@ async function errorOf(promise: Promise<unknown>): Promise<ApiError> {
 const account = {
   id: 'a1',
   connectorId: 'c1',
+  disconnected: false,
   ownerMemberId: 'm1',
   name: 'Giro',
   ibanMasked: '****1234',
@@ -245,6 +246,64 @@ describe('api client', () => {
       })) as unknown as typeof fetch,
     });
     expect(await errorOf(client.listAccounts())).toEqual({ kind: 'network' });
+  });
+});
+
+describe('connection management and net worth calls', () => {
+  it('deleteConnector sends DELETE with the mode and expects no body', async () => {
+    const { client, fetchImpl } = setup(() => new Response(null, { status: 204 }));
+    await expect(client.deleteConnector('c 1', 'purge')).resolves.toBeUndefined();
+    const [url, init] = fetchImpl.mock.calls[0] ?? [];
+    expect(String(url)).toBe('https://budget.example.test/api/v1/connectors/c%201?mode=purge');
+    expect(init?.method).toBe('DELETE');
+  });
+
+  it('renameConnector sends PATCH {displayName} and parses the connector', async () => {
+    const info = {
+      id: 'c1',
+      type: 'fints',
+      status: 'ok',
+      isOwner: true,
+      bank: 'dkb',
+      displayName: 'Anna',
+      experimental: false,
+      lastSuccessAt: null,
+      lastErrorCode: null,
+      consentExpiresAt: null,
+    };
+    const { client, fetchImpl } = setup(() => json(info));
+    expect((await client.renameConnector('c1', 'Anna')).displayName).toBe('Anna');
+    const init = (fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1];
+    expect(init.method).toBe('PATCH');
+    expect(JSON.parse(init.body as string)).toEqual({ displayName: 'Anna' });
+  });
+
+  it('bankIconSource returns the icon URL with the auth header, or null without a token', async () => {
+    const { client } = setup(() => json({}));
+    expect(await client.bankIconSource('dkb')).toEqual({
+      uri: 'https://budget.example.test/api/v1/banks/dkb/icon',
+      headers: { authorization: 'Bearer tok-123' },
+    });
+    const signedOut = createApiClient({
+      baseUrl: BASE,
+      getToken: () => null,
+      onUnauthorized: jest.fn(),
+    });
+    expect(await signedOut.bankIconSource('dkb')).toBeNull();
+  });
+
+  it('getNetWorth parses the response', async () => {
+    const body = {
+      baseCurrency: 'EUR',
+      total: { minor: '100', currency: 'EUR' },
+      fxMissing: false,
+      groups: [],
+    };
+    const { client, fetchImpl } = setup(() => json(body));
+    expect(await client.getNetWorth()).toEqual(body);
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
+      'https://budget.example.test/api/v1/net-worth',
+    );
   });
 });
 

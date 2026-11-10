@@ -180,6 +180,26 @@ describe('HomeScreen', () => {
     expect(screen.getByText('never synced')).toBeTruthy();
   });
 
+  it('labels chips with the display name or the bank name, never the raw type', async () => {
+    mockApi.getHome.mockResolvedValue(
+      home({
+        sync: [
+          { ...ownOk, id: 'c-fake', bank: 'fake', type: 'fake' } as ConnectorInfo,
+          { ...ownOk, id: 'c-named', displayName: 'Anna DKB' } as ConnectorInfo,
+          { ...ownOk, id: 'c-dkb' } as ConnectorInfo,
+          { ...otherOk, bank: 'comdirect' } as ConnectorInfo,
+        ],
+      }),
+    );
+    await renderHome();
+    expect(await screen.findByText('Demo bank: OK')).toBeTruthy();
+    expect(screen.getByText('Anna DKB: OK')).toBeTruthy();
+    expect(screen.getByText('DKB: OK')).toBeTruthy();
+    expect(screen.getByText('Comdirect: OK')).toBeTruthy();
+    expect(screen.queryByText(/fake: OK/)).toBeNull();
+    expect(screen.queryByText(/fints: OK/)).toBeNull();
+  });
+
   it('shows uncategorised income when present', async () => {
     mockApi.getHome.mockResolvedValue(home({ uncategorizedIncome: eur('1000') }));
     await renderHome();

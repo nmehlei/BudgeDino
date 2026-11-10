@@ -40,7 +40,8 @@ Bottom tabs: Home, Transactions, Connections, More. The `(app)` layout is also t
   shows a full red bar, the amount in red and "Over budget (N %)". Refunds (negative `spent`) show the
   negative amount and an empty bar. A zero budget never divides: no spending shows an empty bar, any
   positive spending a full red bar.
-- **Sync status.** One chip per connector in `home.sync` (status and last successful sync, relative).
+- **Sync status.** One chip per connector in `home.sync` (status and last successful sync, relative), labelled with the
+  connection's `displayName` (own connections) or the bank name ("Demo bank" for `fake`), never the raw type.
   A needs-attention chip of the user's own connector opens Connections; other members' chips are inert.
 - **Pull-to-refresh.** Calls `POST /connectors/:id/sync` for the user's own connectors with status `ok`
   (`isOwner`), then refetches home. A 429 shows "Already syncing, try again in N s".
@@ -80,10 +81,29 @@ of other members only read "Shared by another member". A successful update inval
 
 ## Connections and bank challenges
 
-- **List.** `GET /connectors`: own connectors show type, status, last sync and consent expiry; "Sync now"
-  (`POST /connectors/:id/sync`, status `ok`) and "Reconnect" (`POST /connectors/:id/reconnect`, status
-  `needs_attention`/`error`). Other members' connectors are read-only. Both actions are user-present: the server
-  never starts a bank dialog on its own. The list shows the type ("Bank (FinTS)"), not the bank, because the API does not expose it.
+- **List.** `GET /connectors`, shown as a Paper `List.Item` list with dividers (own connections first, then "Shared by
+  others"). Left: the bank avatar. Title: the connection's `displayName` (own connections only), else the bank name
+  (`bank` id: DKB, Comdirect, "Demo bank" for `fake`). Description: status and last sync (relative), plus the consent
+  expiry. Right: a status indicator (icon plus colour, with an accessibility label) and, for own connections, a 3-dot
+  `IconButton` that opens a Paper `Menu`. Other members' connections have no menu and read "Shared by another member".
+  Rows grow with the text (no truncation), so they stay usable at font scale 2. Pull-to-refresh is kept.
+- **Avatar fallback chain [call].** (1) The bank icon `GET /banks/:bank/icon`, loaded by an `Image` whose request carries the
+  session token as a header (read fresh from the store when the avatar mounts; the token is never put in the query
+  cache); (2) when that fails or the bank has no icon, a monogram `Avatar.Text` with the bank initials in the bank's brand
+  colours (unknown banks use the theme's primary container); (3) when there is no usable name, an `Avatar.Icon` `bank`.
+  Brand colours are used only for the monogram; everything else uses theme colours.
+- **Menu actions.** "Sync now" for status `ok` and `error` (`POST /connectors/:id/sync`; a user run may restore an errored
+  connector), "Reconnect" for `needs_attention` and `error` (`POST /connectors/:id/reconnect`), always "Rename" and
+  "Delete". `disabled` connections only offer Rename and Delete. Sync and reconnect are user-present: the server never
+  starts a bank dialog on its own.
+- **Add bank.** A Paper extended `FAB` "Add bank" at the bottom right, above the tab bar and the safe-area inset,
+  opens the add screen. There is no other add button.
+- **Rename.** A dialog with a text input (max 60 characters) prefilled with the current name; Save sends
+  `PATCH /connectors/:id {displayName}` (an empty input clears the name). The list is refetched.
+- **Delete.** A dialog with two full-width choices: "Remove connection, keep history" (`DELETE /connectors/:id?mode=keep`,
+  accounts and transactions stay and keep counting) and "Delete connection and all its data" (destructive styling; asks a
+  second confirmation before sending `mode=purge`). Both invalidate `connectors`, `home`, `transactions`, `accounts`
+  and `net-worth`.
 - **Add bank.** DKB or Comdirect (static list matching the server catalog), user id and PIN, and "Keep these
   accounts private" (`accountDefaults.visibility: owner_only`), sent as `POST /connectors {type:'fints', config:{bank,userId,pin}}`.
   "Demo bank" (`type:'fake'`) appears only if `GET /connectors/types` lists `fake`. The PIN field is secure text

@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { Icon, Text } from 'react-native-paper';
 
 import { formatRelative } from '../format/time';
+import { connectorTitle } from '../connections/banks';
 import { useAppTheme } from '../theme';
 
 const STATUS_LABEL: Record<ConnectorInfo['status'], string> = {
@@ -37,7 +38,7 @@ export function SyncStatusBar({ connectors, onNeedsAttention, now }: Props) {
               disabled={!actionable}
               onPress={onNeedsAttention}
               accessibilityRole={actionable ? 'button' : 'text'}
-              accessibilityLabel={`${c.type}: ${STATUS_LABEL[c.status]}, ${last}`}
+              accessibilityLabel={`${connectorTitle(c)}: ${STATUS_LABEL[c.status]}, ${last}`}
               style={[
                 styles.chip,
                 {
@@ -60,7 +61,7 @@ export function SyncStatusBar({ connectors, onNeedsAttention, now }: Props) {
               />
               {/* No numberOfLines: at large font scales the label wraps instead of truncating. */}
               <Text variant="labelLarge" style={[styles.chipText, { color: fg }]}>
-                {`${c.type}: ${STATUS_LABEL[c.status]}`}
+                {`${connectorTitle(c)}: ${STATUS_LABEL[c.status]}`}
               </Text>
             </Pressable>
             <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>

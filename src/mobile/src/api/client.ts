@@ -16,7 +16,9 @@ import {
   healthResponse,
   homeResponse,
   listTransactionsResponse,
+  netWorthResponse,
   notificationsResponse,
+  ownConnectorInfo,
   patchTransactionResponse,
   reconnectResponse,
   registerResponse,
@@ -28,6 +30,7 @@ import {
   type CreateBudgetRequest,
   type CreateConnectorRequest,
   type CreateInviteRequest,
+  type DeleteConnectorQuery,
   type ListTransactionsQuery,
   type LoginRequest,
   type PatchBudgetRequest,
@@ -239,6 +242,36 @@ export function createApiClient(options: ApiClientOptions) {
         path: idPath('/connectors', id, '/sync'),
         schema: syncStartedResponse,
       }),
+    /** Renames an own connection; `null` clears the name. */
+    renameConnector: (id: string, displayName: string | null) =>
+      request({
+        method: 'PATCH',
+        path: idPath('/connectors', id),
+        body: { displayName },
+        schema: ownConnectorInfo,
+      }),
+    /** Removes an own connection: `keep` leaves its accounts and history, `purge` deletes them too. */
+    deleteConnector: (id: string, mode: DeleteConnectorQuery['mode']) =>
+      request({ method: 'DELETE', path: idPath('/connectors', id), query: { mode } }).then(
+        () => undefined,
+      ),
+    /**
+     * Where to load a bank logo from, with the auth header, for an `Image` source. The token is read fresh and
+     * only lives in the returned object; null when signed out.
+     */
+    bankIconSource: async (bank: string) => {
+      let token: string | null;
+      try {
+        token = await options.getToken();
+      } catch {
+        return null;
+      }
+      if (!token) return null;
+      return {
+        uri: `${base}${idPath('/banks', bank, '/icon')}`,
+        headers: { authorization: `Bearer ${token}` },
+      };
+    },
     reconnectConnector: (id: string) =>
       request({
         method: 'POST',
@@ -298,6 +331,9 @@ export function createApiClient(options: ApiClientOptions) {
     // home
     getHome: (period = 'current') =>
       request({ method: 'GET', path: '/home', query: { period }, schema: homeResponse }),
+
+    // net worth
+    getNetWorth: () => request({ method: 'GET', path: '/net-worth', schema: netWorthResponse }),
 
     // notifications
     listNotifications: (query: { since?: string; limit?: number } = {}) =>
