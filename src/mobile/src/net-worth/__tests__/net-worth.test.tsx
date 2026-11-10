@@ -1,4 +1,4 @@
-import type { NetWorthResponse } from '@budgedino/shared';
+import type { NetWorthAccount, NetWorthResponse } from '@budgedino/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { Appearance, StyleSheet } from 'react-native';
@@ -23,7 +23,7 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 const eur = (minor: string) => ({ minor, currency: 'EUR' });
-const acc = (over: Record<string, unknown>) => ({
+const acc = (over: Partial<NetWorthAccount>): NetWorthAccount => ({
   id: 'a1',
   name: 'Girokonto',
   kind: 'checking',
