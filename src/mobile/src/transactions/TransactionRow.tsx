@@ -16,7 +16,8 @@ interface Props {
 export function useAmountColor(amountMinor: string): string {
   const theme = useAppTheme();
   const success = useSuccessColor();
-  return amountMinor.startsWith('-') ? theme.colors.onSurface : success;
+  // Only strictly positive amounts are green; zero and negative stay neutral.
+  return /^[1-9]/.test(amountMinor) ? success : theme.colors.onSurface;
 }
 
 export function TransactionRow({ transaction: tx, categoryName, onPress }: Props) {

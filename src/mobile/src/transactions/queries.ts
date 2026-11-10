@@ -61,7 +61,15 @@ export function useAccounts() {
 }
 
 export function flattenPages(data: TransactionPages | undefined): TransactionInfo[] {
-  return data?.pages.flatMap((p) => p.transactions) ?? [];
+  const seen = new Set<string>();
+  const out: TransactionInfo[] = [];
+  for (const t of data?.pages.flatMap((p) => p.transactions) ?? []) {
+    if (!seen.has(t.id)) {
+      seen.add(t.id);
+      out.push(t);
+    }
+  }
+  return out;
 }
 
 /** Returns a copy of the pages with one transaction's category replaced (manual, as the server will). */
@@ -140,6 +148,8 @@ export function useRecategorize() {
   const api = useApi();
   const client = useQueryClient();
   return useMutation({
+    // Serial: a later optimistic update must not be overwritten by an earlier rollback.
+    scope: { id: 'recategorize' },
     mutationFn: (vars: RecategorizeVars) =>
       api.patchTransaction(vars.id, {
         categoryId: vars.categoryId,
@@ -151,8 +161,9 @@ export function useRecategorize() {
     },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['home'] });
-      void client.invalidateQueries({ queryKey: txKeys.all });
     },
+    // After any outcome the cache is refetched, so it ends up matching the server.
+    onSettled: () => client.invalidateQueries({ queryKey: txKeys.all }),
   });
 }
 

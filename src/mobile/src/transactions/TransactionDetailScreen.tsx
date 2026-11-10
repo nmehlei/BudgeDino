@@ -1,6 +1,14 @@
 import { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { ActivityIndicator, Divider, List, Snackbar, Switch, Text } from 'react-native-paper';
+import {
+  ActivityIndicator,
+  Button,
+  Divider,
+  List,
+  Snackbar,
+  Switch,
+  Text,
+} from 'react-native-paper';
 
 import { formatMoney } from '../format/money';
 import { formatDateHeader } from './group';
@@ -68,7 +76,10 @@ export function TransactionDetailScreen({ id }: { id: string }) {
     if (categoryId === tx.categoryId && !applyToCounterparty) return;
     recategorize.mutate(
       { id: tx.id, categoryId, applyToCounterparty: applyToCounterparty && counterparty !== null },
-      { onError: (error) => setToast(describeWriteError(error)) },
+      {
+        onError: (error) => setToast(describeWriteError(error)),
+        onSuccess: () => setApplyToCounterparty(false),
+      },
     );
   };
 
@@ -122,6 +133,13 @@ export function TransactionDetailScreen({ id }: { id: string }) {
             </Text>
             {categories.isPending ? (
               <ActivityIndicator animating accessibilityLabel="Loading categories" />
+            ) : categories.isError ? (
+              <View style={styles.retry} testID="categories-error">
+                <Text variant="bodyMedium">The categories couldn&apos;t be loaded.</Text>
+                <Button mode="outlined" onPress={() => void categories.refetch()}>
+                  Retry
+                </Button>
+              </View>
             ) : choices.length === 0 ? (
               <Text variant="bodyMedium">No categories available.</Text>
             ) : (
@@ -133,7 +151,6 @@ export function TransactionDetailScreen({ id }: { id: string }) {
                   description={c.group ?? undefined}
                   descriptionNumberOfLines={0}
                   onPress={() => pick(c.id)}
-                  disabled={recategorize.isPending}
                   testID={`category-${c.id}`}
                   accessibilityState={{ selected: c.id === tx.categoryId }}
                   right={(p) => (c.id === tx.categoryId ? <List.Icon {...p} icon="check" /> : null)}
@@ -159,5 +176,6 @@ const styles = StyleSheet.create({
   toggle: { paddingVertical: 8 },
   toggleInner: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   toggleLabel: { flex: 1 },
+  retry: { gap: 8, alignItems: 'flex-start' },
   pickerTitle: { marginTop: 8 },
 });

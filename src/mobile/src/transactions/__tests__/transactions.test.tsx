@@ -1,7 +1,10 @@
 import type { AccountInfo, CategoryInfo, TransactionInfo } from '@budgedino/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { PixelRatio, StyleSheet } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
+
+import { lightTheme } from '../../theme';
 
 import { ApiClientError } from '../../api/errors';
 import { AccountsScreen } from '../AccountsScreen';
@@ -228,6 +231,87 @@ describe('TransactionDetailScreen', () => {
     await renderWithProviders(<TransactionDetailScreen id="t1" />);
     await screen.findByText('Girokonto');
     expect(screen.queryByTestId('apply-to-counterparty')).toBeNull();
+  });
+});
+
+describe('recategorize ordering and detail polish', () => {
+  it('serialises two changes: a failing first one does not roll back the second', async () => {
+    let rejectFirst: (e: unknown) => void = () => undefined;
+    mockApi.patchTransaction
+      .mockReturnValueOnce(new Promise((_r, rej) => (rejectFirst = rej)))
+      .mockResolvedValueOnce({ transaction: tx({ categoryId: FOOD }), recategorized: 0 });
+    // After the settle the server is the truth: the second change (back to FOOD) was stored.
+    mockApi.listTransactions.mockResolvedValue({ transactions: [tx()], nextCursor: null });
+    await renderWithProviders(<TransactionDetailScreen id="t1" />);
+    await screen.findByText('Girokonto');
+    const selected = (id: string) =>
+      screen.getByTestId(`category-${id}`).props.accessibilityState?.selected as boolean;
+
+    await fireEvent.press(screen.getByTestId(`category-${FUN}`));
+    await waitFor(() => expect(selected(FUN)).toBe(true));
+    await fireEvent.press(screen.getByTestId(`category-${FOOD}`));
+    // The second request waits for the first.
+    expect(mockApi.patchTransaction).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      rejectFirst(new ApiClientError({ kind: 'network' }));
+    });
+    await waitFor(() => expect(mockApi.patchTransaction).toHaveBeenCalledTimes(2));
+    expect(mockApi.patchTransaction.mock.calls[1]?.[1]).toEqual({ categoryId: FOOD });
+    await waitFor(() => expect(selected(FOOD)).toBe(true));
+    expect(selected(FUN)).toBe(false);
+  });
+
+  it('shows a retry message instead of an empty list when categories fail to load', async () => {
+    mockApi.listCategories.mockRejectedValue(new ApiClientError({ kind: 'server', status: 500 }));
+    mockApi.listTransactions.mockResolvedValue({ transactions: [tx()], nextCursor: null });
+    await renderWithProviders(<TransactionDetailScreen id="t1" />);
+    expect(await screen.findByTestId('categories-error')).toBeTruthy();
+    expect(screen.queryByText('No categories available.')).toBeNull();
+  });
+
+  it('resets the counterparty switch after a successful pick', async () => {
+    mockApi.patchTransaction.mockResolvedValue({
+      transaction: tx({ categoryId: FUN }),
+      recategorized: 1,
+    });
+    mockApi.listTransactions.mockResolvedValue({ transactions: [tx()], nextCursor: null });
+    await renderWithProviders(<TransactionDetailScreen id="t1" />);
+    await screen.findByText('Girokonto');
+    await fireEvent(screen.getByTestId('apply-to-counterparty'), 'valueChange', true);
+    await fireEvent.press(screen.getByTestId(`category-${FUN}`));
+    await waitFor(() =>
+      expect(screen.getByTestId('apply-to-counterparty').props.value).toBe(false),
+    );
+  });
+
+  it('keeps long text untruncated at font scale 2', async () => {
+    const fontScale = jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(2);
+    const longName = 'Very Long Counterparty Name GmbH & Co. KG '.repeat(4).trim();
+    const longPurpose = 'Verwendungszweck mit sehr langem Text '.repeat(6).trim();
+    mockApi.listTransactions.mockResolvedValue({
+      transactions: [tx({ counterparty: longName, purpose: longPurpose })],
+      nextCursor: null,
+    });
+    await renderWithProviders(<TransactionDetailScreen id="t1" />);
+    const name = (await screen.findAllByText(longName))[0];
+    const purpose = screen.getByText(longPurpose);
+    expect(name?.props.numberOfLines).toBeUndefined();
+    expect(purpose.props.numberOfLines).toBeUndefined();
+    fontScale.mockRestore();
+  });
+
+  it('keeps a zero amount neutral and a positive one green', async () => {
+    mockApi.listTransactions.mockResolvedValue({
+      transactions: [tx({ amountMinor: '0' })],
+      nextCursor: null,
+    });
+    await renderWithProviders(<TransactionDetailScreen id="t1" />);
+    await screen.findByText('Girokonto');
+    const zero = StyleSheet.flatten(screen.getByTestId('detail-amount').props.style) as {
+      color: string;
+    };
+    expect(zero.color).toBe(lightTheme.colors.onSurface);
   });
 });
 
