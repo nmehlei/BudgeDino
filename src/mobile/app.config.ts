@@ -15,6 +15,7 @@ const config: ExpoConfig = {
   plugins: [
     'expo-router',
     'expo-dev-client',
+    'expo-secure-store',
     // Cleartext HTTP (LAN dev server) only in development builds; release builds require HTTPS.
     ['expo-build-properties', { android: { usesCleartextTraffic: isDevelopment } }],
   ],
