@@ -7,6 +7,8 @@ export interface SessionSnapshot {
   deviceName: string | null;
   /** True after a 401 wiped the session; the login screen explains why. Cleared by the next sign-in. */
   expired: boolean;
+  /** App lock preference (non-secret, MMKV). Default on. */
+  lockEnabled: boolean;
 }
 
 /** Non-secret settings (MMKV `budgedino-prefs` in the app). */
@@ -31,6 +33,8 @@ export interface SessionStoreDeps {
 const SERVER_URL_KEY = 'serverUrl';
 const DEVICE_NAME_KEY = 'deviceName';
 const SIGNED_OUT_KEY = 'signedOut';
+const LOCK_DISABLED_KEY = 'lockDisabled';
+const LOCK_NOTICE_SEEN_KEY = 'lockNoticeSeen';
 
 /**
  * Canonical server URL: scheme and host lowercased (the path keeps its case), trailing slashes and a
@@ -51,7 +55,10 @@ export function createSessionStore({ prefs, token }: SessionStoreDeps) {
     serverUrl: prefs.getString(SERVER_URL_KEY) ?? null,
     deviceName: prefs.getString(DEVICE_NAME_KEY) ?? null,
     expired: false,
+    lockEnabled: prefs.getString(LOCK_DISABLED_KEY) !== '1',
   };
+  /** Set when the user signed in during this process: they just authenticated, so no lock prompt. */
+  let signedInAt: number | null = null;
   const listeners = new Set<() => void>();
   const wipeHooks = new Set<() => void | Promise<void>>();
 
@@ -109,7 +116,23 @@ export function createSessionStore({ prefs, token }: SessionStoreDeps) {
     async signIn(sessionToken: string) {
       await token.set(sessionToken);
       prefs.remove(SIGNED_OUT_KEY);
+      signedInAt = Date.now();
       update({ status: 'signed_in', expired: false });
+    },
+
+    /** Epoch ms of a sign-in in this process, or null when the session was restored from storage. */
+    getSignedInAt: () => signedInAt,
+
+    setLockEnabled(enabled: boolean) {
+      if (enabled) prefs.remove(LOCK_DISABLED_KEY);
+      else prefs.set(LOCK_DISABLED_KEY, '1');
+      update({ lockEnabled: enabled });
+    },
+
+    /** The one-time "app lock needs a screen lock on this device" notice. */
+    hasSeenLockNotice: () => prefs.getString(LOCK_NOTICE_SEEN_KEY) === '1',
+    markLockNoticeSeen() {
+      prefs.set(LOCK_NOTICE_SEEN_KEY, '1');
     },
 
     /** Registers extra wipes for sign-out (the query client, the persisted cache). */
@@ -150,6 +173,7 @@ export function createSessionStore({ prefs, token }: SessionStoreDeps) {
           failures.push(e);
         }
       }
+      signedInAt = null;
       update({ status: 'signed_out' });
       if (failures.length > 0) throw failures[0];
     },

@@ -63,6 +63,7 @@ describe('session store', () => {
       serverUrl: 'https://budget.example.test',
       deviceName: 'Pixel',
       expired: false,
+      lockEnabled: true,
     });
   });
 
@@ -118,6 +119,38 @@ describe('session store', () => {
     expect(store.getSnapshot().status).toBe('signed_out');
   });
 
+  it('persists the lock preference (default on) in prefs and reads it back', () => {
+    const { store, prefs } = setup();
+    expect(store.getSnapshot().lockEnabled).toBe(true);
+    store.setLockEnabled(false);
+    expect(store.getSnapshot().lockEnabled).toBe(false);
+    expect(prefs.data.get('lockDisabled')).toBe('1');
+    const again = createSessionStore({
+      prefs: prefs as PrefsStorage,
+      token: { get: async () => null, set: async () => undefined, remove: async () => undefined },
+    });
+    expect(again.getSnapshot().lockEnabled).toBe(false);
+    store.setLockEnabled(true);
+    expect(prefs.data.has('lockDisabled')).toBe(false);
+  });
+
+  it('knows about a sign-in in this process only (a restored session prompts the lock)', async () => {
+    const { store } = setup();
+    expect(store.getSignedInAt()).toBeNull();
+    await store.signIn('t');
+    expect(store.getSignedInAt()).not.toBeNull();
+    await store.signOut();
+    expect(store.getSignedInAt()).toBeNull();
+  });
+
+  it('keeps the lock preference across signOut', async () => {
+    const { store } = setup();
+    store.setLockEnabled(false);
+    await store.signIn('t');
+    await store.signOut();
+    expect(store.getSnapshot().lockEnabled).toBe(false);
+  });
+
   it('keeps server URL and device name across signOut', async () => {
     const { store } = setup();
     store.setServerUrl('https://x.test');
@@ -129,6 +162,7 @@ describe('session store', () => {
       serverUrl: 'https://x.test',
       deviceName: 'Pixel',
       expired: false,
+      lockEnabled: true,
     });
   });
 

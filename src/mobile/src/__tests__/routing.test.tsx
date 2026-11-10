@@ -1,6 +1,7 @@
 import { act, render, screen } from '@testing-library/react-native';
 
 import Index from '../../app/(app)/_layout';
+import { useScreenProtection } from '../security/useScreenProtection';
 import { SignOutRedirect } from '../session/SignOutRedirect';
 import { createSessionStore, type PrefsStorage } from '../session/session-store';
 
@@ -13,6 +14,11 @@ jest.mock('expo-secure-store', () => ({
   setItemAsync: jest.fn(),
   WHEN_UNLOCKED_THIS_DEVICE_ONLY: 6,
 }));
+jest.mock('../security/AppLock', () => ({
+  AppLock: ({ children }: { children: React.ReactNode }) => children,
+}));
+jest.mock('../security/useScreenProtection', () => ({ useScreenProtection: jest.fn() }));
+jest.mock('../notifications/NotificationPoller', () => ({ NotificationPoller: () => null }));
 jest.mock('expo-router', () => {
   const { Text } = jest.requireActual<typeof import('react-native')>('react-native');
   return {
@@ -57,6 +63,13 @@ describe('root redirect', () => {
     mockSession = { status: 'signed_in', serverUrl: 'https://budget.example.com' };
     await render(<Index />);
     expect(screen.getByText('tabs')).toBeTruthy();
+    expect(useScreenProtection).toHaveBeenCalled();
+  });
+
+  it('applies no screen protection or lock to the signed-out screens', async () => {
+    mockSession = { status: 'signed_out', serverUrl: 'https://budget.example.com' };
+    await render(<Index />);
+    expect(useScreenProtection).not.toHaveBeenCalled();
   });
 });
 

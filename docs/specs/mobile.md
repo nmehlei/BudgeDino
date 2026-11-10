@@ -106,3 +106,28 @@ of other members only read "Shared by another member". A successful update inval
   reconnects. Cancel calls `DELETE /challenges/:id`.
 - **Accessibility.** The screen scrolls and buttons wrap (Paper's Button truncates labels to one line, so the
   challenge screen uses its own wrapping button), so it stays usable at font scale 2.
+
+## Notifications, app lock and screen protection
+
+- **Notifications are local only** (no FCM, no Expo push). One function, `pollNotifications`, serves both the
+  background task `budgedino-notifications` (expo-background-task, minimum interval 15 min) and the foreground
+  poll (on entering the signed-in app and on every return to the foreground). It fetches `GET /notifications`,
+  shows one local notification per item (title "BudgeDino", body = the server's body, Android channel "Budget &
+  connections", lock-screen visibility private; the server id is the notification identifier, so a re-delivery
+  replaces rather than duplicates), then `POST /notifications/ack` with exactly the ids that were shown. An
+  in-flight guard makes a second call join the running poll, so nothing is shown or acked twice. Signed out
+  (no server URL or token) it does nothing; a 401 signs the user out like everywhere else. Bodies are never
+  logged. The app asks for `POST_NOTIFICATIONS` once (Settings shows an "Allow" row while it is undecided).
+- **App lock** wraps the authenticated tree only. On a cold start (not right after a password sign-in in this
+  process) and after more than 60 s in the background it requires biometric authentication with the device
+  credential as fallback (`authenticateAsync`). Failure or cancel keeps the app locked with an "Unlock" button;
+  children are not mounted before the first unlock and are hidden while re-locked. If the device has neither a
+  biometric nor a screen lock enrolled (`getEnrolledLevelAsync` is `NONE`), a one-time notice explains that the
+  app lock needs a screen lock and the user is let in. The preference "App lock" (default on) is stored in MMKV
+  prefs; turning it off requires passing the lock once.
+- **Screen protection.** Authenticated screens call `preventScreenCaptureAsync`, so screenshots and the recents
+  thumbnail are blocked; the login screens are not protected.
+- **Settings.** Lock toggle, notification permission, signed-in devices (`GET /auth/sessions`; "Sign out" on
+  another device calls `DELETE /auth/sessions/:id`), the server URL, and Sign out. Sign out first revokes this
+  device's session on the server (best effort; network errors are ignored), then wipes the token, the MMKV cache
+  and the query cache through the session store. A 401 sign-out stays local.

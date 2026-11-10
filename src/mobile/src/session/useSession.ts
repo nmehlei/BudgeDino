@@ -7,6 +7,7 @@ export interface UseSession extends SessionSnapshot {
   hydrate: SessionStore['hydrate'];
   setServerUrl: SessionStore['setServerUrl'];
   setDeviceName: SessionStore['setDeviceName'];
+  setLockEnabled: SessionStore['setLockEnabled'];
   signIn: SessionStore['signIn'];
   signOut: SessionStore['signOut'];
   expireSession: SessionStore['expireSession'];
@@ -20,6 +21,7 @@ export function useSession(store: SessionStore = getSessionStore()): UseSession 
     hydrate: store.hydrate,
     setServerUrl: store.setServerUrl,
     setDeviceName: store.setDeviceName,
+    setLockEnabled: store.setLockEnabled,
     signIn: store.signIn,
     signOut: store.signOut,
     expireSession: store.expireSession,

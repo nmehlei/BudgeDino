@@ -3,6 +3,9 @@ import { Redirect, Tabs } from 'expo-router';
 import { View, type ColorValue } from 'react-native';
 import { ActivityIndicator } from 'react-native-paper';
 
+import { NotificationPoller } from '../../src/notifications/NotificationPoller';
+import { AppLock } from '../../src/security/AppLock';
+import { useScreenProtection } from '../../src/security/useScreenProtection';
 import { useSession } from '../../src/session/useSession';
 import { useAppTheme } from '../../src/theme';
 
@@ -12,6 +15,18 @@ function tabIcon(name: IconName) {
   return function TabIcon({ color, size }: { color: ColorValue; size: number }) {
     return <MaterialCommunityIcons name={name} color={String(color)} size={size} />;
   };
+}
+
+/** Everything that exists only for a signed-in user: screen protection, app lock, notification polling. */
+function AuthenticatedShell() {
+  const theme = useAppTheme();
+  useScreenProtection();
+  return (
+    <AppLock>
+      <NotificationPoller />
+      <AppTabs theme={theme} />
+    </AppLock>
+  );
 }
 
 /**
@@ -33,6 +48,10 @@ export default function AppLayout() {
     );
   }
 
+  return <AuthenticatedShell />;
+}
+
+function AppTabs({ theme }: { theme: ReturnType<typeof useAppTheme> }) {
   return (
     <Tabs
       screenOptions={{

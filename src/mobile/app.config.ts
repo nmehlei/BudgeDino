@@ -11,11 +11,15 @@ const config: ExpoConfig = {
   userInterfaceStyle: 'automatic',
   android: {
     package: 'app.budgedino',
+    permissions: ['POST_NOTIFICATIONS', 'USE_BIOMETRIC'],
   },
   plugins: [
     'expo-router',
     'expo-dev-client',
     'expo-secure-store',
+    'expo-background-task',
+    'expo-notifications',
+    ['expo-local-authentication', { faceIDPermission: false }],
     // Cleartext HTTP (LAN dev server) only in development builds; release builds require HTTPS.
     ['expo-build-properties', { android: { usesCleartextTraffic: isDevelopment } }],
   ],
