@@ -127,6 +127,19 @@ of other members only read "Shared by another member". A successful update inval
 - **Accessibility.** The screen scrolls and buttons wrap (Paper's Button truncates labels to one line, so the
   challenge screen uses its own wrapping button), so it stays usable at font scale 2.
 
+## Net worth
+
+More has a "Net worth" entry (`chart-line`) that opens `more/net-worth`. `GET /net-worth` ([net-worth.md](net-worth.md)).
+
+- **Layout.** A large total in the base currency, then the accounts grouped by kind (Checking, Savings, Credit cards,
+  Depots, Other) with the group total. Each account shows its name and balance; when its currency differs from the base
+  currency the converted value is shown too. An account without a balance reads "No balance yet"; one whose connection was
+  removed reads "Disconnected". A "some foreign amounts couldn't be converted" note appears when `fxMissing`.
+- **States.** Pull-to-refresh refetches. Offline, the cached data stays under an "Offline - showing data from <time>" banner
+  with Retry (other failures say "Couldn't refresh"); without a cache an offline empty state with Retry. No accounts: the
+  empty state "Connect a bank to see your net worth". A small "History graph coming soon" hint marks P5.
+- **Accessibility.** Text wraps and the screen scrolls, so it stays usable at font scale 2.
+
 ## Notifications, app lock and screen protection
 
 - **Notifications are local only** (no FCM, no Expo push). One function, `pollNotifications`, serves both the
