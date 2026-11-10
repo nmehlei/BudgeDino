@@ -220,6 +220,9 @@ export function createSessionStore({ prefs, token }: SessionStoreDeps) {
     async expireSession(): Promise<void> {
       // A user-initiated sign-out in progress: in-flight 401s are just its own revocation noise.
       if (signingOut > 0) return;
+      // Already signed out (e.g. a late 401 from a request sent before a finished user sign-out): no stale notice.
+      // 'loading' still counts as a session (the headless task may never hydrate), so only signed_out is skipped.
+      if (snapshot.status === 'signed_out') return;
       try {
         prefs.set(EXPIRED_NOTICE_KEY, '1');
       } catch {

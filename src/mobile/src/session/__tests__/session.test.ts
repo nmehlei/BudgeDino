@@ -159,6 +159,23 @@ describe('session store', () => {
     expect(store.getSnapshot().expired).toBe(true);
   });
 
+  it('a late 401 after a finished sign-out leaves no expired notice', async () => {
+    const prefs = fakeMmkv();
+    const token: TokenStorage = {
+      get: async () => 't',
+      set: async () => undefined,
+      remove: async () => undefined,
+    };
+    const store = createSessionStore({ prefs: prefs as PrefsStorage, token });
+    await store.signIn('t');
+    await store.signOut();
+    await store.expireSession(); // response to a request sent before the sign-out
+    expect(store.getSnapshot().expired).toBe(false);
+    expect(createSessionStore({ prefs: prefs as PrefsStorage, token }).getSnapshot().expired).toBe(
+      false,
+    );
+  });
+
   it('persists the expired notice across restarts until the login screen dismisses it', async () => {
     const prefs = fakeMmkv();
     const token: TokenStorage = {
