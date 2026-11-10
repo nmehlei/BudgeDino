@@ -210,4 +210,28 @@ describe('session store', () => {
     await createSessionStore({ prefs: prefs as PrefsStorage, token }).hydrate();
     expect(secret).toBe('new');
   });
+
+  it('getToken returns null while the signed-out marker is set (N1)', async () => {
+    const { store, prefs } = setup();
+    await store.signIn('tok');
+    expect(await store.getToken()).toBe('tok');
+    prefs.data.set('signedOut', '1'); // e.g. a sign-out whose token removal failed
+    expect(await store.getToken()).toBeNull();
+  });
+
+  it('still wipes token and hooks when the marker write fails (N2)', async () => {
+    const { store, prefs, readSecret } = setup();
+    await store.signIn('tok');
+    const hook = jest.fn();
+    store.onSignOut(hook);
+    const realSet = prefs.set;
+    prefs.set = (k, v) => {
+      if (k === 'signedOut') throw new Error('mmkv write failed');
+      realSet(k, v);
+    };
+    await expect(store.signOut()).rejects.toThrow('mmkv write failed');
+    expect(readSecret()).toBeNull();
+    expect(hook).toHaveBeenCalled();
+    expect(store.getSnapshot().status).toBe('signed_out');
+  });
 });

@@ -70,7 +70,8 @@ export async function openSecureCache(deps: SecureCacheDeps = defaultSecureCache
   try {
     key = await deps.readKey();
   } catch {
-    // Keystore entry invalidated: treat the key as lost.
+    // Keystore entry invalidated: treat the key as lost. A merely transient read failure takes
+    // the same path and so deliberately wipes the cache (fail closed): it is only a cache.
     key = null;
   }
   if (!key) {

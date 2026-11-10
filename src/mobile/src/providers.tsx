@@ -4,7 +4,10 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, PaperProvider } from 'react-native-paper';
 import { View } from 'react-native';
 
-import { openSecureCache, type SecureCache } from './cache/secure-cache';
+import { deleteMMKV } from 'react-native-mmkv';
+
+import { isApiClientError } from './api/errors';
+import { CACHE_STORE_ID, openSecureCache, type SecureCache } from './cache/secure-cache';
 import { getSessionStore } from './session/instance';
 import type { SessionStore } from './session/session-store';
 import { useAppTheme } from './theme';
@@ -15,6 +18,18 @@ interface AppProvidersProps {
   queryClient?: QueryClient;
   sessionStore?: SessionStore;
   openCache?: () => Promise<SecureCache>;
+}
+
+/** Re-trying a 401 or 429 cannot help (the session is gone / the server asked us to back off). */
+export function shouldRetryQuery(failureCount: number, error: unknown): boolean {
+  if (isApiClientError(error)) {
+    if (error.error.kind === 'unauthorized' || error.error.kind === 'rate_limited') return false;
+  }
+  return failureCount < 3;
+}
+
+export function createQueryClient(): QueryClient {
+  return new QueryClient({ defaultOptions: { queries: { retry: shouldRetryQuery } } });
 }
 
 /**
@@ -29,7 +44,7 @@ export function AppProviders({
   openCache = openSecureCache,
 }: AppProvidersProps) {
   const theme = useAppTheme();
-  const [queryClient] = useState(() => injectedClient ?? new QueryClient());
+  const [queryClient] = useState(() => injectedClient ?? createQueryClient());
   const [store] = useState(() => sessionStore ?? getSessionStore());
   const [cache, setCache] = useState<SecureCache | 'unavailable' | null>(null);
 
@@ -56,7 +71,17 @@ export function AppProviders({
   }, []);
 
   useEffect(() => {
-    if (cache === null || cache === 'unavailable') return;
+    if (cache === 'unavailable') {
+      // No handle on the store, but a half-opened one may exist on disk: delete it on sign-out.
+      return store.onSignOut(() => {
+        try {
+          deleteMMKV(CACHE_STORE_ID);
+        } catch {
+          // best effort
+        }
+      });
+    }
+    if (cache === null) return;
     return store.onSignOut(() => {
       cache.clear();
     });

@@ -82,7 +82,7 @@ export function createSessionStore({ prefs, token }: SessionStoreDeps) {
     },
 
     /** Reads the token fresh from SecureStore; it is never held in memory or React state. */
-    getToken: () => token.get(),
+    getToken: async () => (prefs.getString(SIGNED_OUT_KEY) === '1' ? null : token.get()),
 
     setServerUrl(url: string) {
       const normalized = normalizeServerUrl(url);
@@ -117,7 +117,11 @@ export function createSessionStore({ prefs, token }: SessionStoreDeps) {
     async signOut() {
       const failures: unknown[] = [];
       // Marker first: if removal fails, the next hydrate still treats the session as signed out.
-      prefs.set(SIGNED_OUT_KEY, '1');
+      try {
+        prefs.set(SIGNED_OUT_KEY, '1');
+      } catch (e) {
+        failures.push(e); // a failing marker write must not skip the wipe steps below
+      }
       try {
         try {
           await token.remove();

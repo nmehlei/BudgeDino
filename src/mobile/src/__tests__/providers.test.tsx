@@ -4,7 +4,8 @@ import { Text } from 'react-native';
 
 import { createApiClient } from '../api/client';
 import { openSecureCache, type SecureCacheDeps } from '../cache/secure-cache';
-import { AppProviders } from '../providers';
+import { ApiClientError } from '../api/errors';
+import { AppProviders, shouldRetryQuery } from '../providers';
 import { createSessionStore } from '../session/session-store';
 
 jest.mock('react-native-mmkv', () => ({ createMMKV: jest.fn(), deleteMMKV: jest.fn() }));
@@ -156,5 +157,15 @@ describe('AppProviders', () => {
     expect(
       (JSON.parse(persisted) as { clientState: { mutations: unknown[] } }).clientState.mutations,
     ).toEqual([]);
+  });
+
+  it('does not retry unauthorized or rate_limited errors, retries others up to 3 times (N5)', () => {
+    expect(shouldRetryQuery(0, new ApiClientError({ kind: 'unauthorized' }))).toBe(false);
+    expect(
+      shouldRetryQuery(0, new ApiClientError({ kind: 'rate_limited', retryAfterSec: 5 })),
+    ).toBe(false);
+    expect(shouldRetryQuery(0, new ApiClientError({ kind: 'network' }))).toBe(true);
+    expect(shouldRetryQuery(3, new ApiClientError({ kind: 'network' }))).toBe(false);
+    expect(shouldRetryQuery(1, new Error('boom'))).toBe(true);
   });
 });
