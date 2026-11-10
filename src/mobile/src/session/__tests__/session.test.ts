@@ -91,6 +91,7 @@ describe('session store', () => {
       randomBytes: (n) => new Uint8Array(n).fill(7),
       openStore: () => mmkv as never,
       deleteStore: jest.fn(),
+      appVersion: '1.2.3',
     };
     const cache = await openSecureCache(deps);
     const clearQueryClient = jest.fn();
@@ -156,5 +157,57 @@ describe('session store', () => {
     await client.listAccounts().catch(() => undefined);
     expect(readSecret()).toBeNull();
     expect(store.getSnapshot().status).toBe('signed_out');
+  });
+  it('hydrate falls back to signed_out when the token read throws', async () => {
+    const store = createSessionStore({
+      prefs: fakeMmkv() as PrefsStorage,
+      token: {
+        get: async () => {
+          throw new Error('keystore');
+        },
+        set: async () => undefined,
+        remove: async () => undefined,
+      },
+    });
+    await store.hydrate();
+    expect(store.getSnapshot().status).toBe('signed_out');
+  });
+
+  it('signOut retries a failing token removal once', async () => {
+    const remove = jest.fn().mockRejectedValueOnce(new Error('flaky')).mockResolvedValue(undefined);
+    const store = createSessionStore({
+      prefs: fakeMmkv() as PrefsStorage,
+      token: { get: async () => 't', set: async () => undefined, remove },
+    });
+    await store.signOut();
+    expect(remove).toHaveBeenCalledTimes(2);
+  });
+
+  it('a token that survives a failed removal does not sign back in on the next hydrate', async () => {
+    const prefs = fakeMmkv();
+    let secret: string | null = 'leftover';
+    let failRemove = true;
+    const token: TokenStorage = {
+      get: async () => secret,
+      set: async (t) => {
+        secret = t;
+      },
+      remove: async () => {
+        if (failRemove) throw new Error('keystore busy');
+        secret = null;
+      },
+    };
+    const first = createSessionStore({ prefs: prefs as PrefsStorage, token });
+    await expect(first.signOut()).rejects.toThrow('keystore busy');
+
+    failRemove = false;
+    const second = createSessionStore({ prefs: prefs as PrefsStorage, token });
+    await second.hydrate();
+    expect(second.getSnapshot().status).toBe('signed_out');
+    expect(secret).toBeNull();
+    // Marker cleared after the successful cleanup; a later sign-in works normally.
+    await second.signIn('new');
+    await createSessionStore({ prefs: prefs as PrefsStorage, token }).hydrate();
+    expect(secret).toBe('new');
   });
 });

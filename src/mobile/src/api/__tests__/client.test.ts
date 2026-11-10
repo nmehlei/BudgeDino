@@ -1,5 +1,5 @@
 import { ApiClientError, type ApiError } from '../errors';
-import { createApiClient } from '../client';
+import { createApiClient, parseRetryAfter } from '../client';
 
 const BASE = 'https://budget.example.test/';
 
@@ -199,5 +199,72 @@ describe('api client', () => {
     const { client, fetchImpl } = setup(() => new Response(null, { status: 204 }));
     await expect(client.revokeSession('s/1')).resolves.toBeUndefined();
     expect(String(fetchImpl.mock.calls[0]?.[0])).toContain('/auth/sessions/s%2F1');
+  });
+  it('still throws unauthorized when onUnauthorized itself throws', async () => {
+    const client = createApiClient({
+      baseUrl: BASE,
+      getToken: () => 't',
+      onUnauthorized: () => {
+        throw new Error('cache.clear failed');
+      },
+      fetchImpl: (async () => json({}, { status: 401 })) as unknown as typeof fetch,
+    });
+    expect(await errorOf(client.listAccounts())).toEqual({ kind: 'unauthorized' });
+  });
+
+  it('maps a getToken failure to unauthorized and wipes the session', async () => {
+    const onUnauthorized = jest.fn();
+    const fetchImpl = jest.fn();
+    const client = createApiClient({
+      baseUrl: BASE,
+      getToken: () => Promise.reject(new Error('keystore invalidated')),
+      onUnauthorized,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(await errorOf(client.listAccounts())).toEqual({ kind: 'unauthorized' });
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('keeps the timeout running while the body is read', async () => {
+    const client = createApiClient({
+      baseUrl: BASE,
+      getToken: () => 't',
+      onUnauthorized: jest.fn(),
+      timeoutMs: 5,
+      fetchImpl: (async (_url: string, init: RequestInit) => ({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: () =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => {
+              reject(new Error('aborted'));
+            });
+          }),
+      })) as unknown as typeof fetch,
+    });
+    expect(await errorOf(client.listAccounts())).toEqual({ kind: 'network' });
+  });
+});
+
+describe('parseRetryAfter', () => {
+  const now = Date.parse('2026-11-10T12:00:00Z');
+  it('reads delta-seconds', () => {
+    expect(parseRetryAfter('42', now)).toBe(42);
+  });
+  it('reads an HTTP date', () => {
+    expect(parseRetryAfter('Tue, 10 Nov 2026 12:01:30 GMT', now)).toBe(90);
+  });
+  it('clamps past dates to 0', () => {
+    expect(parseRetryAfter('Tue, 10 Nov 2026 11:00:00 GMT', now)).toBe(0);
+  });
+  it('falls back to 60 for garbage such as 12abc, empty and missing', () => {
+    expect(parseRetryAfter('12abc', now)).toBe(60);
+    expect(parseRetryAfter('', now)).toBe(60);
+    expect(parseRetryAfter(null, now)).toBe(60);
+  });
+  it('caps at one hour', () => {
+    expect(parseRetryAfter('999999', now)).toBe(3600);
   });
 });

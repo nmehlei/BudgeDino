@@ -67,9 +67,19 @@ interface RequestSpec<S extends z.ZodType> {
 const idPath = (base: string, id: string, suffix = '') =>
   `${base}/${encodeURIComponent(id)}${suffix}`;
 
-function parseRetryAfter(header: string | null): number {
-  const seconds = header === null ? NaN : Number.parseInt(header, 10);
-  return Number.isFinite(seconds) && seconds >= 0 ? seconds : DEFAULT_RETRY_AFTER_SEC;
+const MAX_RETRY_AFTER_SEC = 3600;
+
+/** Retry-After is delta-seconds or an HTTP date. Anything else falls back to 60 s. */
+export function parseRetryAfter(header: string | null, now = Date.now()): number {
+  const value = header?.trim() ?? '';
+  let seconds = DEFAULT_RETRY_AFTER_SEC;
+  if (/^\d+$/.test(value)) {
+    seconds = Number.parseInt(value, 10);
+  } else {
+    const date = Date.parse(value);
+    if (value !== '' && !Number.isNaN(date)) seconds = Math.max(0, Math.ceil((date - now) / 1000));
+  }
+  return Math.min(seconds, MAX_RETRY_AFTER_SEC);
 }
 
 async function readIssues(res: Response): Promise<ValidationIssue[]> {
@@ -86,6 +96,16 @@ export function createApiClient(options: ApiClientOptions) {
   const doFetch = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
+  /** Wipes the session; a failing wipe must not leak a raw error, the caller always sees `unauthorized`. */
+  async function failUnauthorized(): Promise<never> {
+    try {
+      await options.onUnauthorized();
+    } catch {
+      // The typed error below is what matters to the caller.
+    }
+    throw new ApiClientError({ kind: 'unauthorized' });
+  }
+
   async function request<S extends z.ZodType>(spec: RequestSpec<S>): Promise<z.output<S>> {
     const params = new URLSearchParams();
     for (const [k, v] of Object.entries(spec.query ?? {})) {
@@ -95,54 +115,62 @@ export function createApiClient(options: ApiClientOptions) {
     const url = `${base}${spec.path}${qs ? `?${qs}` : ''}`;
 
     const headers: Record<string, string> = { accept: 'application/json' };
-    const token = await options.getToken();
+    let token: string | null;
+    try {
+      token = await options.getToken();
+    } catch {
+      // SecureStore unreadable (invalidated keystore): the session is unusable, so wipe it.
+      return failUnauthorized();
+    }
     if (token) headers['authorization'] = `Bearer ${token}`;
     if (spec.body !== undefined) headers['content-type'] = 'application/json';
 
+    // The timeout also covers reading the body; it is cleared only once the body is read.
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let res: Response;
     try {
-      res = await doFetch(url, {
-        method: spec.method,
-        headers,
-        body: spec.body === undefined ? undefined : JSON.stringify(spec.body),
-        signal: controller.signal,
-      });
-    } catch {
-      // Deliberately drops the original error: it can embed the URL. The cache stays untouched.
-      throw new ApiClientError({ kind: 'network' });
+      let res: Response;
+      try {
+        res = await doFetch(url, {
+          method: spec.method,
+          headers,
+          body: spec.body === undefined ? undefined : JSON.stringify(spec.body),
+          signal: controller.signal,
+        });
+      } catch {
+        // Deliberately drops the original error: it can embed the URL. The cache stays untouched.
+        throw new ApiClientError({ kind: 'network' });
+      }
+
+      if (res.status === 401) return await failUnauthorized();
+      if (res.status === 429) {
+        throw new ApiClientError({
+          kind: 'rate_limited',
+          retryAfterSec: parseRetryAfter(res.headers.get('retry-after')),
+        });
+      }
+      if (res.status === 400 || res.status === 422) {
+        throw new ApiClientError({ kind: 'validation', issues: await readIssues(res) });
+      }
+      if (!res.ok) {
+        throw new ApiClientError({ kind: 'server', status: res.status });
+      }
+
+      if (!spec.schema) return undefined as z.output<S>;
+      let json: unknown;
+      try {
+        json = await res.json();
+      } catch {
+        throw new ApiClientError({
+          kind: controller.signal.aborted ? 'network' : 'schema_mismatch',
+        });
+      }
+      const parsed = spec.schema.safeParse(json);
+      if (!parsed.success) throw new ApiClientError({ kind: 'schema_mismatch' });
+      return parsed.data;
     } finally {
       clearTimeout(timer);
     }
-
-    if (res.status === 401) {
-      await options.onUnauthorized();
-      throw new ApiClientError({ kind: 'unauthorized' });
-    }
-    if (res.status === 429) {
-      throw new ApiClientError({
-        kind: 'rate_limited',
-        retryAfterSec: parseRetryAfter(res.headers.get('retry-after')),
-      });
-    }
-    if (res.status === 400 || res.status === 422) {
-      throw new ApiClientError({ kind: 'validation', issues: await readIssues(res) });
-    }
-    if (!res.ok) {
-      throw new ApiClientError({ kind: 'server', status: res.status });
-    }
-
-    if (!spec.schema) return undefined as z.output<S>;
-    let json: unknown;
-    try {
-      json = await res.json();
-    } catch {
-      throw new ApiClientError({ kind: 'schema_mismatch' });
-    }
-    const parsed = spec.schema.safeParse(json);
-    if (!parsed.success) throw new ApiClientError({ kind: 'schema_mismatch' });
-    return parsed.data;
   }
 
   return {

@@ -1,0 +1,160 @@
+import { QueryClient } from '@tanstack/react-query';
+import { act, render, screen } from '@testing-library/react-native';
+import { Text } from 'react-native';
+
+import { createApiClient } from '../api/client';
+import { openSecureCache, type SecureCacheDeps } from '../cache/secure-cache';
+import { AppProviders } from '../providers';
+import { createSessionStore } from '../session/session-store';
+
+jest.mock('react-native-mmkv', () => ({ createMMKV: jest.fn(), deleteMMKV: jest.fn() }));
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn(),
+  setItemAsync: jest.fn(),
+  WHEN_UNLOCKED_THIS_DEVICE_ONLY: 6,
+}));
+jest.mock('expo-crypto', () => ({ getRandomBytes: jest.fn() }));
+
+function fakeMmkv() {
+  const data = new Map<string, string>();
+  return {
+    data,
+    getString: (k: string) => data.get(k),
+    set: (k: string, v: string) => {
+      data.set(k, v);
+    },
+    remove: (k: string) => data.delete(k),
+    clearAll: () => {
+      data.clear();
+    },
+  };
+}
+
+beforeEach(() => {
+  jest.useFakeTimers();
+});
+afterEach(() => {
+  jest.useRealTimers();
+});
+
+function setup() {
+  const cacheStore = fakeMmkv();
+  let key: string | null = null;
+  const deps: SecureCacheDeps = {
+    readKey: async () => key,
+    writeKey: async (k) => {
+      key = k;
+    },
+    randomBytes: (n) => new Uint8Array(n).fill(5),
+    openStore: () => cacheStore as never,
+    deleteStore: jest.fn(),
+    appVersion: '1.2.3',
+  };
+  let secret: string | null = 'tok';
+  const store = createSessionStore({
+    prefs: fakeMmkv(),
+    token: {
+      get: async () => secret,
+      set: async (t) => {
+        secret = t;
+      },
+      remove: async () => {
+        secret = null;
+      },
+    },
+  });
+  const queryClient = new QueryClient();
+  const openCache = jest.fn(() => openSecureCache(deps));
+  return { cacheStore, store, queryClient, openCache, readSecret: () => secret };
+}
+
+async function renderReady(s: ReturnType<typeof setup>) {
+  await render(
+    <AppProviders queryClient={s.queryClient} sessionStore={s.store} openCache={s.openCache}>
+      <Text>child</Text>
+    </AppProviders>,
+  );
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(10);
+  });
+}
+
+describe('AppProviders', () => {
+  it('shows a loading state until the cache is open, then renders children and hydrates', async () => {
+    const s = setup();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const openCache = jest.fn(async () => {
+      await gate;
+      return s.openCache();
+    });
+    await render(
+      <AppProviders queryClient={s.queryClient} sessionStore={s.store} openCache={openCache}>
+        <Text>child</Text>
+      </AppProviders>,
+    );
+    expect(screen.queryByText('child')).toBeNull();
+    expect(screen.getByLabelText('Loading')).toBeTruthy();
+    await act(async () => {
+      release();
+      await jest.advanceTimersByTimeAsync(10);
+    });
+    expect(screen.getByText('child')).toBeTruthy();
+    expect(s.store.getSnapshot().status).toBe('signed_in');
+  });
+
+  it('a 401 through the client empties the QueryClient and the persisted store', async () => {
+    const s = setup();
+    await renderReady(s);
+
+    s.queryClient.setQueryData(['accounts'], { accounts: [] });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1500); // the persister throttles writes
+    });
+    expect(s.cacheStore.data.size).toBe(1);
+    expect(s.queryClient.getQueryCache().getAll()).toHaveLength(1);
+
+    const client = createApiClient({
+      baseUrl: 'https://x.test',
+      getToken: s.store.getToken,
+      onUnauthorized: () => s.store.signOut(),
+      fetchImpl: (async () => new Response('{}', { status: 401 })) as unknown as typeof fetch,
+    });
+    await act(async () => {
+      await client.listAccounts().catch(() => undefined);
+    });
+
+    expect(s.readSecret()).toBeNull();
+    expect(s.queryClient.getQueryCache().getAll()).toHaveLength(0);
+    expect(s.cacheStore.data.size).toBe(0);
+    // The emptied client may be re-persisted by the throttled subscriber; it must hold no queries.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1500);
+    });
+    for (const v of s.cacheStore.data.values()) {
+      expect(
+        (JSON.parse(v) as { clientState: { queries: unknown[] } }).clientState.queries,
+      ).toEqual([]);
+    }
+  });
+
+  it('never persists mutations (a paused login must not write the password)', async () => {
+    const s = setup();
+    await renderReady(s);
+    const mutation = s.queryClient
+      .getMutationCache()
+      .build(s.queryClient, { mutationKey: ['login'], mutationFn: async () => 1 });
+    mutation.state.variables = { password: 'hunter2-hunter2' };
+    s.queryClient.setQueryData(['x'], 1); // triggers a persist
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1500);
+    });
+    const persisted = [...s.cacheStore.data.values()].join('');
+    expect(persisted).not.toContain('hunter2');
+    expect(
+      (JSON.parse(persisted) as { clientState: { mutations: unknown[] } }).clientState.mutations,
+    ).toEqual([]);
+  });
+});

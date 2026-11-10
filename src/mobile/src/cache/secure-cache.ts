@@ -1,4 +1,5 @@
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
+import Constants from 'expo-constants';
 import { getRandomBytes } from 'expo-crypto';
 import { getItemAsync, setItemAsync, WHEN_UNLOCKED_THIS_DEVICE_ONLY } from 'expo-secure-store';
 import { createMMKV, deleteMMKV, type MMKV } from 'react-native-mmkv';
@@ -7,6 +8,9 @@ export const CACHE_STORE_ID = 'budgedino-cache';
 export const CACHE_KEY_SECURE_STORE_KEY = 'budgedino.cache-key';
 /** Persisted query data older than this is dropped on restore. */
 export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Bump when the shape of any persisted query data changes. */
+export const CACHE_SCHEMA_VERSION = 1;
 
 const KEY_BYTES = 24;
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
@@ -32,6 +36,7 @@ export interface SecureCacheDeps {
   openStore: (encryptionKey: string) => MMKV;
   /** Removes an orphaned store file (used only when a fresh key is generated). */
   deleteStore: () => void;
+  appVersion: string;
 }
 
 export const defaultSecureCacheDeps: SecureCacheDeps = {
@@ -50,6 +55,7 @@ export const defaultSecureCacheDeps: SecureCacheDeps = {
       // It is only a cache: an unreadable file is dropped, never an error surfaced to the user.
       recoveryStrategy: 'discard-on-error',
     }),
+  appVersion: Constants.expoConfig?.version ?? '0',
   deleteStore: () => {
     deleteMMKV(CACHE_STORE_ID);
   },
@@ -60,7 +66,13 @@ export const defaultSecureCacheDeps: SecureCacheDeps = {
  * the cache is unreadable without the device keystore. Async because SecureStore reads are.
  */
 export async function openSecureCache(deps: SecureCacheDeps = defaultSecureCacheDeps) {
-  let key = await deps.readKey();
+  let key: string | null;
+  try {
+    key = await deps.readKey();
+  } catch {
+    // Keystore entry invalidated: treat the key as lost.
+    key = null;
+  }
   if (!key) {
     key = encodeKey(deps.randomBytes(KEY_BYTES));
     // A store file without its key cannot be read again; start clean.
@@ -85,6 +97,13 @@ export async function openSecureCache(deps: SecureCacheDeps = defaultSecureCache
   return {
     persister,
     maxAge: CACHE_MAX_AGE_MS,
+    /** Entries from another schema or app version are dropped on restore. */
+    buster: `${String(CACHE_SCHEMA_VERSION)}:${deps.appVersion}`,
+    /**
+     * Only successful queries are persisted. Mutations never are: a paused login or register
+     * mutation would otherwise write the password or TOTP code into MMKV.
+     */
+    dehydrateOptions: { shouldDehydrateMutation: () => false },
     /** Wipes every persisted query. Used by sign-out. */
     clear: () => {
       persister.removeClient();

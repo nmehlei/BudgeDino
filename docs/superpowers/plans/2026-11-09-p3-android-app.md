@@ -65,7 +65,7 @@
 - `createApiClient({ baseUrl, getToken, onUnauthorized, fetchImpl? })` → methods mirroring server routes used by the app, each `(input) => Promise<Output>` with zod parse of the response schema from `@budgedino/shared/api` (auth, households, accounts, connectors, challenges, transactions, budgets, home, notifications).
 - `ApiError` union: `{kind:'network'} | {kind:'unauthorized'} | {kind:'rate_limited', retryAfterSec} | {kind:'validation', issues} | {kind:'server', status} | {kind:'schema_mismatch'}`.
 - Session store: server URL + device name in MMKV (non-secret), token in SecureStore; `signOut()` wipes token, query cache and MMKV cache store.
-- `secure-cache.ts`: MMKV instance `budgedino-cache` with `encryptionKey` = 32 random bytes generated once and stored in SecureStore (`requireAuthentication: false`, `keychainAccessible: WHEN_UNLOCKED_THIS_DEVICE_ONLY`); TanStack `createSyncStoragePersister` on top; `maxAge` 7 days.
+- `secure-cache.ts`: MMKV instance `budgedino-cache` with `encryptionKey` = 32-character key (24 random bytes, base64url; AES-256; accepted deviation: MMKV needs a string key) generated once and stored in SecureStore (`requireAuthentication: false`, `keychainAccessible: WHEN_UNLOCKED_THIS_DEVICE_ONLY`); TanStack `createSyncStoragePersister` on top; `maxAge` 7 days.
 - [ ] **Step 1:** Tests (mock fetch): Bearer header sent; 401 → onUnauthorized + `unauthorized` error; 429 parses Retry-After; network failure → `network`; response failing schema → `schema_mismatch` (never returns unparsed data); signOut wipes token+cache (mock SecureStore/MMKV).
 - [ ] **Step 2–5:** RED → implement → GREEN → commit `feat(mobile): typed api client and session`.
 

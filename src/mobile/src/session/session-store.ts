@@ -28,6 +28,7 @@ export interface SessionStoreDeps {
 
 const SERVER_URL_KEY = 'serverUrl';
 const DEVICE_NAME_KEY = 'deviceName';
+const SIGNED_OUT_KEY = 'signedOut';
 
 /** Removes trailing slashes; the API client appends `/api/v1`. */
 export function normalizeServerUrl(url: string): string {
@@ -61,8 +62,23 @@ export function createSessionStore({ prefs, token }: SessionStoreDeps) {
 
     /** Reads the stored token once at app start to decide between login and the app. */
     async hydrate() {
-      const stored = await token.get();
-      update({ status: stored ? 'signed_in' : 'signed_out' });
+      // A signed-out marker beats a leftover token (a failed removal must not sign back in).
+      if (prefs.getString(SIGNED_OUT_KEY) === '1') {
+        update({ status: 'signed_out' });
+        try {
+          await token.remove();
+          prefs.remove(SIGNED_OUT_KEY);
+        } catch {
+          // keep the marker; the next hydrate retries
+        }
+        return;
+      }
+      try {
+        const stored = await token.get();
+        update({ status: stored ? 'signed_in' : 'signed_out' });
+      } catch {
+        update({ status: 'signed_out' });
+      }
     },
 
     /** Reads the token fresh from SecureStore; it is never held in memory or React state. */
@@ -81,6 +97,7 @@ export function createSessionStore({ prefs, token }: SessionStoreDeps) {
 
     async signIn(sessionToken: string) {
       await token.set(sessionToken);
+      prefs.remove(SIGNED_OUT_KEY);
       update({ status: 'signed_in' });
     },
 
@@ -99,8 +116,15 @@ export function createSessionStore({ prefs, token }: SessionStoreDeps) {
      */
     async signOut() {
       const failures: unknown[] = [];
+      // Marker first: if removal fails, the next hydrate still treats the session as signed out.
+      prefs.set(SIGNED_OUT_KEY, '1');
       try {
-        await token.remove();
+        try {
+          await token.remove();
+        } catch {
+          await token.remove(); // one retry
+        }
+        prefs.remove(SIGNED_OUT_KEY);
       } catch (e) {
         failures.push(e);
       }

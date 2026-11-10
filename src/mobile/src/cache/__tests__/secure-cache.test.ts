@@ -2,6 +2,7 @@ import type { PersistedClient } from '@tanstack/react-query-persist-client';
 
 import {
   CACHE_MAX_AGE_MS,
+  CACHE_SCHEMA_VERSION,
   encodeKey,
   openSecureCache,
   type SecureCacheDeps,
@@ -60,6 +61,7 @@ function makeDeps() {
     randomBytes: (n) => Uint8Array.from({ length: n }, (_, i) => i * 11 + 3),
     openStore,
     deleteStore: jest.fn(),
+    appVersion: '1.2.3',
   };
   return { deps, store, openStore, getKey: () => key };
 }
@@ -106,5 +108,33 @@ describe('secure cache', () => {
   it('encodeKey is deterministic base64url without padding', () => {
     expect(encodeKey(Uint8Array.from([0xff, 0xff, 0xff]))).toBe('____');
     expect(encodeKey(new Uint8Array(24))).toBe('A'.repeat(32));
+  });
+  it('deletes a keyless store before opening it (key missing, data present)', async () => {
+    const { deps, openStore } = makeDeps();
+    const order: string[] = [];
+    (deps.deleteStore as jest.Mock).mockImplementation(() => order.push('delete'));
+    openStore.mockImplementation(() => {
+      order.push('open');
+      return fakeStore() as never;
+    });
+    await openSecureCache(deps);
+    expect(order).toEqual(['delete', 'open']);
+  });
+
+  it('treats a throwing readKey as a lost key: wipes the store and writes a new key', async () => {
+    const { deps, getKey } = makeDeps();
+    deps.readKey = async () => {
+      throw new Error('KeyPermanentlyInvalidated');
+    };
+    await openSecureCache(deps);
+    expect(deps.deleteStore).toHaveBeenCalledTimes(1);
+    expect(getKey()).toHaveLength(32);
+  });
+
+  it('exposes a buster of schema and app version, and drops mutations from persistence', async () => {
+    const { deps } = makeDeps();
+    const cache = await openSecureCache(deps);
+    expect(cache.buster).toBe(`${String(CACHE_SCHEMA_VERSION)}:1.2.3`);
+    expect(cache.dehydrateOptions.shouldDehydrateMutation()).toBe(false);
   });
 });
