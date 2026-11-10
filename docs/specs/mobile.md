@@ -131,3 +131,7 @@ of other members only read "Shared by another member". A successful update inval
   another device calls `DELETE /auth/sessions/:id`), the server URL, and Sign out. On sign-out the periodic background task is unregistered and delivered notifications are dismissed (best effort). A signed-out start (hydrate finds no session) wipes the persisted cache and the query client before anything renders, so data left behind by an earlier session is never shown to the next user. Sign out first revokes this
   device's session on the server (best effort; network errors are ignored), then wipes the token, the MMKV cache
   and the query cache through the session store. A 401 sign-out stays local.
+
+**Demo bank config.** "Demo bank" sends `{ type: 'fake', config: { scenario: 'decoupled' } }`: connecting
+returns a `decoupled` challenge that the user confirms on the challenge screen (this also drives the Maestro
+flow `connect-demo-bank.yaml`). Dev loop and seed: [self-hosting.md](self-hosting.md#local-development-loop-implemented).

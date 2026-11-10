@@ -37,7 +37,7 @@ export function AddConnectionScreen() {
   const submit = async () => {
     if (!canSubmit) return;
     const body: CreateConnectorRequest = demo
-      ? { type: 'fake', config: { scenario: 'happy' } }
+      ? { type: 'fake', config: { scenario: 'decoupled' } }
       : { type: 'fints', config: { bank: choice, userId: userId.trim(), pin } };
     if (priv) body.accountDefaults = { visibility: 'owner_only' };
     // Wipe the credentials from state before the request is awaited.

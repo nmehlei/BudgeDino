@@ -1,0 +1,36 @@
+# Opt-in flow for the physical phone (never CI). Run all flows with `pnpm maestro:device`.
+# Needs: dev server running, `pnpm dev:seed -- --with-data` done, development build installed.
+# Variables (passed by scripts/maestro-device.ts): SERVER_URL, EMAIL, PASSWORD, TOTP_CODE.
+appId: app.budgedino
+name: Login with the seeded demo member
+---
+- launchApp:
+    clearState: true
+- runFlow:
+    when:
+      visible: 'Allow'
+    commands:
+      - tapOn: 'Allow'
+- tapOn:
+    id: 'server-url'
+- eraseText: 60
+- inputText: ${SERVER_URL}
+- hideKeyboard
+- tapOn: 'Check'
+- assertVisible: 'Connected.*'
+- tapOn: 'Sign in'
+- tapOn:
+    id: 'email'
+- inputText: ${EMAIL}
+- tapOn:
+    id: 'password'
+- inputText: ${PASSWORD}
+- tapOn:
+    id: 'totp-input'
+- inputText: ${TOTP_CODE}
+- hideKeyboard
+# "Sign in" is both the heading and the button: the button is the second match.
+- tapOn:
+    text: 'Sign in'
+    index: 1
+- assertVisible: 'Groceries'

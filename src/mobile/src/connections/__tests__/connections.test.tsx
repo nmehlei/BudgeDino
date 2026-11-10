@@ -231,7 +231,7 @@ describe('AddConnectionScreen', () => {
     });
     expect(mockApi.createConnector).toHaveBeenCalledWith({
       type: 'fake',
-      config: { scenario: 'happy' },
+      config: { scenario: 'decoupled' },
     });
     expect(mockRouter.replace).toHaveBeenCalledWith('/connections');
   });

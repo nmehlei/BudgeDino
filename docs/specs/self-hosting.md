@@ -62,3 +62,37 @@ during onboarding.
 
 **OpenAPI.** `docs/api/openapi.json` is generated from the route schemas (`pnpm openapi`) and committed;
 `ci/check.sh` regenerates it and fails when it differs, so API changes always ship with the updated document.
+
+## Local development loop (implemented)
+
+Development only; none of this runs in a production deployment. Step-by-step for a phone:
+[run-on-android-device.md](../guides/run-on-android-device.md).
+
+- **Database:** `pnpm dev:db` starts `docker-compose.dev.yml` (Postgres 18 on `127.0.0.1:5433`, throwaway
+  credentials) and waits until it is healthy.
+- **Server:** `pnpm dev:server` (`scripts/dev.sh server`) loads `.env.dev` if present, else
+  `.env.dev.example` (no real secrets): `NODE_ENV=development`, `BUDGEDINO_CONNECTORS=fake`, `HOST=0.0.0.0`,
+  `PORT=8080`, `DATABASE_URL` for the dev database. The master key is not in the env file: on first use the
+  script generates one into `.dev/master.key` (gitignored, mode 600) and points `BUDGEDINO_MASTER_KEY_FILE`
+  at it. Keep that file; the dev database is unreadable without it. The script refuses `NODE_ENV=production`.
+- **Seed:** `pnpm dev:seed [-- --with-data]` runs `budgedino dev-seed`:
+  - refuses to run at all (exit 2, before touching key or database) when `NODE_ENV=production`;
+  - creates the household "BudgeDino Demo" once and prints a **fresh one-time admin invite on every run**
+    (`invite_token`, `invite_expires_at`) plus the config the app's "Demo bank" sends
+    (`{"scenario":"decoupled"}`, so connecting produces a decoupled challenge to confirm);
+  - with `--with-data`: a demo admin member (`demo@budgedino.test`, fixed dev password), a connected
+    `fake` connector with one account and ~60 days of generated German transactions (REWE, EDEKA, DB,
+    Netflix, Lieferando, salary; deterministic, integer minor units), categorized by the normal categorizer,
+    and two budgets: Groceries 500 EUR monthly and Eating out 60 EUR weekly. Re-running changes nothing
+    except issuing another invite;
+  - uses the production services (bootstrap, member and account repositories, ingest, categorizer), so
+    all sensitive fields are encrypted as usual;
+  - prints the invite, the demo credentials and the dev TOTP secret, because it is a dev-only seed (it
+    says so on stderr). It never prints session tokens or the master key, and never transaction contents
+    (only counts).
+- **`BUDGEDINO_DEV_TOTP_SECRET`** (base32, test-only): the TOTP secret given to the demo member when the
+  seed creates it (read only when `NODE_ENV` is not `production`; otherwise one is generated). The Maestro
+  runner derives login codes from it.
+- **Maestro** (`pnpm maestro:device`, opt-in, never in CI or `ci/check.sh`): runs
+  `src/mobile/maestro/{login,home,connect-demo-bank}.yaml` against the USB-attached **physical** phone
+  (the runner refuses when no physical device is attached; emulators are not supported).

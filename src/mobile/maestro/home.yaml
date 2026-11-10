@@ -1,0 +1,9 @@
+# Runs after login.yaml (the session survives: no clearState). Needs the seed's `--with-data`.
+appId: app.budgedino
+name: Home shows the seeded budgets
+---
+- launchApp
+- assertVisible: 'Groceries'
+- assertVisible: 'Eating out'
+- assertVisible:
+    id: 'period-current'

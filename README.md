@@ -28,6 +28,14 @@ pnpm openapi                               # regenerates docs/api/openapi.json (
 bash ci/check.sh                           # everything CI runs
 ```
 
+Local dev loop on a phone (database, server with demo bank, demo seed, Maestro):
+[docs/guides/run-on-android-device.md](docs/guides/run-on-android-device.md). Run `mise trust` once so
+`.mise.toml` (JDK 17) applies.
+
+```sh
+pnpm dev:db && pnpm dev:seed -- --with-data && pnpm dev:server
+```
+
 Set `SKIP_INTEGRATION=1` to skip the Docker-based suites in `ci/check.sh`.
 
 ## Build and run

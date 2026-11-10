@@ -11,6 +11,7 @@ import { migrate } from './db/migrate.js';
 import { bootstrapHousehold, isValidTimezone } from './households/bootstrap.js';
 import { createInvite } from './households/invites.js';
 import { Keyring } from './households/keyring.js';
+import { assertSeedAllowed, DEMO_CONNECTOR_CONFIG, devSeed, SeedError } from './dev/seed.js';
 import { redactString } from './observability/redact.js';
 
 export interface CliIo {
@@ -31,6 +32,10 @@ Commands:
                                    Create a household and print a one-time admin invite
   invite --household <id> [--role member|admin]
                                    Print a one-time invite token (default role: member)
+  dev-seed [--with-data]           DEV ONLY (refuses when NODE_ENV=production): create/refresh the
+                                   demo household, print a one-time admin invite; --with-data adds
+                                   a demo member, a connected fake bank with ~60 days of
+                                   transactions and two budgets
   rotate-master-key --server-stopped
                                    Re-wrap all keys: old key from BUDGEDINO_MASTER_KEY[_FILE],
                                    new key from BUDGEDINO_NEW_MASTER_KEY[_FILE]. Stop all running
@@ -57,19 +62,28 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
         return await withKeyring(io, (ctx) => bootstrap(rest, ctx, out));
       case 'invite':
         return await withKeyring(io, (ctx) => invite(rest, ctx, out));
+      case 'dev-seed':
+        return await devSeedCommand(rest, io, out);
       case 'rotate-master-key':
         return await rotateMasterKey(rest, io, out);
       default:
         throw new UsageError(command ? `Unknown command: ${command}` : 'Missing command');
     }
   } catch (e) {
+    if (e instanceof SeedError) {
+      err(`${e.message}\n`);
+      return 2;
+    }
     if (e instanceof UsageError || e instanceof MasterKeyError) {
       err(`${e.message}\n`);
       if (e instanceof UsageError) err(`\n${USAGE}\n`);
       return 2;
     }
     // Messages here never contain key material (see crypto module); no stack traces to the terminal.
-    err(`Error: ${e instanceof Error ? redactString(e.message) : 'unknown failure'}\n`);
+    // Connection failures (AggregateError) carry an empty message; fall back to the error code.
+    const code = (e as { code?: unknown } | null)?.code;
+    const text = e instanceof Error ? e.message || (typeof code === 'string' ? code : '') : '';
+    err(`Error: ${text ? redactString(text) : 'unknown failure'}\n`);
     return 1;
   }
 }
@@ -169,6 +183,45 @@ async function invite(args: string[], ctx: Ctx, out: (t: string) => void): Promi
   out(`invite_token=${created.token}\n`);
   out(`invite_expires_at=${created.expiresAt.toISOString()}\n`);
   return 0;
+}
+
+async function devSeedCommand(
+  args: string[],
+  io: CliIo,
+  out: (t: string) => void,
+): Promise<number> {
+  let withData: boolean;
+  try {
+    withData =
+      parseArgs({
+        args,
+        options: { 'with-data': { type: 'boolean' } },
+        allowPositionals: false,
+        strict: true,
+      }).values['with-data'] === true;
+  } catch (e) {
+    throw new UsageError(e instanceof Error ? e.message : 'Invalid arguments');
+  }
+  // Refuse before touching the key or the database.
+  assertSeedAllowed(io.env);
+  return withKeyring(io, async (ctx) => {
+    const r = await devSeed(ctx, { withData, env: io.env });
+    io.stderr.write(
+      'DEV SEED: the values below (invite, demo password, TOTP secret) are for local development only.\n',
+    );
+    out(`household_id=${r.householdId}\n`);
+    out(`invite_token=${r.inviteToken}\n`);
+    out(`invite_expires_at=${r.inviteExpiresAt.toISOString()}\n`);
+    out(`demo_connector_config=${JSON.stringify(DEMO_CONNECTOR_CONFIG)}\n`);
+    if (r.data) {
+      out(`demo_email=${r.data.memberEmail}\n`);
+      out(`demo_password=${r.data.memberPassword}\n`);
+      out(`dev_totp_secret=${r.data.totpSecret}\n`);
+      out(`demo_transactions=${r.data.transactionCount}\n`);
+      out(`demo_budgets=${r.data.budgetNames.join(',')}\n`);
+    }
+    return 0;
+  });
 }
 
 function loadNewMasterKey(env: CliIo['env']): MasterKey {
