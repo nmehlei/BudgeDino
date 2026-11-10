@@ -15,8 +15,8 @@ The Expo Android app (development build, never Expo Go) talks to one self-hosted
   (expo-secure-store only).
 - **TOTP secret handling.** The provisioning URI is held in memory only (never in route params, MMKV
   or the query cache), is shown once, and is cleared when the TOTP screen is left. "Copy secret" puts the
-  secret on the clipboard and overwrites it with an empty string after about 60 seconds (best effort);
-  the screen says so. The password field is cleared as soon as registration or login succeeds.
+  secret on the clipboard and overwrites it with an empty string after about 60 seconds (best effort),
+  also when the screen was already left; copying again restarts the 60 seconds. The screen says so. The password field is cleared as soon as registration or login succeeds.
 - **Login.** Email, password and a 6-digit code (digits only). Every failure except rate limiting shows
   the same generic "Login failed"; the app never says which factor was wrong. A 429 shows "Too many
   attempts, try again in N minutes" from `Retry-After`.

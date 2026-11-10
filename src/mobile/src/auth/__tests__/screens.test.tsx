@@ -299,7 +299,7 @@ describe('TOTP secret hygiene', () => {
     });
   });
 
-  it('overwrites the clipboard about 60 s after copying, and not after leaving', async () => {
+  it('overwrites the clipboard about 60 s after copying, even after leaving the screen', async () => {
     pendingRegistration.set({ pendingId: 'p-1', totpProvisioningUri: URI });
     await renderScreen(<RegisterTotpScreen />);
     await fireEvent.press(screen.getByText('Copy secret'));
@@ -322,6 +322,6 @@ describe('TOTP secret hygiene', () => {
     await act(async () => {
       await jest.advanceTimersByTimeAsync(60_000);
     });
-    expect(mockSetString).not.toHaveBeenCalledWith('');
+    expect(mockSetString).toHaveBeenLastCalledWith('');
   });
 });

@@ -1,4 +1,3 @@
-import * as Clipboard from 'expo-clipboard';
 import { useNavigation, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, useWindowDimensions, View } from 'react-native';
@@ -6,6 +5,7 @@ import { Button, HelperText, Text } from 'react-native-paper';
 import QRCode from 'react-native-qrcode-svg';
 
 import { createAuthApi } from '../../src/auth/api';
+import { copySecretWithWipe } from '../../src/auth/clipboard';
 import { AuthScreen } from '../../src/auth/AuthScreen';
 import { confirmErrorMessage } from '../../src/auth/messages';
 import { pendingRegistration } from '../../src/auth/pending-registration';
@@ -19,7 +19,6 @@ interface BeforeRemoveEmitter {
 }
 
 const MAX_QR = 240;
-const CLIPBOARD_CLEAR_MS = 60_000;
 
 export default function RegisterTotpScreen() {
   const router = useRouter();
@@ -31,7 +30,7 @@ export default function RegisterTotpScreen() {
   const [copied, setCopied] = useState(false);
 
   const navigation = useNavigation();
-  const clipboardTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const done = useRef(false);
 
   // The provisioning URI holds the TOTP secret: drop it when the screen is left. beforeRemove (not an
   // effect cleanup) so StrictMode's simulated unmount cannot clear it while the screen still renders.
@@ -42,16 +41,9 @@ export default function RegisterTotpScreen() {
     return off;
   }, [navigation]);
 
-  // Best effort: overwrite the copied secret shortly afterwards; the timer dies with the screen.
-  useEffect(
-    () => () => {
-      if (clipboardTimer.current) clearTimeout(clipboardTimer.current);
-    },
-    [],
-  );
-
   const pending = pendingRegistration.get();
   if (!pending) {
+    if (done.current) return null; // confirmed: avoid a flash of the expired notice
     return (
       <AuthScreen>
         <Text variant="bodyMedium">This registration has expired. Please start again.</Text>
@@ -80,6 +72,7 @@ export default function RegisterTotpScreen() {
         totpCode: code,
       });
       await session.signIn(res.sessionToken);
+      done.current = true;
       pendingRegistration.clear();
       router.replace('/');
     } catch (e) {
@@ -108,12 +101,8 @@ export default function RegisterTotpScreen() {
             mode="outlined"
             icon="content-copy"
             onPress={() => {
-              void Clipboard.setStringAsync(secret).then(() => {
+              void copySecretWithWipe(secret).then(() => {
                 setCopied(true);
-                if (clipboardTimer.current) clearTimeout(clipboardTimer.current);
-                clipboardTimer.current = setTimeout(() => {
-                  void Clipboard.setStringAsync('').catch(() => undefined);
-                }, CLIPBOARD_CLEAR_MS);
               });
             }}
           >
