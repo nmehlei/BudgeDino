@@ -17,7 +17,6 @@ import {
   accounts,
   budgets,
   categories,
-  connectors,
   households,
   transactionSplits,
   transactions,
@@ -237,7 +236,7 @@ interface RowFilter {
 async function loadSpendEntries(db: Db, dk: DataKey, filter: RowFilter): Promise<SpendEntry[]> {
   if (filter.accountIds && filter.accountIds.length === 0) return [];
   const conds = [
-    eq(connectors.householdId, filter.householdId),
+    eq(accounts.householdId, filter.householdId),
     gte(transactions.bookingDate, filter.from),
     lt(transactions.bookingDate, filter.to),
     isNull(transactions.transferGroupId),
@@ -248,7 +247,6 @@ async function loadSpendEntries(db: Db, dk: DataKey, filter: RowFilter): Promise
     .select({ tx: transactions })
     .from(transactions)
     .innerJoin(accounts, eq(transactions.accountId, accounts.id))
-    .innerJoin(connectors, eq(accounts.connectorId, connectors.id))
     .where(and(...conds));
   if (rows.length === 0) return [];
 
@@ -257,7 +255,6 @@ async function loadSpendEntries(db: Db, dk: DataKey, filter: RowFilter): Promise
     .from(transactionSplits)
     .innerJoin(transactions, eq(transactionSplits.transactionId, transactions.id))
     .innerJoin(accounts, eq(transactions.accountId, accounts.id))
-    .innerJoin(connectors, eq(accounts.connectorId, connectors.id))
     .where(and(...conds));
   const splitsByTx = new Map<string, Split[]>();
   for (const { split } of splitRows) {

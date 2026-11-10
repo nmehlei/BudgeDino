@@ -21,3 +21,16 @@ export function decryptConnectorState(
   if (enc === null) return {};
   return JSON.parse(decryptString(dk, enc, aad('state', connectorId))) as ConnectorState;
 }
+
+/** The user-chosen connector name; encrypted because it may name a bank or a person. */
+export function encryptDisplayName(dk: DataKey, connectorId: string, name: string): Buffer {
+  return encryptField(dk, name, aad('display_name', connectorId));
+}
+
+export function decryptDisplayName(
+  dk: DataKey,
+  connectorId: string,
+  enc: Buffer | null,
+): string | null {
+  return enc === null ? null : decryptString(dk, enc, aad('display_name', connectorId));
+}

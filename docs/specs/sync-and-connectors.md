@@ -203,6 +203,29 @@ Code: `src/server/src/connectors/{routes.ts,challenge-service.ts}`; schemas in `
   so a member can connect a private bank without its accounts ever being visible to the household. Then a user-present sync is started
   (coalescing applies; a throttled 429 does not fail the connect).
 
+## Delete, rename and bank id (implementation summary)
+
+Code: `src/server/src/connectors/{remove.ts,bank.ts,bank-backfill.ts}`, `routes.ts`; schemas in `src/shared/src/api/connectors.ts`.
+
+- **`DELETE /connectors/:id?mode=keep|purge`** (member, owner only; anyone else, admins included, and unknown ids get 404;
+  `mode` is required). 204 on success. Open challenges are cancelled first (best-effort `cancelAuth`). The delete then runs
+  while holding the connector's sync advisory lock, so it waits for a running sync and no sync interleaves with it; a run
+  queued behind it finds no connector and ends `error` without writing (the scheduled-job worker skips vanished connectors).
+  Credentials, state, sync runs and challenges go with the connector row.
+  - `keep` **[owner]**: the accounts stay with `connector_id = null` and `disconnected_at` set; they and their transactions
+    keep counting toward budgets, balances and net worth. Reconnecting a bank later creates new accounts (no re-linking).
+  - `purge` **[owner]**: additionally deletes the accounts with their transactions, splits, dedup aliases and balances.
+- **Account household [call]:** `accounts.household_id` (backfilled from the connector) replaces the join through
+  `connectors` for household scoping, because a disconnected account has no connector. `visibleAccountIds` and the
+  repositories scope by it. `AccountInfo.connectorId` is nullable and `AccountInfo.disconnected` says so.
+- **`PATCH /connectors/:id {displayName}`** (member, owner only, 404 otherwise): trimmed 1 to 60 characters, stored
+  encrypted (`connectors.display_name_enc`; it may name a bank or a person). `null` clears it. Returns the connector info.
+- **`ConnectorInfo`** gains `bank` (non-secret bank id: `dkb`, `comdirect`, `fake`; the connector type when the connector has
+  no bank concept) and, for the owner only, `displayName` (nullable). Other members' entries carry `bank` but no
+  `displayName` (it may reveal a person). `connectors.bank` is a plaintext column written at create time from the config.
+  **Backfill [call]:** a one-time startup step (`backfillConnectorBanks`, after the SQL migrations) decrypts the config of
+  rows without `bank` once and writes it; rows that cannot be decrypted are left null and read as their type.
+
 ## Sync engine (implementation summary)
 
 Code: `src/server/src/sync/` (`run.ts`, `ingest.ts`, `rate-guard.ts`, `scheduler.ts`, `jobs.ts`, `routes.ts`).

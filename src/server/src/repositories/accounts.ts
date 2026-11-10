@@ -26,7 +26,9 @@ export interface NewAccount {
 
 export interface Account {
   id: string;
-  connectorId: string;
+  /** Null once the connection was removed with "keep history". */
+  connectorId: string | null;
+  disconnected: boolean;
   ownerMemberId: string;
   name: string;
   iban: string | null;
@@ -40,8 +42,14 @@ export interface Account {
 export async function createAccount(db: Db, dk: DataKey, input: NewAccount): Promise<string> {
   const id = newId();
   const visibility = input.visibility ?? 'household';
+  const [connector] = await db
+    .select({ householdId: connectors.householdId })
+    .from(connectors)
+    .where(eq(connectors.id, input.connectorId));
+  if (!connector) throw new Error('Connector not found');
   await db.insert(accounts).values({
     id,
+    householdId: connector.householdId,
     connectorId: input.connectorId,
     ownerMemberId: input.ownerMemberId,
     externalRefBidx: blindIndex(dk, 'account-external-ref', input.externalRef),
@@ -75,6 +83,7 @@ function toAccount(dk: DataKey, row: typeof accounts.$inferSelect): Account {
   return {
     id: row.id,
     connectorId: row.connectorId,
+    disconnected: row.disconnectedAt !== null,
     ownerMemberId: row.ownerMemberId,
     name: decryptString(dk, row.nameEnc, aad('name', row.id)),
     iban: row.ibanEnc ? decryptString(dk, row.ibanEnc, aad('iban', row.id)) : null,
@@ -134,12 +143,11 @@ export async function updateOwnAccount(
   const [owned] = await db
     .select({ id: accounts.id })
     .from(accounts)
-    .innerJoin(connectors, eq(accounts.connectorId, connectors.id))
     .where(
       and(
         eq(accounts.id, id),
         eq(accounts.ownerMemberId, ctx.memberId),
-        eq(connectors.householdId, ctx.householdId),
+        eq(accounts.householdId, ctx.householdId),
       ),
     );
   if (!owned) return null;

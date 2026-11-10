@@ -2,6 +2,7 @@ import type { MasterKey } from './crypto/index.js';
 import type { Db } from './db/client.js';
 import type { ConnectorRegistry } from './connectors/registry.js';
 import type { ChallengeService } from './connectors/challenge-service.js';
+import type { ConnectorManager } from './connectors/manage.js';
 import type { SyncService } from './sync/service.js';
 import type { Keyring } from './households/keyring.js';
 import type { PendingRegistrationStore } from './auth/pending.js';
@@ -39,6 +40,7 @@ export interface AppContext {
   registry: ConnectorRegistry;
   sync: SyncService;
   challenges: ChallengeService;
+  connectorManager: ConnectorManager;
 }
 
 export type AccessLevel = 'public' | 'member' | 'admin';

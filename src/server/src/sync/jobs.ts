@@ -97,7 +97,14 @@ export async function startJobs(deps: SyncDeps, options: JobsOptions): Promise<J
     SYNC_CONNECTOR_QUEUE,
     { pollingIntervalSeconds: polling },
     async (jobs) => {
-      for (const job of jobs) await runSync(deps, job.data.connectorId, 'schedule');
+      for (const job of jobs) {
+        // A connector removed while its job was queued: nothing to sync (and no sync_runs row can reference it).
+        const [alive] = await deps.db
+          .select({ id: connectors.id })
+          .from(connectors)
+          .where(eq(connectors.id, job.data.connectorId));
+        if (alive) await runSync(deps, job.data.connectorId, 'schedule');
+      }
     },
   );
   await boss.work(SYNC_TICK_QUEUE, { pollingIntervalSeconds: polling }, async () => {

@@ -8,6 +8,7 @@ import { createFakeConnector } from './connectors/fake/fake-connector.js';
 import { createFinTSWiring, type FinTSWiring } from './connectors/fints/wire.js';
 import type { FinTSPort } from './connectors/fints/port.js';
 import type { Connector } from './connectors/types.js';
+import { backfillConnectorBanks } from './connectors/bank-backfill.js';
 import { createDb } from './db/client.js';
 import { migrate } from './db/migrate.js';
 import { EcbFxSource, type FxSource } from './fx/ecb.js';
@@ -79,6 +80,7 @@ export async function start(config: Config, options: StartOptions = {}): Promise
   try {
     await migrate(handle.pool);
     const keyring = new Keyring(handle.db, config.master);
+    await backfillConnectorBanks(handle.db, keyring, logger);
     const wired = connectorsFor(config, logger, options.fintsPort);
     fints = wired.fints;
     const registry = createConnectorRegistry(wired.connectors);

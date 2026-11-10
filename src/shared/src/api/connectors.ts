@@ -12,6 +12,10 @@ export const ownConnectorInfo = z.object({
   type: z.string(),
   status: connectorStatus,
   isOwner: z.literal(true),
+  /** Non-secret bank id (`dkb`, `comdirect`, `fake`); the connector type when there is no bank concept. */
+  bank: z.string(),
+  /** User-chosen name (encrypted at rest); null until renamed. */
+  displayName: z.string().nullable(),
   experimental: z.boolean(),
   lastSuccessAt: isoTimestamp.nullable(),
   /** Stable machine code (never a raw bank message). */
@@ -25,6 +29,7 @@ export const sharedConnectorInfo = z.object({
   type: z.string(),
   status: connectorStatus,
   isOwner: z.literal(false),
+  bank: z.string(),
   lastSuccessAt: isoTimestamp.nullable(),
 });
 
@@ -38,6 +43,15 @@ export const connectorListResponse = z.object({ connectors: z.array(connectorInf
 export type ConnectorListResponse = z.infer<typeof connectorListResponse>;
 
 export const connectorIdParams = z.object({ id: z.uuid() });
+
+export const deleteConnectorQuery = z.object({ mode: z.enum(['keep', 'purge']) });
+export type DeleteConnectorQuery = z.infer<typeof deleteConnectorQuery>;
+
+/** `PATCH /connectors/:id`; `null` clears the name. */
+export const renameConnectorRequest = z
+  .object({ displayName: z.string().trim().min(1).max(60).nullable() })
+  .strict();
+export type RenameConnectorRequest = z.infer<typeof renameConnectorRequest>;
 
 export const syncStartedResponse = z.object({ runId: z.string() });
 export type SyncStartedResponse = z.infer<typeof syncStartedResponse>;

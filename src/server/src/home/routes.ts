@@ -48,7 +48,7 @@ export function homeRoutes(app: FastifyInstance): void {
       const [budgets, breakdown, sync] = await Promise.all([
         budgetViews(db, dk, auth.householdId, now(), spec, settings),
         breakdownFor(db, dk, visible, auth.householdId, period, settings),
-        listConnectorInfos(db, registry, auth),
+        listConnectorInfos(db, keyring, registry, auth),
       ]);
       return {
         period: { kind: period.kind, ...periodView(period) },

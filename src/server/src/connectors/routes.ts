@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import {
@@ -8,11 +9,16 @@ import {
   connectStartedResponse,
   connectorIdParams,
   connectorTypesResponse,
+  deleteConnectorQuery,
+  ownConnectorInfo,
+  renameConnectorRequest,
   createConnectorRequest,
   errorResponse,
   reconnectResponse,
 } from '@budgedino/shared';
 import type { AuthContext } from '../deps.js';
+import { HttpError } from '../http/errors.js';
+import { listConnectorInfos } from '../sync/routes.js';
 
 function authOf(req: { auth: AuthContext | null }): AuthContext {
   if (!req.auth) throw new Error('unreachable: the access hook authenticates');
@@ -53,6 +59,48 @@ export function connectorRoutes(app: FastifyInstance): void {
       },
     },
     async (req) => app.ctx.challenges.connect(authOf(req), req.body, req.ip),
+  );
+
+  r.delete(
+    '/connectors/:id',
+    {
+      config: { access: 'member' },
+      schema: {
+        tags: ['connectors'],
+        security,
+        params: connectorIdParams,
+        querystring: deleteConnectorQuery,
+        response: { 204: z.null(), '4xx': errorResponse },
+      },
+    },
+    async (req, reply) => {
+      await app.ctx.connectorManager.remove(authOf(req), req.params.id, req.query.mode);
+      return reply.code(204).send(null);
+    },
+  );
+
+  r.patch(
+    '/connectors/:id',
+    {
+      config: { access: 'member' },
+      schema: {
+        tags: ['connectors'],
+        security,
+        params: connectorIdParams,
+        body: renameConnectorRequest,
+        response: { 200: ownConnectorInfo, '4xx': errorResponse },
+      },
+    },
+    async (req) => {
+      const auth = authOf(req);
+      const { db, keyring, registry, connectorManager } = app.ctx;
+      await connectorManager.rename(auth, req.params.id, req.body.displayName);
+      const info = (await listConnectorInfos(db, keyring, registry, auth)).find(
+        (c) => c.id === req.params.id,
+      );
+      if (info?.isOwner !== true) throw new HttpError(404, 'not_found', 'Connector not found');
+      return info;
+    },
   );
 
   r.post(

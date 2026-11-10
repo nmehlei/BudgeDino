@@ -10,6 +10,8 @@ import {
 } from '@budgedino/shared';
 import type { ConnectorRegistry } from '../connectors/registry.js';
 import type { Db } from '../db/client.js';
+import type { Keyring } from '../households/keyring.js';
+import { decryptDisplayName } from '../repositories/connectors.js';
 import { accounts, connectors } from '../db/schema.js';
 import type { AuthContext } from '../deps.js';
 import { HttpError } from '../http/errors.js';
@@ -22,6 +24,7 @@ const iso = (d: Date | null) => (d === null ? null : d.toISOString());
  */
 export async function listConnectorInfos(
   db: Db,
+  keyring: Keyring,
   registry: ConnectorRegistry,
   auth: Pick<AuthContext, 'memberId' | 'householdId'>,
 ): Promise<ConnectorInfo[]> {
@@ -50,6 +53,7 @@ export async function listConnectorInfos(
       ),
     )
     .orderBy(connectors.createdAt, connectors.id);
+  const dk = await keyring.forHousehold(auth.householdId);
   const experimental = (type: string) => {
     try {
       return registry.get(type).experimental;
@@ -64,6 +68,8 @@ export async function listConnectorInfos(
           type: c.type,
           status: c.status,
           isOwner: true,
+          bank: c.bank ?? c.type,
+          displayName: decryptDisplayName(dk, c.id, c.displayNameEnc),
           experimental: experimental(c.type),
           lastSuccessAt: iso(c.lastSuccessAt),
           lastErrorCode: c.lastErrorCode,
@@ -74,6 +80,7 @@ export async function listConnectorInfos(
           type: c.type,
           status: c.status,
           isOwner: false,
+          bank: c.bank ?? c.type,
           lastSuccessAt: iso(c.lastSuccessAt),
         },
   );
@@ -96,7 +103,9 @@ export function syncRoutes(app: FastifyInstance): void {
     async (req) => {
       const auth = req.auth;
       if (!auth) throw new Error('unreachable: the access hook authenticates');
-      return { connectors: await listConnectorInfos(app.ctx.db, app.ctx.registry, auth) };
+      return {
+        connectors: await listConnectorInfos(app.ctx.db, app.ctx.keyring, app.ctx.registry, auth),
+      };
     },
   );
 

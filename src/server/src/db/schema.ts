@@ -112,6 +112,10 @@ export const connectors = pgTable('connectors', {
     .notNull()
     .references(() => members.id),
   type: text('type').notNull(),
+  /** Non-secret bank id (`dkb`, `comdirect`, `fake`), written at create time; null on rows that predate it. */
+  bank: text('bank'),
+  /** User-chosen name (may reveal bank or person names, hence encrypted). */
+  displayNameEnc: bytea('display_name_enc'),
   status: text('status', { enum: ['ok', 'needs_attention', 'error', 'disabled'] })
     .notNull()
     .default('ok'),
@@ -135,9 +139,13 @@ export const accounts = pgTable(
   'accounts',
   {
     id: id(),
-    connectorId: uuid('connector_id')
+    /** Scopes the account to its household even after its connection was removed. */
+    householdId: uuid('household_id')
       .notNull()
-      .references(() => connectors.id, { onDelete: 'cascade' }),
+      .references(() => households.id, { onDelete: 'cascade' }),
+    /** Null once the connection was removed with "keep history" (see `disconnectedAt`). */
+    connectorId: uuid('connector_id').references(() => connectors.id, { onDelete: 'cascade' }),
+    disconnectedAt: ts('disconnected_at'),
     ownerMemberId: uuid('owner_member_id')
       .notNull()
       .references(() => members.id),

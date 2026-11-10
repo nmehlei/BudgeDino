@@ -1,6 +1,6 @@
 import { and, eq, or } from 'drizzle-orm';
 import type { Db } from '../db/client.js';
-import { accounts, connectors } from '../db/schema.js';
+import { accounts } from '../db/schema.js';
 import type { AuthContext } from '../deps.js';
 
 declare const visibleBrand: unique symbol;
@@ -24,10 +24,9 @@ export async function visibleAccountIds(
   const rows = await db
     .select({ id: accounts.id })
     .from(accounts)
-    .innerJoin(connectors, eq(accounts.connectorId, connectors.id))
     .where(
       and(
-        eq(connectors.householdId, ctx.householdId),
+        eq(accounts.householdId, ctx.householdId),
         or(eq(accounts.visibility, 'household'), eq(accounts.ownerMemberId, ctx.memberId)),
       ),
     );

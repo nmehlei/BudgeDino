@@ -8,7 +8,9 @@ export const accountKind = z.enum(['checking', 'savings', 'credit_card', 'depot'
 /** Only ever returned to members allowed to see the account; `ibanMasked` shows the last 4 characters. */
 export const accountInfo = z.object({
   id: z.string(),
-  connectorId: z.string(),
+  /** Null once the connection was removed with "keep history". */
+  connectorId: z.string().nullable(),
+  disconnected: z.boolean(),
   ownerMemberId: z.string(),
   name: z.string(),
   ibanMasked: z.string().nullable(),

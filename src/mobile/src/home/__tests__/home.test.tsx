@@ -44,6 +44,8 @@ const ownOk: ConnectorInfo = {
   type: 'fints',
   status: 'ok',
   isOwner: true,
+  bank: 'dkb',
+  displayName: null,
   experimental: false,
   lastSuccessAt: new Date(Date.now() - 5 * 60_000).toISOString(),
   lastErrorCode: null,
@@ -55,6 +57,7 @@ const otherOk: ConnectorInfo = {
   type: 'psd2',
   status: 'ok',
   isOwner: false,
+  bank: 'dkb',
   lastSuccessAt: null,
 };
 

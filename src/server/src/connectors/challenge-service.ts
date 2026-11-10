@@ -15,6 +15,7 @@ import type { Keyring } from '../households/keyring.js';
 import { HttpError } from '../http/errors.js';
 import type { Logger } from '../observability/logger.js';
 import { safeErrorInfo } from '../observability/redact.js';
+import { bankIdFor } from './bank.js';
 import { createAccount } from '../repositories/accounts.js';
 import { encryptConnectorState } from '../repositories/connectors.js';
 import type { SyncService } from '../sync/service.js';
@@ -139,7 +140,7 @@ async function cancelDialog(
 }
 
 /** Conditionally moves a challenge to `to` and, when it did, cancels the bank dialog. */
-async function closeChallenge(
+export async function closeChallenge(
   deps: ChallengeDeps,
   row: ChallengeRow,
   connector: Pick<ConnectorRow, 'id' | 'type' | 'householdId'>,
@@ -460,6 +461,7 @@ export function createChallengeService(
           householdId: auth.householdId,
           ownerMemberId: auth.memberId,
           type: input.type,
+          bank: bankIdFor(input.type, config),
           status: 'needs_attention',
           configEnc: encryptField(dk, JSON.stringify(config), configAad(id)),
           defaultVisibility: input.accountDefaults?.visibility ?? 'household',

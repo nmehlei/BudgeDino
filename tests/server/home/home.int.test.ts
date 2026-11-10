@@ -131,7 +131,7 @@ describe('GET /home', () => {
     const theirs = own.home.sync.find((s) => s['isOwner'] === false);
     expect(theirs).toBeDefined();
     expect(Object.keys(theirs as object).sort()).toEqual(
-      ['id', 'isOwner', 'lastSuccessAt', 'status', 'type'].sort(),
+      ['bank', 'id', 'isOwner', 'lastSuccessAt', 'status', 'type'].sort(),
     );
     expect(rows).toHaveLength(2);
     // B's connector backs household accounts, so A sees it; make B's accounts all owner_only: invisible

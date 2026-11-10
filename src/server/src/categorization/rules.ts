@@ -2,7 +2,7 @@ import { and, desc, eq, inArray, isNotNull, isNull, max, sql } from 'drizzle-orm
 import { decryptString, encryptField, type DataKey } from '../crypto/index.js';
 import type { Db } from '../db/client.js';
 import { newId } from '../db/ids.js';
-import { accounts, categories, connectors, rules, transactions } from '../db/schema.js';
+import { accounts, categories, rules, transactions } from '../db/schema.js';
 import type { Keyring } from '../households/keyring.js';
 import { toTransaction, type Transaction } from '../repositories/transactions.js';
 import {
@@ -33,8 +33,7 @@ export function householdTransactionRows(db: Db, householdId: string) {
     })
     .from(transactions)
     .innerJoin(accounts, eq(transactions.accountId, accounts.id))
-    .innerJoin(connectors, eq(accounts.connectorId, connectors.id))
-    .where(eq(connectors.householdId, householdId))
+    .where(eq(accounts.householdId, householdId))
     .$dynamic();
 }
 
@@ -97,10 +96,9 @@ export async function loadLearned(
     })
     .from(transactions)
     .innerJoin(accounts, eq(transactions.accountId, accounts.id))
-    .innerJoin(connectors, eq(accounts.connectorId, connectors.id))
     .where(
       and(
-        eq(connectors.householdId, householdId),
+        eq(accounts.householdId, householdId),
         eq(transactions.categorySource, 'manual'),
         isNotNull(transactions.counterpartyBidx),
         isNotNull(transactions.categoryId),
@@ -238,7 +236,7 @@ export async function categorizeTransactions(
   if (txIds.length === 0) return;
   const dk = await keyring.forHousehold(householdId);
   const rows = await householdTransactionRows(db, householdId).where(
-    and(eq(connectors.householdId, householdId), inArray(transactions.id, [...txIds])),
+    and(eq(accounts.householdId, householdId), inArray(transactions.id, [...txIds])),
   );
   const ctx = await buildContext(db, dk, householdId);
   await apply(
@@ -270,7 +268,7 @@ export async function recategorizeCounterparty(
 ): Promise<{ id: string; accountId: string }[]> {
   const rows = await householdTransactionRows(db, householdId).where(
     and(
-      eq(connectors.householdId, householdId),
+      eq(accounts.householdId, householdId),
       eq(transactions.counterpartyBidx, counterpartyBidx),
       isNull(transactions.transferGroupId),
     ),

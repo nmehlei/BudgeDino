@@ -71,6 +71,13 @@
       "when": 1794215563544,
       "tag": "0009_challenges_cancel_attempted",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794328112905,
+      "tag": "0010_connector_bank_account_disconnect",
+      "breakpoints": true
     }
   ]
 }

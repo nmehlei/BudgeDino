@@ -2,7 +2,7 @@ import { and, eq, gte, inArray, isNull, lte } from 'drizzle-orm';
 import { decryptString, type DataKey } from '../crypto/index.js';
 import type { Db } from '../db/client.js';
 import { newId } from '../db/ids.js';
-import { accounts, categories, connectors, transactions } from '../db/schema.js';
+import { accounts, categories, transactions } from '../db/schema.js';
 import type { Keyring } from '../households/keyring.js';
 import { toTransaction, type Transaction } from '../repositories/transactions.js';
 import { householdTransactionRows } from './rules.js';
@@ -27,8 +27,7 @@ async function accountIbans(db: Db, dk: DataKey, householdId: string) {
   const rows = await db
     .select({ id: accounts.id, ibanEnc: accounts.ibanEnc })
     .from(accounts)
-    .innerJoin(connectors, eq(accounts.connectorId, connectors.id))
-    .where(eq(connectors.householdId, householdId));
+    .where(eq(accounts.householdId, householdId));
   const map = new Map<string, string | null>();
   for (const r of rows) {
     map.set(
@@ -62,7 +61,7 @@ export async function detectTransfers(
   const dk = await keyring.forHousehold(householdId);
   const seedRows = await householdTransactionRows(db, householdId).where(
     and(
-      eq(connectors.householdId, householdId),
+      eq(accounts.householdId, householdId),
       inArray(transactions.id, [...txIds]),
       eq(transactions.status, 'booked'),
       isNull(transactions.transferGroupId),
@@ -76,7 +75,7 @@ export async function detectTransfers(
   const hi = shiftDate(dates[dates.length - 1] as string, TRANSFER_WINDOW_DAYS);
   const poolRows = await householdTransactionRows(db, householdId).where(
     and(
-      eq(connectors.householdId, householdId),
+      eq(accounts.householdId, householdId),
       eq(transactions.status, 'booked'),
       isNull(transactions.transferGroupId),
       gte(transactions.bookingDate, lo),

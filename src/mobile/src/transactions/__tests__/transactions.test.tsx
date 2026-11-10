@@ -61,6 +61,7 @@ function account(over: Partial<AccountInfo> = {}): AccountInfo {
   return {
     id: 'acc1',
     connectorId: 'c1',
+    disconnected: false,
     ownerMemberId: 'm1',
     name: 'Girokonto',
     ibanMasked: '•••• 3000',

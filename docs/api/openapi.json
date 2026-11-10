@@ -587,7 +587,13 @@
                             "type": "string"
                           },
                           "connectorId": {
-                            "type": "string"
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "disconnected": {
+                            "type": "boolean"
                           },
                           "ownerMemberId": {
                             "type": "string"
@@ -637,6 +643,7 @@
                         "required": [
                           "id",
                           "connectorId",
+                          "disconnected",
                           "ownerMemberId",
                           "name",
                           "ibanMasked",
@@ -762,7 +769,13 @@
                       "type": "string"
                     },
                     "connectorId": {
-                      "type": "string"
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "disconnected": {
+                      "type": "boolean"
                     },
                     "ownerMemberId": {
                       "type": "string"
@@ -812,6 +825,7 @@
                   "required": [
                     "id",
                     "connectorId",
+                    "disconnected",
                     "ownerMemberId",
                     "name",
                     "ibanMasked",
@@ -1878,6 +1892,15 @@
                                   true
                                 ]
                               },
+                              "bank": {
+                                "type": "string"
+                              },
+                              "displayName": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
                               "experimental": {
                                 "type": "boolean"
                               },
@@ -1917,6 +1940,8 @@
                               "type",
                               "status",
                               "isOwner",
+                              "bank",
+                              "displayName",
                               "experimental",
                               "lastSuccessAt",
                               "lastErrorCode",
@@ -1948,6 +1973,9 @@
                                   false
                                 ]
                               },
+                              "bank": {
+                                "type": "string"
+                              },
                               "lastSuccessAt": {
                                 "anyOf": [
                                   {
@@ -1966,6 +1994,7 @@
                               "type",
                               "status",
                               "isOwner",
+                              "bank",
                               "lastSuccessAt"
                             ],
                             "additionalProperties": false
@@ -2436,6 +2465,273 @@
                   },
                   "required": [
                     "types"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "issues": {
+                      "description": "Only on 400 validation errors; field paths and rule messages, never values.",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "path": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "path",
+                          "message"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/connectors/{id}": {
+      "delete": {
+        "tags": [
+          "connectors"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "keep",
+                "purge"
+              ]
+            },
+            "in": "query",
+            "name": "mode",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Default Response"
+          },
+          "4XX": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "issues": {
+                      "description": "Only on 400 validation errors; field paths and rule messages, never values.",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "path": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "path",
+                          "message"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "connectors"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "displayName": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 60
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "displayName"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok",
+                        "needs_attention",
+                        "error",
+                        "disabled"
+                      ]
+                    },
+                    "isOwner": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "bank": {
+                      "type": "string"
+                    },
+                    "displayName": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "experimental": {
+                      "type": "boolean"
+                    },
+                    "lastSuccessAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "lastErrorCode": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "consentExpiresAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "type",
+                    "status",
+                    "isOwner",
+                    "bank",
+                    "displayName",
+                    "experimental",
+                    "lastSuccessAt",
+                    "lastErrorCode",
+                    "consentExpiresAt"
                   ],
                   "additionalProperties": false
                 }
@@ -4270,6 +4566,15 @@
                                   true
                                 ]
                               },
+                              "bank": {
+                                "type": "string"
+                              },
+                              "displayName": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
                               "experimental": {
                                 "type": "boolean"
                               },
@@ -4309,6 +4614,8 @@
                               "type",
                               "status",
                               "isOwner",
+                              "bank",
+                              "displayName",
                               "experimental",
                               "lastSuccessAt",
                               "lastErrorCode",
@@ -4340,6 +4647,9 @@
                                   false
                                 ]
                               },
+                              "bank": {
+                                "type": "string"
+                              },
                               "lastSuccessAt": {
                                 "anyOf": [
                                   {
@@ -4358,6 +4668,7 @@
                               "type",
                               "status",
                               "isOwner",
+                              "bank",
                               "lastSuccessAt"
                             ],
                             "additionalProperties": false

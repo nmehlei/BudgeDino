@@ -11,6 +11,7 @@ import { VERSION } from '@budgedino/shared';
 import { adminGuard, memberGuard } from './auth/guard.js';
 import { InMemoryPendingRegistrationStore } from './auth/pending.js';
 import { InMemoryRateLimiter } from './auth/rate-limit.js';
+import { createConnectorManager } from './connectors/manage.js';
 import { createChallengeService } from './connectors/challenge-service.js';
 import { connectorRoutes } from './connectors/routes.js';
 import { createConnectorRegistry } from './connectors/registry.js';
@@ -106,6 +107,13 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       logger: deps.logger,
       now: clock,
       sync,
+    }),
+    connectorManager: createConnectorManager({
+      db: deps.db,
+      keyring: deps.keyring,
+      registry,
+      logger: deps.logger,
+      now: clock,
     }),
   };
 

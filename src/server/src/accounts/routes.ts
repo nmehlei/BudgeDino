@@ -26,6 +26,7 @@ function toInfo(account: Account, auth: AuthContext): AccountInfo {
   return {
     id: account.id,
     connectorId: account.connectorId,
+    disconnected: account.disconnected,
     ownerMemberId: account.ownerMemberId,
     name: account.name,
     ibanMasked: account.iban === null ? null : maskIban(account.iban),

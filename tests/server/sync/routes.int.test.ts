@@ -150,6 +150,8 @@ describe('GET /connectors', () => {
     expect(byId.has(hidden.connectorId)).toBe(false);
     expect(byId.get(mine.connectorId)).toMatchObject({
       type: 'fake',
+      bank: 'fake',
+      displayName: null,
       status: 'ok',
       isOwner: true,
       experimental: false,
@@ -160,6 +162,7 @@ describe('GET /connectors', () => {
     expect(byId.get(shared.connectorId)).toEqual({
       id: shared.connectorId,
       type: 'fake',
+      bank: 'fake',
       status: 'ok',
       lastSuccessAt: null,
       isOwner: false,
