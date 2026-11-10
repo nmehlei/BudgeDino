@@ -17,6 +17,7 @@ import { createChallengeService } from './connectors/challenge-service.js';
 import { connectorRoutes } from './connectors/routes.js';
 import { createConnectorRegistry } from './connectors/registry.js';
 import { createSyncService } from './sync/service.js';
+import { netWorthRoutes } from './net-worth/routes.js';
 import { syncRoutes } from './sync/routes.js';
 import { categorizationRoutes } from './categorization/routes.js';
 import { categorizeTransactions } from './categorization/rules.js';
@@ -215,6 +216,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       connectorRoutes(api);
       budgetRoutes(api);
       homeRoutes(api);
+      netWorthRoutes(api);
       notificationRoutes(api);
     },
     { prefix: API_PREFIX },

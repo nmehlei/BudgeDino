@@ -8,3 +8,4 @@ export * from './connectors';
 export * from './categories';
 export * from './transactions';
 export * from './budgets';
+export * from './net-worth';

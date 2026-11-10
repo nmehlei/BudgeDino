@@ -37,6 +37,7 @@ export interface Account {
   visibility: 'household' | 'owner_only';
   countsTowardBudgets: boolean;
   balanceMinor: bigint | null;
+  balanceAt: Date | null;
 }
 
 export async function createAccount(db: Db, dk: DataKey, input: NewAccount): Promise<string> {
@@ -94,6 +95,7 @@ function toAccount(dk: DataKey, row: typeof accounts.$inferSelect): Account {
     balanceMinor: row.balanceEnc
       ? BigInt(decryptString(dk, row.balanceEnc, aad('balance', row.id)))
       : null,
+    balanceAt: row.balanceAt,
   };
 }
 
