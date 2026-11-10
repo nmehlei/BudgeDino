@@ -2,7 +2,8 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { startTestDatabase } from '../support/postgres.js';
@@ -14,6 +15,17 @@ const dist = (file: string) =>
 describe('built server (plain Node)', () => {
   it('has been built', () => {
     expect(existsSync(dist('main.js')), 'run `pnpm build` first').toBe(true);
+  });
+
+  it('embeds the build version from scripts/version.cjs', () => {
+    const { getVersion } = createRequire(import.meta.url)('../../scripts/version.cjs') as {
+      getVersion: () => { version: string };
+    };
+    const literal = JSON.stringify(getVersion().version);
+    const bundled = readdirSync(dist(''))
+      .filter((f) => f.endsWith('.js'))
+      .some((f) => readFileSync(dist(f), 'utf8').includes(literal));
+    expect(bundled).toBe(true);
   });
 
   it('budgedino CLI prints help', () => {

@@ -40,7 +40,7 @@ export default tseslint.config(
   },
   {
     // Expo/Metro/Babel/Jest config files are CommonJS
-    files: ['src/mobile/*.js'],
+    files: ['src/mobile/*.js', '**/*.cjs'],
     languageOptions: { sourceType: 'commonjs', globals: globals.node },
     rules: { '@typescript-eslint/no-require-imports': 'off' },
   },

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { VERSION } from '@budgedino/shared';
 import { buildApp } from '@budgedino/server/app';
+import { SERVER_VERSION } from '@budgedino/server/build-info';
 import { createLogger } from '@budgedino/server/observability/logger';
 
 describe('GET /api/v1/health', () => {
@@ -15,7 +15,7 @@ describe('GET /api/v1/health', () => {
     try {
       const res = await app.inject({ method: 'GET', url: '/api/v1/health' });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ ok: true, version: VERSION });
+      expect(res.json()).toEqual({ ok: true, version: SERVER_VERSION });
       const entry = app.routeRegistry.find((r) => r.url === '/api/v1/health');
       expect(entry?.access).toBe('public');
     } finally {
