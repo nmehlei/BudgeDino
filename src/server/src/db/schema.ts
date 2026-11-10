@@ -342,3 +342,11 @@ export const fxRates = pgTable(
   },
   (t) => [primaryKey({ columns: [t.date, t.currency] })],
 );
+
+/** Server-side cache of bank logos fetched from the banks' official sites (see connectors/bank-icons.ts). */
+export const bankIcons = pgTable('bank_icons', {
+  bank: text('bank').primaryKey(),
+  contentType: text('content_type').notNull(),
+  data: bytea('data').notNull(),
+  fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull(),
+});

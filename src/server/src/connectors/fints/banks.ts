@@ -8,7 +8,22 @@ export type FinTSBankId = 'dkb' | 'comdirect';
  *   AqBanking setup (https://www.aquamaniac.de/rdm/issues/126). The full institute list is at
  *   https://www.hbci-zka.de/ (fints.org).
  */
-export const FINTS_BANKS: Record<FinTSBankId, { name: string; blz: string; url: string }> = {
-  dkb: { name: 'DKB', blz: '12030000', url: 'https://fints.dkb.de/fints' },
-  comdirect: { name: 'Comdirect', blz: '20041111', url: 'https://fints.comdirect.de/fints' },
+export const FINTS_BANKS: Record<
+  FinTSBankId,
+  { name: string; blz: string; url: string; iconUrl: string }
+> = {
+  dkb: {
+    name: 'DKB',
+    blz: '12030000',
+    url: 'https://fints.dkb.de/fints',
+    // iconUrl: the bank's own apple-touch-icon on its official domain, fetched lazily by the server
+    // (bank-icons.ts); no logo files live in the repo. It is the only place an icon URL may come from.
+    iconUrl: 'https://www.dkb.de/apple-touch-icon.png',
+  },
+  comdirect: {
+    name: 'Comdirect',
+    blz: '20041111',
+    url: 'https://fints.comdirect.de/fints',
+    iconUrl: 'https://www.comdirect.de/apple-touch-icon.png',
+  },
 };

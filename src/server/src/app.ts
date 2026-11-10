@@ -11,6 +11,7 @@ import { VERSION } from '@budgedino/shared';
 import { adminGuard, memberGuard } from './auth/guard.js';
 import { InMemoryPendingRegistrationStore } from './auth/pending.js';
 import { InMemoryRateLimiter } from './auth/rate-limit.js';
+import { createBankIconService, createDbBankIconStore } from './connectors/bank-icons.js';
 import { createConnectorManager } from './connectors/manage.js';
 import { createChallengeService } from './connectors/challenge-service.js';
 import { connectorRoutes } from './connectors/routes.js';
@@ -108,6 +109,13 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       now: clock,
       sync,
     }),
+    bankIcons:
+      deps.bankIcons ??
+      createBankIconService({
+        store: createDbBankIconStore(deps.db),
+        logger: deps.logger,
+        now: clock,
+      }),
     connectorManager: createConnectorManager({
       db: deps.db,
       keyring: deps.keyring,

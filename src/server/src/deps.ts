@@ -2,6 +2,7 @@ import type { MasterKey } from './crypto/index.js';
 import type { Db } from './db/client.js';
 import type { ConnectorRegistry } from './connectors/registry.js';
 import type { ChallengeService } from './connectors/challenge-service.js';
+import type { BankIconService } from './connectors/bank-icons.js';
 import type { ConnectorManager } from './connectors/manage.js';
 import type { SyncService } from './sync/service.js';
 import type { Keyring } from './households/keyring.js';
@@ -26,6 +27,8 @@ export interface AppDeps {
   registry?: ConnectorRegistry;
   /** Categorizer hook, called after each sync with inserted/updated transaction ids; default categorizes and detects transfers. */
   onIngested?: (householdId: string, txIds: string[]) => Promise<void>;
+  /** Bank logo source; default: lazy fetch from the allow-listed official URLs with a DB cache (tests inject a mock). */
+  bankIcons?: BankIconService;
 }
 
 /** Resolved dependencies handed to route handlers via `app.ctx`. */
@@ -41,6 +44,7 @@ export interface AppContext {
   sync: SyncService;
   challenges: ChallengeService;
   connectorManager: ConnectorManager;
+  bankIcons: BankIconService;
 }
 
 export type AccessLevel = 'public' | 'member' | 'admin';

@@ -23,6 +23,8 @@ export type RouteFixtures = Record<string, Record<string, (seed: RouteFixtureSee
 export const ROUTE_FIXTURES: RouteFixtures = {
   // '/api/v1/accounts/:accountId/transactions': { ':accountId': (s) => s.hiddenAccountId },
   '/api/v1/challenges/:id': { ':id': (s) => s.hiddenChallengeId },
+  // An unknown bank id: the harness must never trigger a real fetch of a bank logo (404, no network).
+  '/api/v1/banks/:bank/icon': { ':bank': () => 'unknown' },
 };
 
 /**
@@ -35,6 +37,9 @@ export const OWNER_POSITIVE_CONTROL_EXEMPT: Record<string, string> = {
   // Returns only `{ status }`: by design it carries no account data, so there is no canary to find. The
   // owner's 2xx and the other member's 404 are asserted in tests/server/connectors/challenge.int.test.ts.
   '/api/v1/challenges/:id': 'status-only response, no canary data (see challenge.int.test.ts)',
+  // Public bank artwork, not account data; the harness uses an unknown bank so it never touches the network.
+  // The 200 and 404 cases are asserted in tests/server/connectors/bank-icons.int.test.ts.
+  '/api/v1/banks/:bank/icon': 'static bank logo, no canary data (see bank-icons.int.test.ts)',
 };
 
 /** Substitutes every `:param` of a route URL, throwing when a parameter has no fixture. */

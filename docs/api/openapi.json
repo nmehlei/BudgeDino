@@ -2517,6 +2517,76 @@
         }
       }
     },
+    "/api/v1/banks/{bank}/icon": {
+      "get": {
+        "tags": [
+          "connectors"
+        ],
+        "description": "The bank's logo (image/png, image/jpeg, image/webp or image/gif), fetched lazily from the bank's official site and cached by the server; 404 when the bank is unknown or the fetch fails.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "in": "path",
+            "name": "bank",
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "4XX": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "issues": {
+                      "description": "Only on 400 validation errors; field paths and rule messages, never values.",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "path": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "path",
+                          "message"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/connectors/{id}": {
       "delete": {
         "tags": [

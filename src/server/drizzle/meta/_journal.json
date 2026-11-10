@@ -78,6 +78,13 @@
       "when": 1794328112905,
       "tag": "0010_connector_bank_account_disconnect",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794328692177,
+      "tag": "0011_bank_icons",
+      "breakpoints": true
     }
   ]
 }

@@ -33,6 +33,7 @@ function authOf(req: { auth: AuthContext | null }): AuthContext {
 export function connectorRoutes(app: FastifyInstance): void {
   const r = app.withTypeProvider<ZodTypeProvider>();
   const security = [{ bearer: [] }];
+  const bankIconParams = z.object({ bank: z.string().min(1).max(32) });
 
   r.get(
     '/connectors/types',
@@ -45,6 +46,29 @@ export function connectorRoutes(app: FastifyInstance): void {
       },
     },
     () => ({ types: app.ctx.registry.types() }),
+  );
+
+  r.get(
+    '/banks/:bank/icon',
+    {
+      config: { access: 'member' },
+      schema: {
+        tags: ['connectors'],
+        security,
+        description:
+          "The bank's logo (image/png, image/jpeg, image/webp or image/gif), fetched lazily from the bank's official site and cached by the server; 404 when the bank is unknown or the fetch fails.",
+        params: bankIconParams,
+        response: { '4xx': errorResponse },
+      },
+    },
+    async (req, reply) => {
+      const icon = await app.ctx.bankIcons.get(req.params.bank);
+      if (!icon) throw new HttpError(404, 'not_found', 'No icon for this bank');
+      return reply
+        .header('content-type', icon.contentType)
+        .header('cache-control', 'private, max-age=86400')
+        .send(icon.data as never); // binary body: no response schema for 200
+    },
   );
 
   r.post(

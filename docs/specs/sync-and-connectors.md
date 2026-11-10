@@ -226,6 +226,19 @@ Code: `src/server/src/connectors/{remove.ts,bank.ts,bank-backfill.ts}`, `routes.
   **Backfill [call]:** a one-time startup step (`backfillConnectorBanks`, after the SQL migrations) decrypts the config of
   rows without `bank` once and writes it; rows that cannot be decrypted are left null and read as their type.
 
+## Bank icons (implementation summary)
+
+Code: `src/server/src/connectors/bank-icons.ts`, route in `connectors/routes.ts`; `iconUrl` per bank in `connectors/fints/banks.ts`.
+
+- **`GET /banks/:bank/icon`** (member): the bank's logo as an image (`image/png|jpeg|webp|gif`), `Cache-Control: private,
+max-age=86400` so the app caches it. 404 for an unknown bank, a bank without an icon (`fake`), or a failed fetch. No
+  trademarked image files live in the repo **[owner]**: the server fetches the logo lazily from the bank's official site.
+- **No SSRF [call]:** the URL comes only from the fixed allow-list in `banks.ts` (`iconUrl`, https, official domain), never
+  from user input. Redirects are followed manually (at most 3) and only to https URLs on the same host. The response must
+  have an allow-listed raster content type (no SVG) and at most 256 KiB, with a 5 s timeout. Anything else counts as a failed fetch.
+- **Cache:** table `bank_icons` (`bank`, `content_type`, `data`, `fetched_at`), TTL 30 days. A failed refresh serves the stale
+  copy when there is one; a failed fetch without a copy is remembered in memory for 10 minutes (no hammering), then retried.
+
 ## Sync engine (implementation summary)
 
 Code: `src/server/src/sync/` (`run.ts`, `ingest.ts`, `rate-guard.ts`, `scheduler.ts`, `jobs.ts`, `routes.ts`).
