@@ -37,7 +37,7 @@ export function createSessionApiClient(store: SessionStore, fetchImpl?: typeof f
   return createApiClient({
     baseUrl: serverUrl,
     getToken: store.getToken,
-    onUnauthorized: () => store.signOut(),
+    onUnauthorized: () => store.expireSession(),
     fetchImpl,
   });
 }

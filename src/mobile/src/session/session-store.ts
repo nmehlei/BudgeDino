@@ -5,6 +5,8 @@ export interface SessionSnapshot {
   status: SessionStatus;
   serverUrl: string | null;
   deviceName: string | null;
+  /** True after a 401 wiped the session; the login screen explains why. Cleared by the next sign-in. */
+  expired: boolean;
 }
 
 /** Non-secret settings (MMKV `budgedino-prefs` in the app). */
@@ -40,6 +42,7 @@ export function createSessionStore({ prefs, token }: SessionStoreDeps) {
     status: 'loading',
     serverUrl: prefs.getString(SERVER_URL_KEY) ?? null,
     deviceName: prefs.getString(DEVICE_NAME_KEY) ?? null,
+    expired: false,
   };
   const listeners = new Set<() => void>();
   const wipeHooks = new Set<() => void | Promise<void>>();
@@ -51,7 +54,7 @@ export function createSessionStore({ prefs, token }: SessionStoreDeps) {
     });
   }
 
-  return {
+  const store = {
     subscribe(listener: () => void) {
       listeners.add(listener);
       return () => {
@@ -98,7 +101,7 @@ export function createSessionStore({ prefs, token }: SessionStoreDeps) {
     async signIn(sessionToken: string) {
       await token.set(sessionToken);
       prefs.remove(SIGNED_OUT_KEY);
-      update({ status: 'signed_in' });
+      update({ status: 'signed_in', expired: false });
     },
 
     /** Registers extra wipes for sign-out (the query client, the persisted cache). */
@@ -142,7 +145,14 @@ export function createSessionStore({ prefs, token }: SessionStoreDeps) {
       update({ status: 'signed_out' });
       if (failures.length > 0) throw failures[0];
     },
+
+    /** A 401 wiped the session: flags it so the login screen can say why, then signs out. */
+    async expireSession(): Promise<void> {
+      update({ expired: true });
+      await store.signOut();
+    },
   };
+  return store;
 }
 
 export type SessionStore = ReturnType<typeof createSessionStore>;

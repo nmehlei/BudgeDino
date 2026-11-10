@@ -62,6 +62,7 @@ describe('session store', () => {
       status: 'signed_in',
       serverUrl: 'https://budget.example.test',
       deviceName: 'Pixel',
+      expired: false,
     });
   });
 
@@ -127,6 +128,7 @@ describe('session store', () => {
       status: 'signed_out',
       serverUrl: 'https://x.test',
       deviceName: 'Pixel',
+      expired: false,
     });
   });
 

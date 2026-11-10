@@ -56,5 +56,9 @@ instance and expect a restart to drop open TAN challenges ([ADR 0009](../adr/000
 FinTS dependency `lib-fints` is LGPL-2.1-or-later and is used unmodified except for the patch in
 `patches/lib-fints@1.5.3.patch`, published in this repository.
 
+**Health.** `GET /api/v1/health` is public (`config.access: 'public'`) and answers `{ "ok": true, "version": "<server version>" }`
+without touching the database or returning household data. The mobile app calls it to verify a server URL
+during onboarding.
+
 **OpenAPI.** `docs/api/openapi.json` is generated from the route schemas (`pnpm openapi`) and committed;
 `ci/check.sh` regenerates it and fails when it differs, so API changes always ship with the updated document.

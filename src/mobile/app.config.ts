@@ -19,6 +19,8 @@ const config: ExpoConfig = {
     // Cleartext HTTP (LAN dev server) only in development builds; release builds require HTTPS.
     ['expo-build-properties', { android: { usesCleartextTraffic: isDevelopment } }],
   ],
+  // Read by src/auth/config.ts: http:// server URLs are accepted only when this is true.
+  extra: { allowCleartext: isDevelopment },
   experiments: {
     typedRoutes: true,
   },

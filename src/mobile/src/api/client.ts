@@ -11,6 +11,7 @@ import {
   connectorListResponse,
   createInviteResponse,
   errorResponse,
+  healthResponse,
   homeResponse,
   listTransactionsResponse,
   notificationsResponse,
@@ -174,6 +175,9 @@ export function createApiClient(options: ApiClientOptions) {
   }
 
   return {
+    // public
+    health: () => request({ method: 'GET', path: '/health', schema: healthResponse }),
+
     // auth
     register: (input: RegisterRequest) =>
       request({ method: 'POST', path: '/auth/register', body: input, schema: registerResponse }),

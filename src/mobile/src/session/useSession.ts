@@ -9,6 +9,7 @@ export interface UseSession extends SessionSnapshot {
   setDeviceName: SessionStore['setDeviceName'];
   signIn: SessionStore['signIn'];
   signOut: SessionStore['signOut'];
+  expireSession: SessionStore['expireSession'];
 }
 
 /** React binding over the session store. Exposes status, server URL and device name, never the token. */
@@ -21,5 +22,6 @@ export function useSession(store: SessionStore = getSessionStore()): UseSession 
     setDeviceName: store.setDeviceName,
     signIn: store.signIn,
     signOut: store.signOut,
+    expireSession: store.expireSession,
   };
 }
