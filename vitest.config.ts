@@ -20,6 +20,7 @@ export default defineConfig({
             '**/*.e2e.test.ts',
             '**/*.build.test.ts',
             '**/node_modules/**',
+            'src/mobile/**', // jest-expo, run via `pnpm mobile:test`
           ],
         },
       },

@@ -22,8 +22,8 @@
     "mobile:test": "pnpm --filter @budgedino/mobile run test",
     "mobile:lint": "eslint src/mobile",
     "mobile:typecheck": "pnpm --filter @budgedino/mobile run typecheck",
-    "mobile:android": "APP_VARIANT=development pnpm --filter @budgedino/mobile exec expo run:android --device",
-    "mobile:prebuild": "pnpm --filter @budgedino/mobile exec expo prebuild --platform android --no-install"
+    "mobile:android": "pnpm mobile:prebuild && APP_VARIANT=development pnpm --filter @budgedino/mobile exec expo run:android --device",
+    "mobile:prebuild": "APP_VARIANT=${APP_VARIANT:-development} pnpm --filter @budgedino/mobile exec expo prebuild --platform android --clean --no-install"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

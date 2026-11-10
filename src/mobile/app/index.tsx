@@ -1,3 +1,4 @@
+import { VERSION } from '@budgedino/shared';
 import { StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';
 
@@ -8,6 +9,7 @@ export default function Home() {
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <Text variant="displaySmall">BudgeDino</Text>
+      <Text variant="bodySmall">shared v{VERSION}</Text>
     </View>
   );
 }

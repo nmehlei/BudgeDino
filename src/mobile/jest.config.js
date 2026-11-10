@@ -6,6 +6,6 @@ module.exports = {
     '^@budgedino/shared$': '<rootDir>/../shared/src/index.ts',
   },
   transformIgnorePatterns: [
-    '/node_modules/(?!(.pnpm|((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|react-native-paper|react-native-svg)))',
+    '/node_modules/(?!(.pnpm|((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|react-native-paper|temporal-polyfill|temporal-utils|react-native-svg)))',
   ],
 };

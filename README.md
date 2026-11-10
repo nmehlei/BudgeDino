@@ -4,7 +4,7 @@ Open-source, self-hostable household finance app. It pulls accounts, transaction
 from banks and brokers automatically, categorizes transactions and shows them against household
 budgets, without recurring manual work. Sensitive data is encrypted at application level.
 
-Status: early development (server foundation). The Android app (Expo development build) lives in `src/mobile`; `pnpm mobile:android` installs it on a USB-attached phone (JDK 21 via `.mise.toml`, no emulator).
+Status: early development (server foundation). The Android app (Expo development build) lives in `src/mobile`; `pnpm mobile:android` installs it on a USB-attached phone (JDK 17 via `.mise.toml`; without mise set `JAVA_HOME` to a JDK 17, e.g. `export JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home`; plus `ANDROID_HOME`; no emulator).
 
 ## Documentation
 
