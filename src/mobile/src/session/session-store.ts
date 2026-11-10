@@ -32,9 +32,17 @@ const SERVER_URL_KEY = 'serverUrl';
 const DEVICE_NAME_KEY = 'deviceName';
 const SIGNED_OUT_KEY = 'signedOut';
 
-/** Removes trailing slashes; the API client appends `/api/v1`. */
+/**
+ * Canonical server URL: scheme and host lowercased (the path keeps its case), trailing slashes and a
+ * pasted `/api/v1` suffix removed (the API client appends `/api/v1`).
+ */
 export function normalizeServerUrl(url: string): string {
-  return url.trim().replace(/\/+$/, '');
+  const trimmed = url.trim().replace(/\/+$/, '');
+  const withoutApi = trimmed.replace(/\/api\/v1$/i, '').replace(/\/+$/, '');
+  return withoutApi.replace(
+    /^([a-z][a-z0-9+.-]*:\/\/)([^/?#]*)/i,
+    (_m, scheme: string, host: string) => scheme.toLowerCase() + host.toLowerCase(),
+  );
 }
 
 export function createSessionStore({ prefs, token }: SessionStoreDeps) {

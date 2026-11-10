@@ -48,6 +48,7 @@ export default function RegisterScreen() {
       });
       session.setDeviceName(deviceName.trim());
       pendingRegistration.set(res);
+      setPassword('');
       router.push('/(auth)/register-totp');
     } catch (e) {
       setError(registerErrorMessage(e));

@@ -1,6 +1,6 @@
 import * as Clipboard from 'expo-clipboard';
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useNavigation, useRouter } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Button, HelperText, Text } from 'react-native-paper';
 import QRCode from 'react-native-qrcode-svg';
@@ -13,7 +13,13 @@ import { TotpField } from '../../src/auth/TotpField';
 import { isCompleteTotp, parseTotpSecret } from '../../src/auth/validation';
 import { useSession } from '../../src/session/useSession';
 
+/** expo-router's navigation type omits the stack events; `beforeRemove` exists on every navigator. */
+interface BeforeRemoveEmitter {
+  addListener: (event: 'beforeRemove', cb: () => void) => () => void;
+}
+
 const MAX_QR = 240;
+const CLIPBOARD_CLEAR_MS = 60_000;
 
 export default function RegisterTotpScreen() {
   const router = useRouter();
@@ -23,6 +29,26 @@ export default function RegisterTotpScreen() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  const navigation = useNavigation();
+  const clipboardTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // The provisioning URI holds the TOTP secret: drop it when the screen is left. beforeRemove (not an
+  // effect cleanup) so StrictMode's simulated unmount cannot clear it while the screen still renders.
+  useEffect(() => {
+    const off = (navigation as BeforeRemoveEmitter).addListener('beforeRemove', () => {
+      pendingRegistration.clear();
+    });
+    return off;
+  }, [navigation]);
+
+  // Best effort: overwrite the copied secret shortly afterwards; the timer dies with the screen.
+  useEffect(
+    () => () => {
+      if (clipboardTimer.current) clearTimeout(clipboardTimer.current);
+    },
+    [],
+  );
 
   const pending = pendingRegistration.get();
   if (!pending) {
@@ -84,11 +110,18 @@ export default function RegisterTotpScreen() {
             onPress={() => {
               void Clipboard.setStringAsync(secret).then(() => {
                 setCopied(true);
+                if (clipboardTimer.current) clearTimeout(clipboardTimer.current);
+                clipboardTimer.current = setTimeout(() => {
+                  void Clipboard.setStringAsync('').catch(() => undefined);
+                }, CLIPBOARD_CLEAR_MS);
               });
             }}
           >
             {copied ? 'Copied' : 'Copy secret'}
           </Button>
+          {copied ? (
+            <Text variant="bodySmall">The clipboard is cleared in about a minute.</Text>
+          ) : null}
         </>
       ) : null}
       <TotpField value={code} onChange={setCode} />

@@ -36,6 +36,7 @@ export default function LoginScreen() {
         deviceName: session.deviceName ?? Device.modelName ?? 'Android device',
       });
       await session.signIn(res.sessionToken);
+      setPassword('');
       router.replace('/');
     } catch (e) {
       setError(loginErrorMessage(e));

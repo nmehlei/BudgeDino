@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { PixelRatio, StyleSheet } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 
@@ -9,6 +9,15 @@ import ServerScreen from '../../../app/(auth)/server';
 import { ApiClientError } from '../../api/errors';
 import { pendingRegistration } from '../pending-registration';
 
+const mockListeners: Record<string, (() => void) | undefined> = {};
+const mockNavigation = {
+  addListener: (event: string, cb: () => void) => {
+    mockListeners[event] = cb;
+    return () => {
+      mockListeners[event] = undefined;
+    };
+  },
+};
 const mockRouter = { push: jest.fn(), replace: jest.fn() };
 const mockSession = {
   status: 'signed_out' as const,
@@ -28,7 +37,10 @@ const mockApi = {
 let mockCleartext = false;
 const mockSetString = jest.fn<Promise<void>, [string]>().mockResolvedValue(undefined);
 
-jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
+jest.mock('expo-router', () => ({
+  useRouter: () => mockRouter,
+  useNavigation: () => mockNavigation,
+}));
 jest.mock('../../session/useSession', () => ({ useSession: () => mockSession }));
 jest.mock('../api', () => ({ createAuthApi: () => mockApi }));
 jest.mock('../config', () => ({ allowCleartext: () => mockCleartext }));
@@ -127,6 +139,7 @@ describe('registration', () => {
     await waitFor(() => {
       expect(mockRouter.push).toHaveBeenCalledWith('/(auth)/register-totp');
     });
+    expect(screen.getByTestId('password').props.value).toBe('');
     expect(mockApi.register).toHaveBeenCalledWith({
       inviteToken: 'invite-abc',
       email: 'a@b.test',
@@ -184,6 +197,7 @@ describe('login', () => {
       deviceName: 'Pixel 9',
     });
     expect(mockRouter.replace).toHaveBeenCalledWith('/');
+    expect(screen.getByTestId('password').props.value).toBe('');
   });
 
   it('shows only a generic message on 401', async () => {
@@ -254,5 +268,60 @@ describe('200 % font scale', () => {
       expect(mockSession.signIn).toHaveBeenCalled();
     });
     jest.restoreAllMocks();
+  });
+});
+
+describe('TOTP secret hygiene', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('drops the provisioning URI when the screen is left, and registering again works', async () => {
+    pendingRegistration.set({ pendingId: 'p-1', totpProvisioningUri: URI });
+    await renderScreen(<RegisterTotpScreen />);
+    expect(screen.getByTestId('qr')).toBeTruthy(); // still rendered while on screen
+    mockListeners['beforeRemove']?.();
+    expect(pendingRegistration.get()).toBeNull();
+
+    await screen.unmount();
+    mockApi.register.mockResolvedValue({ totpProvisioningUri: URI, pendingId: 'p-2' });
+    await renderScreen(<RegisterScreen />);
+    await type('invite-token', 'i');
+    await type('email', 'a@b.test');
+    await type('display-name', 'A');
+    await type('password', 'correct horse battery');
+    await fireEvent.press(screen.getByText('Continue'));
+    await waitFor(() => {
+      expect(pendingRegistration.get()?.pendingId).toBe('p-2');
+    });
+  });
+
+  it('overwrites the clipboard about 60 s after copying, and not after leaving', async () => {
+    pendingRegistration.set({ pendingId: 'p-1', totpProvisioningUri: URI });
+    await renderScreen(<RegisterTotpScreen />);
+    await fireEvent.press(screen.getByText('Copy secret'));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByText(/clipboard is cleared/)).toBeTruthy();
+    expect(mockSetString).not.toHaveBeenCalledWith('');
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(60_000);
+    });
+    expect(mockSetString).toHaveBeenLastCalledWith('');
+
+    mockSetString.mockClear();
+    await fireEvent.press(screen.getByText('Copied'));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(0);
+    });
+    await screen.unmount();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(60_000);
+    });
+    expect(mockSetString).not.toHaveBeenCalledWith('');
   });
 });

@@ -36,6 +36,37 @@ describe('validateServerUrl', () => {
   });
 });
 
+describe('normalizeServerUrl via validateServerUrl', () => {
+  it('lowercases scheme and host but keeps the path case', () => {
+    expect(validateServerUrl('HTTPS://Budget.Example.COM/Sub', false)).toEqual({
+      ok: true,
+      url: 'https://budget.example.com/Sub',
+    });
+  });
+
+  it('keeps a path suffix and strips a pasted /api/v1', () => {
+    expect(validateServerUrl('https://h.test/sub', false)).toEqual({
+      ok: true,
+      url: 'https://h.test/sub',
+    });
+    for (const raw of [
+      'https://h.test/api/v1',
+      'https://h.test/api/v1/',
+      'https://h.test/sub/api/v1',
+    ]) {
+      const res = validateServerUrl(raw, false);
+      expect(res.ok && res.url).toBe(
+        raw.includes('/sub') ? 'https://h.test/sub' : 'https://h.test',
+      );
+    }
+  });
+
+  it('rejects HTTP:// in production', () => {
+    expect(validateServerUrl('HTTP://h.test', false).ok).toBe(false);
+    expect(validateServerUrl('HTTP://H.test', true)).toEqual({ ok: true, url: 'http://h.test' });
+  });
+});
+
 describe('TOTP helpers', () => {
   it('keeps only up to six digits', () => {
     expect(sanitizeTotp('12a3-4 5678')).toBe('123456');

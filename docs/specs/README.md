@@ -10,6 +10,7 @@ updates the relevant spec in the same PR, before the code (spec → failing test
 | Categorization                 | [categorization.md](categorization.md)             |
 | Budgets                        | [budgets.md](budgets.md)                           |
 | Net worth                      | [net-worth.md](net-worth.md)                       |
+| Mobile app, onboarding         | [mobile.md](mobile.md)                             |
 | Security and encryption        | [security.md](security.md)                         |
 | Self-hosting and deployment    | [self-hosting.md](self-hosting.md)                 |
 
