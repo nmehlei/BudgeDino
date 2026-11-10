@@ -1,13 +1,14 @@
 import type { SessionInfo } from '@budgedino/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import {
   ActivityIndicator,
   Button,
   Divider,
   List,
+  RadioButton,
   Snackbar,
   Switch,
   Text,
@@ -22,6 +23,13 @@ import { getSessionStore } from '../session/instance';
 import { revokeCurrentSession } from '../session/revoke-current';
 import { useSession } from '../session/useSession';
 import { useAppTheme } from '../theme';
+import { getThemeStore, THEME_PREFERENCES, type ThemePreference } from '../theme-store';
+
+const THEME_LABEL: Record<ThemePreference, string> = {
+  system: 'System',
+  light: 'Light',
+  dark: 'Dark',
+};
 
 export const sessionsKey = ['sessions'] as const;
 
@@ -45,6 +53,12 @@ export function SettingsScreen() {
   const api = useApi();
   const client = useQueryClient();
   const { serverUrl, lockEnabled, setLockEnabled } = useSession();
+  const themeStore = getThemeStore();
+  const themePreference = useSyncExternalStore(
+    themeStore.subscribe,
+    themeStore.getPreference,
+    themeStore.getPreference,
+  );
   const notifications = useNotificationPermission();
   const [message, setMessageState] = useState<string | null>(null);
   const mounted = useRef(true);
@@ -145,6 +159,29 @@ export function SettingsScreen() {
           onPress={() => router.push('/settings/accounts')}
           testID="settings-accounts"
         />
+
+        <Divider />
+        <List.Subheader>Appearance</List.Subheader>
+        <RadioButton.Group
+          value={themePreference}
+          onValueChange={(v) => {
+            if ((THEME_PREFERENCES as readonly string[]).includes(v)) {
+              themeStore.setPreference(v as ThemePreference);
+            }
+          }}
+        >
+          {THEME_PREFERENCES.map((value) => (
+            <RadioButton.Item
+              key={value}
+              value={value}
+              label={THEME_LABEL[value]}
+              labelVariant="bodyLarge"
+              labelStyle={styles.radioLabel}
+              testID={`settings-theme-${value}`}
+              accessibilityLabel={`Theme: ${THEME_LABEL[value]}`}
+            />
+          ))}
+        </RadioButton.Group>
 
         <Divider />
         <List.Item
@@ -251,4 +288,5 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   title: { paddingHorizontal: 16, paddingBottom: 8 },
   padded: { padding: 16, gap: 8 },
+  radioLabel: { textAlign: 'left', flexShrink: 1 },
 });

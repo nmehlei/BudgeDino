@@ -140,3 +140,21 @@ of other members only read "Shared by another member". A successful update inval
 **Demo bank config.** "Demo bank" sends `{ type: 'fake', config: { scenario: 'decoupled' } }`: connecting
 returns a `decoupled` challenge that the user confirms on the challenge screen (this also drives the Maestro
 flow `connect-demo-bank.yaml`). Dev loop and seed: [self-hosting.md](self-hosting.md#local-development-loop-implemented).
+
+## Appearance
+
+- Settings has an "Appearance" section with System / Light / Dark (radio list, wraps at large font
+  scales). Default: System, which follows the OS colour scheme.
+- The choice is stored in the non-secret MMKV prefs (`budgedino-prefs`, key `themePreference`; absent
+  means System) and applies immediately, no restart. It survives sign-out.
+- One resolved theme drives everything: Paper, the React Navigation theme (screens, tab bar, headers,
+  derived from the Paper theme via `ThemeProvider`), the status bar (light icons on dark), pull-to-refresh
+  colours, the auth screens and the lock cover. Warning/success colours follow it too.
+- `Appearance.setColorScheme('light' | 'dark' | 'auto')` is called on every change and at start, so
+  native parts (keyboard, dialogs) match; System maps to `'auto'`.
+- Dark palette: near-black green-tinted background, slightly lighter surfaces and cards, one accent;
+  text/background contrast is at least 7:1.
+- Text colours are always explicit theme colours: never `color: undefined` in a style (it overrides
+  Paper's colour with the native default, black on Android).
+- The Android app theme opts out of OS force-dark (`android:forceDarkAllowed=false`, config plugin
+  `plugins/with-no-force-dark.js`, applied on every prebuild), so Samsung One UI cannot recolour the app.

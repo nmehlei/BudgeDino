@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
+import { ThemeProvider } from 'expo-router';
 import { useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, PaperProvider } from 'react-native-paper';
 import { View } from 'react-native';
@@ -13,6 +14,7 @@ import { challengeStore } from './connections/challenge-store';
 import { clearNotificationState } from './notifications/poll-task';
 import { getSessionStore } from './session/instance';
 import type { SessionStore } from './session/session-store';
+import { toNavigationTheme } from './navigation-theme';
 import { useAppTheme } from './theme';
 
 interface AppProvidersProps {
@@ -122,7 +124,10 @@ export function AppProviders({
   let body: ReactNode;
   if (cache === null) {
     body = (
-      <View style={{ flex: 1, justifyContent: 'center' }} accessibilityLabel="Loading">
+      <View
+        style={{ flex: 1, justifyContent: 'center', backgroundColor: theme.colors.background }}
+        accessibilityLabel="Loading"
+      >
         <ActivityIndicator animating />
       </View>
     );
@@ -144,5 +149,9 @@ export function AppProviders({
     );
   }
 
-  return <PaperProvider theme={theme}>{body}</PaperProvider>;
+  return (
+    <PaperProvider theme={theme}>
+      <ThemeProvider value={toNavigationTheme(theme)}>{body}</ThemeProvider>
+    </PaperProvider>
+  );
 }

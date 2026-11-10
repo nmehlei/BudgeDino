@@ -136,7 +136,13 @@ export function HomeScreen() {
         testID="home-scroll"
         contentContainerStyle={{ paddingTop: insets.top + 16, paddingBottom: 32 }}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void onRefresh()}
+            colors={[theme.colors.primary]}
+            tintColor={theme.colors.primary}
+            progressBackgroundColor={theme.colors.elevation.level3}
+          />
         }
       >
         <View style={styles.switcher}>

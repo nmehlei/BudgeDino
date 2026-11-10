@@ -1,7 +1,7 @@
 import type { SessionInfo } from '@budgedino/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { Alert, type AlertButton } from 'react-native';
+import { Alert, Appearance, Text, type AlertButton } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 
 import { ApiClientError } from '../../api/errors';
@@ -10,6 +10,8 @@ import {
   type PrefsStorage,
   type SessionStore,
 } from '../../session/session-store';
+import { useAppTheme } from '../../theme';
+import { createThemeStore, setThemeStore } from '../../theme-store';
 import { SettingsScreen } from '../SettingsScreen';
 
 const mockRouter = { push: jest.fn() };
@@ -193,5 +195,45 @@ describe('SettingsScreen', () => {
       await fireEvent.press(screen.getByTestId('settings-accounts'));
     });
     expect(mockRouter.push).toHaveBeenCalledWith('/settings/accounts');
+  });
+});
+
+describe('Appearance setting', () => {
+  function Probe() {
+    return <Text testID="theme-probe">{useAppTheme().dark ? 'dark' : 'light'}</Text>;
+  }
+
+  it('changes the stored preference and the theme in use immediately', async () => {
+    jest.spyOn(Appearance, 'setColorScheme').mockImplementation(() => undefined);
+    jest.spyOn(Appearance, 'getColorScheme').mockReturnValue('light');
+    const prefs = new Map<string, string>();
+    const themeStore = createThemeStore({
+      getString: (k) => prefs.get(k),
+      set: (k, v) => void prefs.set(k, v),
+      remove: (k) => void prefs.delete(k),
+    });
+    setThemeStore(themeStore);
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await render(
+      <QueryClientProvider client={queryClient}>
+        <PaperProvider>
+          <Probe />
+          <SettingsScreen />
+        </PaperProvider>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByTestId('theme-probe').props.children).toBe('light');
+    await act(async () => {
+      await fireEvent.press(screen.getByTestId('settings-theme-dark'));
+    });
+    expect(themeStore.getPreference()).toBe('dark');
+    expect(prefs.get('themePreference')).toBe('dark');
+    expect(screen.getByTestId('theme-probe').props.children).toBe('dark');
+    await act(async () => {
+      await fireEvent.press(screen.getByTestId('settings-theme-system'));
+    });
+    expect(themeStore.getPreference()).toBe('system');
+    expect(screen.getByTestId('theme-probe').props.children).toBe('light');
+    setThemeStore(undefined);
   });
 });

@@ -41,7 +41,10 @@ export function BudgetCard({ budget }: { budget: BudgetView }) {
           {PERIOD_LABEL[budget.periodKind]}
         </Text>
       </View>
-      <Text variant="headlineMedium" style={{ color: bar.overBudget ? color : undefined }}>
+      <Text
+        variant="headlineMedium"
+        style={{ color: bar.overBudget ? color : theme.colors.onSurface }}
+      >
         {spent}
       </Text>
       <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
@@ -65,7 +68,10 @@ export function BudgetCard({ budget }: { budget: BudgetView }) {
         />
       </View>
       <View style={styles.footer}>
-        <Text variant="labelMedium" style={{ color: bar.overBudget ? color : undefined }}>
+        <Text
+          variant="labelMedium"
+          style={{ color: bar.overBudget ? color : theme.colors.onSurface }}
+        >
           {bar.overBudget ? `Over budget (${bar.usedPercent} %)` : `${bar.usedPercent} % used`}
         </Text>
       </View>

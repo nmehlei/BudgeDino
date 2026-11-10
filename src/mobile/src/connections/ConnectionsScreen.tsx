@@ -196,6 +196,9 @@ export function ConnectionsScreen() {
           <RefreshControl
             refreshing={connectors.isRefetching}
             onRefresh={() => void connectors.refetch()}
+            colors={[theme.colors.primary]}
+            tintColor={theme.colors.primary}
+            progressBackgroundColor={theme.colors.elevation.level3}
           />
         }
       >

@@ -1,5 +1,8 @@
+import { useSyncExternalStore } from 'react';
 import { useColorScheme } from 'react-native';
 import { MD3DarkTheme, MD3LightTheme, type MD3Theme } from 'react-native-paper';
+
+import { getThemeStore, resolveScheme } from './theme-store';
 
 export const ACCENT = '#2E7D6B';
 
@@ -28,15 +31,41 @@ export const darkTheme: MD3Theme = {
     primaryContainer: '#1F5F50',
     onPrimaryContainer: '#BFEBDD',
     secondary: '#B1CCC3',
+    // Calm near-black surface hierarchy with a faint green tint: background < surface < cards.
+    background: '#0E1311',
+    onBackground: '#E1E8E4',
+    surface: '#151B18',
+    onSurface: '#E1E8E4',
+    surfaceVariant: '#202824',
+    onSurfaceVariant: '#BCC8C2',
+    outline: '#86928C',
+    outlineVariant: '#38433E',
+    surfaceDisabled: 'rgba(225, 232, 228, 0.12)',
+    onSurfaceDisabled: 'rgba(225, 232, 228, 0.38)',
+    elevation: {
+      level0: 'transparent',
+      level1: '#171D1A',
+      level2: '#1B221F',
+      level3: '#1F2723',
+      level4: '#212A26',
+      level5: '#242E29',
+    },
   },
 };
 
-/** Paper MD3 theme following the system colour scheme. */
+/** Resolved Paper theme: the stored Appearance preference (System / Light / Dark), live. */
 export function useAppTheme(): MD3Theme {
-  return useColorScheme() === 'dark' ? darkTheme : lightTheme;
+  const store = getThemeStore();
+  const preference = useSyncExternalStore(
+    store.subscribe,
+    store.getPreference,
+    store.getPreference,
+  );
+  const system = useColorScheme();
+  return resolveScheme(preference, system) === 'dark' ? darkTheme : lightTheme;
 }
 
-/** Amber for budgets approaching their limit; follows the system colour scheme. */
+/** Amber for budgets approaching their limit; follows the resolved theme. */
 export function useWarningColor(): string {
   return useAppTheme().dark ? WARNING_DARK : WARNING_LIGHT;
 }
@@ -45,7 +74,7 @@ export function useWarningColor(): string {
 export const SUCCESS_LIGHT = '#2E7D32';
 export const SUCCESS_DARK = '#81C784';
 
-/** Green for positive amounts; follows the system colour scheme. */
+/** Green for positive amounts; follows the resolved theme. */
 export function useSuccessColor(): string {
   return useAppTheme().dark ? SUCCESS_DARK : SUCCESS_LIGHT;
 }

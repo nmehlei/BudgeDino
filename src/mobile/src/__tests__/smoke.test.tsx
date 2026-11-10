@@ -24,6 +24,7 @@ jest.mock('expo-secure-store', () => ({
 jest.mock('expo-router', () => {
   const { Text } = jest.requireActual<typeof import('react-native')>('react-native');
   return {
+    ...jest.requireActual<object>('./support/router-theme'),
     Redirect: ({ href }: { href: string }) => <Text>{`redirect:${href}`}</Text>,
     Tabs: Object.assign(() => null, { Screen: () => null }),
   };

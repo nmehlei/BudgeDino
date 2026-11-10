@@ -18,6 +18,7 @@ jest.mock('expo-secure-store', () => ({
   setItemAsync: jest.fn(),
   WHEN_UNLOCKED_THIS_DEVICE_ONLY: 6,
 }));
+jest.mock('expo-router', () => jest.requireActual<object>('./support/router-theme'));
 jest.mock('expo-crypto', () => ({ getRandomBytes: jest.fn() }));
 
 function fakeMmkv() {

@@ -15,6 +15,7 @@ const config: ExpoConfig = {
   },
   plugins: [
     'expo-router',
+    './plugins/with-no-force-dark',
     'expo-dev-client',
     'expo-secure-store',
     'expo-background-task',

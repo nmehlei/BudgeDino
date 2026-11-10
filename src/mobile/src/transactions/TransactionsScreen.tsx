@@ -64,6 +64,9 @@ export function TransactionsScreen() {
           <RefreshControl
             refreshing={list.isRefetching && !isFetchingNextPage}
             onRefresh={() => void list.refetch()}
+            colors={[theme.colors.primary]}
+            tintColor={theme.colors.primary}
+            progressBackgroundColor={theme.colors.elevation.level3}
           />
         }
         onEndReached={loadMore}
