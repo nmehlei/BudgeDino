@@ -28,6 +28,11 @@ esbuild into `src/server/dist` (the sources use bundler-style imports Node canno
 `drizzle/` migrations are copied next to the bundle). Run with plain Node:
 `node --import ./dist/instrument.js ./dist/main.js`; the `budgedino` CLI is `node dist/cli.js`.
 
+**Database restarts [call]:** the server survives them. Both pg pools (the app pool in `db/client.ts` and pg-boss's) have
+an `error` listener that logs the error code only (no query text or parameters) instead of letting an idle-client error
+(for example `57P01` on a database restart) become an uncaught exception. Requests fail while the database is away; the
+pool reconnects on demand, so the server recovers without a restart.
+
 **Startup order (`main`):** telemetry (a no-op without `OTEL_EXPORTER_OTLP_ENDPOINT`) -> config validation ->
 logger -> master key -> database pool -> `migrate()` -> app -> pg-boss jobs (`sync.tick`, `challenges.expire`,
 `fx.refresh` with the ECB source) -> listen. `SIGTERM`/`SIGINT` shut down gracefully: pg-boss stops, the

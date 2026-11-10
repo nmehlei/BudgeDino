@@ -72,7 +72,7 @@ function connectorsFor(
 export async function start(config: Config, options: StartOptions = {}): Promise<RunningServer> {
   const logger = options.logger ?? createLogger({ level: process.env['LOG_LEVEL'] ?? 'info' });
   setMaxConcurrentSyncs(config.maxConcurrentSyncs);
-  const handle = createDb(config.databaseUrl);
+  const handle = createDb(config.databaseUrl, logger);
   let jobs: Awaited<ReturnType<typeof startJobs>> | undefined;
   let app: ReturnType<typeof buildApp> | undefined;
   let fints: FinTSWiring | undefined;
