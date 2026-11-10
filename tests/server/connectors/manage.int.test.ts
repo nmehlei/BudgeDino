@@ -326,7 +326,7 @@ describe('DELETE /connectors/:id', () => {
     expect((await counts()).connectors).toBe(0);
   });
 
-  it('a sync queued behind a delete ends in error without writing and without a stray sync run', async () => {
+  it('a sync queued behind a delete is skipped without writing and without a stray sync run', async () => {
     const { connectorId } = await seedConnectorWithData();
     const { runSync } = await import('@budgedino/server/sync/run');
     await call('DELETE', `/connectors/${connectorId}?mode=purge`, bToken);

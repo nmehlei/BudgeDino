@@ -31,26 +31,30 @@ export async function backfillConnectorBanks(
   let filled = 0;
   for (const row of rows) {
     try {
+      // Database/keyring failures are transient: skip the row and retry on the next start.
       const dk = await keyring.forHousehold(row.householdId);
-      const config = JSON.parse(
-        decryptString(dk, row.configEnc, { table: 'connectors', column: 'config', rowId: row.id }),
-      ) as ConnectorConfig;
-      await db
-        .update(connectors)
-        .set({ bank: bankIdFor(row.type, config) })
-        .where(eq(connectors.id, row.id));
-      filled += 1;
-    } catch (err) {
-      logger.warn({ connectorId: row.id, error: safeErrorInfo(err) }, 'bank backfill: fallback');
-      // Not decryptable: the connector type is the bank, so the row is not rescanned on every startup.
+      let bank: string;
+      let decrypted = true;
       try {
-        await db.update(connectors).set({ bank: row.type }).where(eq(connectors.id, row.id));
-      } catch (updateErr) {
-        logger.warn(
-          { connectorId: row.id, error: safeErrorInfo(updateErr) },
-          'bank backfill: skipped',
-        );
+        const config = JSON.parse(
+          decryptString(dk, row.configEnc, {
+            table: 'connectors',
+            column: 'config',
+            rowId: row.id,
+          }),
+        ) as ConnectorConfig;
+        bank = bankIdFor(row.type, config);
+      } catch (err) {
+        // Only an undecryptable or unparsable config falls back for good: the connector type is the
+        // bank, so the row is not rescanned on every startup.
+        logger.warn({ connectorId: row.id, error: safeErrorInfo(err) }, 'bank backfill: fallback');
+        bank = row.type;
+        decrypted = false;
       }
+      await db.update(connectors).set({ bank }).where(eq(connectors.id, row.id));
+      if (decrypted) filled += 1;
+    } catch (err) {
+      logger.warn({ connectorId: row.id, error: safeErrorInfo(err) }, 'bank backfill: skipped');
     }
   }
   return filled;

@@ -21,12 +21,23 @@ jobs:
         with:
           fetch-depth: 0 # GitVersion needs the full history and main
 
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
       # GitVersion 5.x (Mainline, GitVersion.yml): every commit gets its own version. Exported for the
       # server bundle and the app config (scripts/version.cjs); fails instead of a silent fallback.
       - name: Compute version (GitVersion 5.x)
+        env:
+          # GitVersion.Tool 5.12 ships net6.0 at most; ubuntu-latest has only .NET 8+.
+          DOTNET_ROLL_FORWARD: Major
         run: |
           dotnet tool install --global GitVersion.Tool --version 5.12.0
           export PATH="$PATH:$HOME/.dotnet/tools"
+          dotnet-gitversion /showvariable FullSemVer # surfaces GitVersion's own error before version.cjs would swallow it
           node -e '
             const v = require("./scripts/version.cjs").getVersion();
             if (v.source !== "gitversion") { console.error("GitVersion did not run:", v); process.exit(1); }
@@ -36,13 +47,6 @@ jobs:
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Version: \`${v.version}\` (build ${v.versionCode}, ${v.commit})\n`);
             console.log(v);
           '
-
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
 
       - run: pnpm install --frozen-lockfile
 

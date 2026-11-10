@@ -30,8 +30,15 @@ esbuild into `src/server/dist` (the sources use bundler-style imports Node canno
 
 **Database restarts [call]:** the server survives them. Both pg pools (the app pool in `db/client.ts` and pg-boss's) have
 an `error` listener that logs the error code only (no query text or parameters) instead of letting an idle-client error
-(for example `57P01` on a database restart) become an uncaught exception. Requests fail while the database is away; the
-pool reconnects on demand, so the server recovers without a restart.
+(for example `57P01` on a database restart) become an uncaught exception. The dedicated connection a sync holds for
+its advisory lock (checked out for the whole run, where pg-pool's idle listener does not apply) gets its own listener:
+the error is logged, the sync's next query fails, and the connection is destroyed instead of returned. Requests fail
+while the database is away; the pool reconnects on demand, so the server recovers without a restart.
+
+**Version stamp:** `pnpm build` embeds the GitVersion SemVer of the commit ([ADR 0010](../adr/0010-gitversion-mainline.md))
+and `/health` reports it. A build without a `.git` directory or without GitVersion (for example inside a container build
+context) reports `0.0.0-local+<sha>` or `0.0.0-local+unknown`; pass `BUDGEDINO_VERSION` (and `BUDGEDINO_COMMIT`) to stamp
+it explicitly.
 
 **Startup order (`main`):** telemetry (a no-op without `OTEL_EXPORTER_OTLP_ENDPOINT`) -> config validation ->
 logger -> master key -> database pool -> `migrate()` -> app -> pg-boss jobs (`sync.tick`, `challenges.expire`,

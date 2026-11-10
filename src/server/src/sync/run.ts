@@ -230,6 +230,14 @@ export async function withConnectorLock<T>(
   try {
     const client = await deps.db.$client.connect();
     let destroy = false;
+    // pg-pool drops its idle error listener while a client is checked out, and this one stays out for
+    // the whole run (bank HTTP included). Without a listener, a database restart (57P01) during a sync
+    // would be an uncaught 'error' event and kill the process. Log it and never reuse the connection.
+    const onClientError = (err: unknown) => {
+      destroy = true;
+      deps.logger.error({ connectorId, error: safeErrorInfo(err) }, 'sync lock connection error');
+    };
+    client.on('error', onClientError);
     try {
       try {
         await client.query('select pg_advisory_lock(hashtextextended($1, 0))', [connectorId]);
@@ -250,6 +258,7 @@ export async function withConnectorLock<T>(
         deps.onLockHeld?.('released');
       }
     } finally {
+      client.removeListener('error', onClientError);
       client.release(destroy);
     }
   } finally {
