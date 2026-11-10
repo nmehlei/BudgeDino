@@ -8,6 +8,7 @@ import { revokeCurrentSession } from '../session/revoke-current';
 import { useSession } from '../session/useSession';
 import { useAppTheme } from '../theme';
 import { authenticateDevice, type DeviceAuthResult } from './device-auth';
+import { isE2eLockBypass } from './e2e';
 
 /** Returning from the background after longer than this locks the app again. */
 export const RELOCK_AFTER_MS = 60_000;
@@ -21,6 +22,8 @@ interface AppLockProps {
   store?: SessionStore;
   authenticate?: (promptMessage: string) => Promise<DeviceAuthResult>;
   revoke?: (store: SessionStore) => Promise<void>;
+  /** Dev-only E2E build (development variant with BUDGEDINO_E2E=1): the lock never engages. */
+  e2eBypass?: boolean;
 }
 
 /**
@@ -36,13 +39,16 @@ export function AppLock({
   store: injectedStore,
   authenticate = authenticateDevice,
   revoke = revokeCurrentSession,
+  e2eBypass = isE2eLockBypass(),
 }: AppLockProps) {
   const theme = useAppTheme();
   const [store] = useState(() => injectedStore ?? getSessionStore());
   const { lockEnabled } = useSession(store);
 
   const [phase, setPhase] = useState<Phase>(() =>
-    store.getSnapshot().lockEnabled && store.getSignedInAt() === null ? 'locked' : 'unlocked',
+    !e2eBypass && store.getSnapshot().lockEnabled && store.getSignedInAt() === null
+      ? 'locked'
+      : 'unlocked',
   );
   const [shown, setShown] = useState(phase === 'unlocked');
   const authenticating = useRef(false);
@@ -91,7 +97,7 @@ export function AppLock({
         // The system credential screen can background the app mid-prompt; that is neither a cover nor a
         // relock cause. Otherwise cover at once: Android redraws the last frame on resume before React
         // could commit a lock state.
-        if (authenticating.current || !store.getSnapshot().lockEnabled) return;
+        if (authenticating.current || e2eBypass || !store.getSnapshot().lockEnabled) return;
         // Wall clock on purpose: elapsedRealtime is not available in JS, and a clock set back is treated
         // as expired (negative elapsed) below.
         backgroundedAt.current ??= Date.now();
@@ -103,7 +109,11 @@ export function AppLock({
       backgroundedAt.current = null;
       if (since === null) return;
       const elapsed = Date.now() - since;
-      if (!store.getSnapshot().lockEnabled || (elapsed >= 0 && elapsed <= RELOCK_AFTER_MS)) {
+      if (
+        e2eBypass ||
+        !store.getSnapshot().lockEnabled ||
+        (elapsed >= 0 && elapsed <= RELOCK_AFTER_MS)
+      ) {
         setPhase((p) => (p === 'covered' ? 'unlocked' : p));
         return;
       }
@@ -111,7 +121,7 @@ export function AppLock({
       void attempt();
     });
     return () => sub.remove();
-  }, [attempt, store]);
+  }, [attempt, store, e2eBypass]);
 
   const signOut = () => {
     // The no-permanent-lockout escape: wipes the session and every cache.

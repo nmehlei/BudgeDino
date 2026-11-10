@@ -38,10 +38,14 @@ let appStateHandler: ((s: AppStateStatus) => void) | null = null;
 const setAppState = (s: AppStateStatus) => act(() => appStateHandler?.(s));
 const flush = () => act(async () => undefined);
 
-async function renderLock(store: SessionStore, authenticate: jest.Mock) {
+async function renderLock(store: SessionStore, authenticate: jest.Mock, e2eBypass?: boolean) {
   await render(
     <PaperProvider>
-      <AppLock store={store} authenticate={authenticate}>
+      <AppLock
+        store={store}
+        authenticate={authenticate}
+        {...(e2eBypass === undefined ? {} : { e2eBypass })}
+      >
         <Text>secret content</Text>
       </AppLock>
     </PaperProvider>,
@@ -119,6 +123,25 @@ describe('AppLock', () => {
     expect(authenticate).toHaveBeenCalledTimes(1);
     expect(screen.getByText('secret content')).toBeTruthy();
     expect(screen.queryByTestId('app-lock')).toBeNull();
+  });
+
+  it('skips the lock on a cold start and after a long background stay in an E2E build', async () => {
+    const authenticate = auth('success');
+    await renderLock(makeStore().store, authenticate, true);
+    expect(authenticate).not.toHaveBeenCalled();
+    expect(screen.getByText('secret content')).toBeTruthy();
+    await setAppState('background');
+    await act(() => jest.advanceTimersByTimeAsync(120_000));
+    await setAppState('active');
+    expect(authenticate).not.toHaveBeenCalled();
+    expect(screen.getByText('secret content')).toBeTruthy();
+  });
+
+  it('still locks when the E2E bypass is off', async () => {
+    const authenticate = auth('failed');
+    await renderLock(makeStore().store, authenticate, false);
+    expect(authenticate).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('secret content')).toBeNull();
   });
 
   it('does not prompt when the lock is disabled', async () => {

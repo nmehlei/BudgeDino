@@ -3,7 +3,13 @@ import { buildApp } from '@budgedino/server/app';
 import { generateTotpCode } from '@budgedino/server/auth/totp';
 import { createConnectorRegistry } from '@budgedino/server/connectors/registry';
 import { createFakeConnector } from '@budgedino/server/connectors/fake/fake-connector';
-import { households, transactions, budgets, connectors } from '@budgedino/server/db/schema';
+import {
+  accounts,
+  households,
+  transactions,
+  budgets,
+  connectors,
+} from '@budgedino/server/db/schema';
 import { devSeed, DEMO_EMAIL, DEMO_PASSWORD, SeedError } from '@budgedino/server/dev/seed';
 import { Keyring } from '@budgedino/server/households/keyring';
 import { createLogger } from '@budgedino/server/observability/logger';
@@ -67,6 +73,37 @@ describe('devSeed', () => {
       devSeed({ db: database.db, keyring }, { withData: true, env: { NODE_ENV: 'production' } }),
     ).rejects.toThrow(SeedError);
     expect(await count(households)).toBe(0);
+  });
+
+  it('is opt-in: refuses without NODE_ENV=development unless acknowledged, never in production', async () => {
+    const { keyring } = setup();
+    await expect(
+      devSeed({ db: database.db, keyring }, { withData: false, env: {} }),
+    ).rejects.toThrow(SeedError);
+    await expect(
+      devSeed(
+        { db: database.db, keyring },
+        { withData: false, acknowledgedDev: true, env: { NODE_ENV: 'production' } },
+      ),
+    ).rejects.toThrow(SeedError);
+    expect(await count(households)).toBe(0);
+    const ok = await devSeed(
+      { db: database.db, keyring },
+      { withData: false, acknowledgedDev: true, env: {}, now: NOW },
+    );
+    expect(ok.householdCreated).toBe(true);
+  });
+
+  it('completes a partially seeded connector (connector without account or transactions)', async () => {
+    const { keyring } = setup();
+    const first = await devSeed({ db: database.db, keyring }, { withData: true, env, now: NOW });
+    // Simulate a crash after the connector insert: drop the account (cascades to its transactions).
+    await database.db.delete(accounts);
+    expect(await count(transactions)).toBe(0);
+    const again = await devSeed({ db: database.db, keyring }, { withData: true, env, now: NOW });
+    expect(again.data?.connectorId).toBe(first.data?.connectorId);
+    expect(await count(connectors)).toBe(1);
+    expect(await count(transactions)).toBe(first.data?.transactionCount);
   });
 
   it('--with-data is idempotent: one connector, no duplicate transactions or budgets', async () => {

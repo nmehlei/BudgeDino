@@ -74,9 +74,13 @@ Development only; none of this runs in a production deployment. Step-by-step for
   `.env.dev.example` (no real secrets): `NODE_ENV=development`, `BUDGEDINO_CONNECTORS=fake`, `HOST=0.0.0.0`,
   `PORT=8080`, `DATABASE_URL` for the dev database. The master key is not in the env file: on first use the
   script generates one into `.dev/master.key` (gitignored, mode 600) and points `BUDGEDINO_MASTER_KEY_FILE`
-  at it. Keep that file; the dev database is unreadable without it. The script refuses `NODE_ENV=production`.
+  at it. Keep that file; the dev database is unreadable without it. The script refuses a caller-supplied `NODE_ENV=production` (checked before the env file is read) and always
+  exports `NODE_ENV=development` itself; the env file does not set it. It warns on stderr while `HOST=0.0.0.0`
+  (the default, overridable, e.g. `HOST=127.0.0.1`): the open interface plus fixed demo credentials means trusted Wi-Fi only.
 - **Seed:** `pnpm dev:seed [-- --with-data]` runs `budgedino dev-seed`:
-  - refuses to run at all (exit 2, before touching key or database) when `NODE_ENV=production`;
+  - is **opt-in**: runs only with `NODE_ENV=development` (what `dev.sh` sets) or the explicit flag
+    `--i-know-this-is-dev`; refuses (exit 2, before touching key or database) otherwise, and always in
+    `NODE_ENV=production`, flag or not;
   - creates the household "BudgeDino Demo" once and prints a **fresh one-time admin invite on every run**
     (`invite_token`, `invite_expires_at`) plus the config the app's "Demo bank" sends
     (`{"scenario":"decoupled"}`, so connecting produces a decoupled challenge to confirm);
@@ -96,3 +100,6 @@ Development only; none of this runs in a production deployment. Step-by-step for
 - **Maestro** (`pnpm maestro:device`, opt-in, never in CI or `ci/check.sh`): runs
   `src/mobile/maestro/{login,home,connect-demo-bank}.yaml` against the USB-attached **physical** phone
   (the runner refuses when no physical device is attached; emulators are not supported).
+- **App lock in E2E builds.** The Maestro flows relaunch the app, which the app lock would block. The lock is
+  skipped only when the build is the development variant (`extra.allowCleartext`) **and** was prebuilt with
+  `BUDGEDINO_E2E=1` (`extra.e2e`); release builds never honour it. A normal `pnpm mobile:android` restores the lock.

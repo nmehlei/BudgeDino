@@ -66,6 +66,10 @@ const secret = env['BUDGEDINO_DEV_TOTP_SECRET'];
 if (!secret) throw new Error('BUDGEDINO_DEV_TOTP_SECRET is not set (see .env.dev.example)');
 if (env['NODE_ENV'] === 'production') throw new Error('Refusing to run with NODE_ENV=production');
 
+process.stderr.write(
+  'Reminder: the flows need a build with the app lock skipped: `BUDGEDINO_E2E=1 pnpm mobile:android`.\n' +
+    'Afterwards a normal `pnpm mobile:android` restores the lock.\n',
+);
 const device = physicalDevice();
 const serverUrl = process.env['SERVER_URL'] ?? `http://${lanIp()}:${env['PORT'] ?? '8080'}`;
 const result = spawnSync(

@@ -24,7 +24,11 @@ const config: ExpoConfig = {
     ['expo-build-properties', { android: { usesCleartextTraffic: isDevelopment } }],
   ],
   // Read by src/auth/config.ts: http:// server URLs are accepted only when this is true.
-  extra: { allowCleartext: isDevelopment },
+  // `e2e` only has effect in the development variant (see src/security/e2e.ts); release builds ignore it.
+  extra: {
+    allowCleartext: isDevelopment,
+    e2e: isDevelopment && process.env['BUDGEDINO_E2E'] === '1',
+  },
   experiments: {
     typedRoutes: true,
   },

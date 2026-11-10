@@ -11,7 +11,7 @@ import { migrate } from './db/migrate.js';
 import { bootstrapHousehold, isValidTimezone } from './households/bootstrap.js';
 import { createInvite } from './households/invites.js';
 import { Keyring } from './households/keyring.js';
-import { assertSeedAllowed, DEMO_CONNECTOR_CONFIG, devSeed, SeedError } from './dev/seed.js';
+import { assertSeedAllowed, devSeed, formatSeedOutput, SeedError } from './dev/seed.js';
 import { redactString } from './observability/redact.js';
 
 export interface CliIo {
@@ -32,7 +32,9 @@ Commands:
                                    Create a household and print a one-time admin invite
   invite --household <id> [--role member|admin]
                                    Print a one-time invite token (default role: member)
-  dev-seed [--with-data]           DEV ONLY (refuses when NODE_ENV=production): create/refresh the
+  dev-seed [--with-data] [--i-know-this-is-dev]
+                                   DEV ONLY (needs NODE_ENV=development or the flag; refuses in
+                                   production even with it): create/refresh the
                                    demo household, print a one-time admin invite; --with-data adds
                                    a demo member, a connected fake bank with ~60 days of
                                    transactions and two budgets
@@ -191,35 +193,27 @@ async function devSeedCommand(
   out: (t: string) => void,
 ): Promise<number> {
   let withData: boolean;
+  let acknowledged: boolean;
   try {
-    withData =
-      parseArgs({
-        args,
-        options: { 'with-data': { type: 'boolean' } },
-        allowPositionals: false,
-        strict: true,
-      }).values['with-data'] === true;
+    const values = parseArgs({
+      args,
+      options: { 'with-data': { type: 'boolean' }, 'i-know-this-is-dev': { type: 'boolean' } },
+      allowPositionals: false,
+      strict: true,
+    }).values;
+    withData = values['with-data'] === true;
+    acknowledged = values['i-know-this-is-dev'] === true;
   } catch (e) {
     throw new UsageError(e instanceof Error ? e.message : 'Invalid arguments');
   }
   // Refuse before touching the key or the database.
-  assertSeedAllowed(io.env);
+  assertSeedAllowed(io.env, acknowledged);
   return withKeyring(io, async (ctx) => {
-    const r = await devSeed(ctx, { withData, env: io.env });
+    const r = await devSeed(ctx, { withData, acknowledgedDev: acknowledged, env: io.env });
     io.stderr.write(
       'DEV SEED: the values below (invite, demo password, TOTP secret) are for local development only.\n',
     );
-    out(`household_id=${r.householdId}\n`);
-    out(`invite_token=${r.inviteToken}\n`);
-    out(`invite_expires_at=${r.inviteExpiresAt.toISOString()}\n`);
-    out(`demo_connector_config=${JSON.stringify(DEMO_CONNECTOR_CONFIG)}\n`);
-    if (r.data) {
-      out(`demo_email=${r.data.memberEmail}\n`);
-      out(`demo_password=${r.data.memberPassword}\n`);
-      out(`dev_totp_secret=${r.data.totpSecret}\n`);
-      out(`demo_transactions=${r.data.transactionCount}\n`);
-      out(`demo_budgets=${r.data.budgetNames.join(',')}\n`);
-    }
+    out(formatSeedOutput(r));
     return 0;
   });
 }

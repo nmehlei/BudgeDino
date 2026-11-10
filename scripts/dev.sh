@@ -11,6 +11,12 @@ mode="${1:-}"
 # `pnpm dev:seed -- --with-data` may forward the separator.
 [[ "${1:-}" == "--" ]] && shift
 
+# Check the caller's NODE_ENV before the env file is read, so nothing can mask it.
+if [[ "${NODE_ENV:-}" == "production" ]]; then
+  echo "scripts/dev.sh refuses to run with NODE_ENV=production" >&2
+  exit 2
+fi
+
 env_file=.env.dev
 [[ -f "$env_file" ]] || env_file=.env.dev.example
 set -a
@@ -18,11 +24,8 @@ set -a
 source "$env_file"
 set +a
 
-# Dev only: a production NODE_ENV would reject the fake connector and the seed.
-if [[ "${NODE_ENV:-}" == "production" ]]; then
-  echo "scripts/dev.sh refuses to run with NODE_ENV=production" >&2
-  exit 2
-fi
+# The env file must not decide this: dev scripts always run as development.
+export NODE_ENV=development
 
 if [[ -z "${BUDGEDINO_MASTER_KEY:-}" && -z "${BUDGEDINO_MASTER_KEY_FILE:-}" ]]; then
   key_file=.dev/master.key
@@ -36,6 +39,11 @@ fi
 
 case "$mode" in
   server)
+    if [[ "${HOST:-0.0.0.0}" == "0.0.0.0" ]]; then
+      echo "WARNING: the dev server listens on ALL network interfaces (HOST=0.0.0.0) with fixed demo credentials." >&2
+      echo "         Use it on a trusted Wi-Fi only, stop it when done, never expose or port-forward it." >&2
+      echo "         HOST=127.0.0.1 pnpm dev:server keeps it local (the phone then cannot reach it)." >&2
+    fi
     exec pnpm exec tsx src/server/src/main.ts
     ;;
   seed)

@@ -9,7 +9,14 @@ import type { ProviderTransaction } from '../connectors/types.js';
 import { encryptField } from '../crypto/index.js';
 import type { Db } from '../db/client.js';
 import { newId } from '../db/ids.js';
-import { categories, connectors, households, members } from '../db/schema.js';
+import {
+  accounts,
+  categories,
+  connectors,
+  households,
+  members,
+  transactions,
+} from '../db/schema.js';
 import { bootstrapHousehold } from '../households/bootstrap.js';
 import { createInvite } from '../households/invites.js';
 import type { Keyring } from '../households/keyring.js';
@@ -33,15 +40,29 @@ const BASE32 = /^[A-Z2-7]{16,}$/;
 /** Thrown when the seed is invoked where it must never run, or with an invalid setup. */
 export class SeedError extends Error {}
 
-/** The dev seed creates a known password and prints a TOTP secret: it must never touch a production deployment. */
-export function assertSeedAllowed(env: Record<string, string | undefined>): void {
+/**
+ * The dev seed creates a known password and prints a TOTP secret, so it is opt-in: allowed only with
+ * `NODE_ENV=development` or an explicit `--i-know-this-is-dev`. `NODE_ENV=production` is refused even
+ * with the flag.
+ */
+export function assertSeedAllowed(
+  env: Record<string, string | undefined>,
+  acknowledgedDev = false,
+): void {
   if (env['NODE_ENV'] === 'production') {
     throw new SeedError('dev-seed refuses to run when NODE_ENV=production');
+  }
+  if (env['NODE_ENV'] !== 'development' && !acknowledgedDev) {
+    throw new SeedError(
+      'dev-seed runs only with NODE_ENV=development or --i-know-this-is-dev (development use only)',
+    );
   }
 }
 
 export interface SeedOptions {
   withData: boolean;
+  /** `--i-know-this-is-dev`: allows the seed without NODE_ENV=development (never in production). */
+  acknowledgedDev?: boolean;
   env: Record<string, string | undefined>;
   now?: Date;
 }
@@ -90,7 +111,7 @@ export async function devSeed(
   deps: { db: Db; keyring: Keyring },
   options: SeedOptions,
 ): Promise<SeedResult> {
-  assertSeedAllowed(options.env);
+  assertSeedAllowed(options.env, options.acknowledgedDev === true);
   const { db } = deps;
   const now = options.now ?? new Date();
 
@@ -178,6 +199,8 @@ async function seedData(
       ),
     );
   const txs = generateDemoTransactions({ today: now.toISOString().slice(0, 10) });
+  // Each part is checked on its own (connector, account, transactions), so a crash half-way is completed
+  // by the next run instead of being skipped.
   let connectorId: string;
   if (haveConnector) {
     connectorId = haveConnector.id;
@@ -193,6 +216,8 @@ async function seedData(
         column: 'config',
         rowId: connectorId,
       }),
+      // The persisted connector state is the state *after* authentication, so its scenario is `happy`
+      // (later syncs just fetch). The config keeps `decoupled`: that is what a (re)connect would run.
       stateEnc: encryptConnectorState(dk, connectorId, {
         scenario: 'happy',
         accountRef: DEMO_ACCOUNT_REF,
@@ -201,7 +226,14 @@ async function seedData(
       }),
       lastSuccessAt: now,
     });
-    const accountId = await createAccount(db, dk, {
+  }
+  const [haveAccount] = await db
+    .select({ id: accounts.id })
+    .from(accounts)
+    .where(eq(accounts.connectorId, connectorId));
+  const accountId =
+    haveAccount?.id ??
+    (await createAccount(db, dk, {
       connectorId,
       ownerMemberId: memberId,
       externalRef: DEMO_ACCOUNT_REF,
@@ -209,7 +241,13 @@ async function seedData(
       kind: 'checking',
       currency: 'EUR',
       balanceMinor: 245_000n,
-    });
+    }));
+  const [haveTx] = await db
+    .select({ id: transactions.id })
+    .from(transactions)
+    .where(eq(transactions.accountId, accountId))
+    .limit(1);
+  if (!haveTx) {
     const { inserted } = await ingest(db, dk, accountId, txs.map(toProvider), { now });
     await categorizeTransactions(db, keyring, householdId, inserted);
   }
@@ -239,4 +277,27 @@ async function seedData(
     transactionCount: txs.length,
     budgetNames: BUDGET_SPECS.map((b) => b.name),
   };
+}
+
+/**
+ * The seed's stdout: key=value lines. Invite, demo credentials and the dev TOTP secret are printed on
+ * purpose (dev only); never session tokens, the master key, or transaction contents (counts only).
+ */
+export function formatSeedOutput(r: SeedResult): string {
+  const lines = [
+    `household_id=${r.householdId}`,
+    `invite_token=${r.inviteToken}`,
+    `invite_expires_at=${r.inviteExpiresAt.toISOString()}`,
+    `demo_connector_config=${JSON.stringify(DEMO_CONNECTOR_CONFIG)}`,
+  ];
+  if (r.data) {
+    lines.push(
+      `demo_email=${r.data.memberEmail}`,
+      `demo_password=${r.data.memberPassword}`,
+      `dev_totp_secret=${r.data.totpSecret}`,
+      `demo_transactions=${r.data.transactionCount}`,
+      `demo_budgets=${r.data.budgetNames.join(',')}`,
+    );
+  }
+  return `${lines.join('\n')}\n`;
 }
