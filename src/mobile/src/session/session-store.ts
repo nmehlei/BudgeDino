@@ -59,8 +59,8 @@ export function createSessionStore({ prefs, token }: SessionStoreDeps) {
   };
   /** Set when the user signed in during this process: they just authenticated, so no lock prompt. */
   let signedInAt: number | null = null;
-  /** True during a sign-out: in-flight 401s must not flag the session as expired. */
-  let signingOut = false;
+  /** Counts sign-outs in progress (overlapping ones must not clear it early): in-flight 401s must not flag the session as expired. */
+  let signingOut = 0;
   const listeners = new Set<() => void>();
   const wipeHooks = new Set<() => void | Promise<void>>();
 
@@ -181,18 +181,36 @@ export function createSessionStore({ prefs, token }: SessionStoreDeps) {
      * first failure is rethrown afterwards. The status flips to `signed_out` regardless.
      */
     async signOut() {
-      signingOut = true;
+      signingOut++;
       try {
         await runSignOut();
       } finally {
-        signingOut = false;
+        signingOut--;
+      }
+    },
+
+    /**
+     * User-initiated sign-out: raises the flag first (so 401s caused by the revoke itself never mark
+     * the session expired), revokes the current session on the server (best effort), then wipes locally.
+     */
+    async userSignOut({ revoke }: { revoke?: () => Promise<void> } = {}) {
+      signingOut++;
+      try {
+        try {
+          await revoke?.();
+        } catch {
+          // network errors or a 401: the local wipe below is what matters
+        }
+        await runSignOut();
+      } finally {
+        signingOut--;
       }
     },
 
     /** A 401 wiped the session: flags it so the login screen can say why, then signs out. */
     async expireSession(): Promise<void> {
       // A user-initiated sign-out in progress: in-flight 401s are just its own revocation noise.
-      if (signingOut) return;
+      if (signingOut > 0) return;
       update({ expired: true });
       await store.signOut();
     },

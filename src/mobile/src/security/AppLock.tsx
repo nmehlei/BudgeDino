@@ -4,6 +4,7 @@ import { Button, Icon, Text } from 'react-native-paper';
 
 import { getSessionStore } from '../session/instance';
 import type { SessionStore } from '../session/session-store';
+import { revokeCurrentSession } from '../session/revoke-current';
 import { useSession } from '../session/useSession';
 import { useAppTheme } from '../theme';
 import { authenticateDevice, type DeviceAuthResult } from './device-auth';
@@ -19,6 +20,7 @@ interface AppLockProps {
   /** Test seams; the app uses the defaults. */
   store?: SessionStore;
   authenticate?: (promptMessage: string) => Promise<DeviceAuthResult>;
+  revoke?: (store: SessionStore) => Promise<void>;
 }
 
 /**
@@ -33,6 +35,7 @@ export function AppLock({
   children,
   store: injectedStore,
   authenticate = authenticateDevice,
+  revoke = revokeCurrentSession,
 }: AppLockProps) {
   const theme = useAppTheme();
   const [store] = useState(() => injectedStore ?? getSessionStore());
@@ -112,7 +115,7 @@ export function AppLock({
 
   const signOut = () => {
     // The no-permanent-lockout escape: wipes the session and every cache.
-    store.signOut().catch(() => undefined);
+    store.userSignOut({ revoke: () => revoke(store) }).catch(() => undefined);
   };
 
   const continueFromNotice = () => {

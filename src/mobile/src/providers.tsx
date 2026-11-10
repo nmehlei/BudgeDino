@@ -8,6 +8,7 @@ import { deleteMMKV } from 'react-native-mmkv';
 
 import { isApiClientError } from './api/errors';
 import { CACHE_STORE_ID, openSecureCache, type SecureCache } from './cache/secure-cache';
+import { clearNotificationState } from './notifications/poll-task';
 import { getSessionStore } from './session/instance';
 import type { SessionStore } from './session/session-store';
 import { useAppTheme } from './theme';
@@ -58,6 +59,7 @@ export function AppProviders({
       await hydrated;
       if (store.getSnapshot().status !== 'signed_out') return;
       queryClient.clear();
+      void clearNotificationState();
       if (opened === 'unavailable') {
         try {
           deleteMMKV(CACHE_STORE_ID);
@@ -82,9 +84,12 @@ export function AppProviders({
     const offQueries = store.onSignOut(() => {
       queryClient.clear();
     });
+    // Always mounted, so it also runs for a sign-out from the lock screen before the first unlock.
+    const offNotifications = store.onSignOut(() => clearNotificationState());
     return () => {
       cancelled = true;
       offQueries();
+      offNotifications();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- open once per mount
   }, []);

@@ -123,6 +123,14 @@ describe('pollNotifications', () => {
     expect(d.api.listNotifications).not.toHaveBeenCalled();
   });
 
+  it('signed out: unregisters the background task (best effort)', async () => {
+    const { store } = setup(false);
+    jest.mocked(mockBackgroundTask.unregisterTaskAsync).mockRejectedValue(new Error('x'));
+    const d = deps(store, { listNotifications: jest.fn() });
+    await expect(pollNotifications(d.deps)).resolves.toBe('skipped');
+    expect(mockBackgroundTask.unregisterTaskAsync).toHaveBeenCalledWith(NOTIFICATION_TASK);
+  });
+
   it('is a no-op without a server URL', async () => {
     const { store } = setup();
     const noServer = createSessionStore({
@@ -199,7 +207,7 @@ describe('background task wiring', () => {
     await expect(run()).resolves.toBe(mockBackgroundTask.BackgroundTaskResult.Failed);
   });
 
-  it('the entry module defines the task at import time, with no UI imports', () => {
+  it('importing the define-task entry module defines the task', () => {
     jest.isolateModules(() => {
       jest.requireActual('../define-task');
     });

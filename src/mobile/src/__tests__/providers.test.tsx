@@ -5,9 +5,11 @@ import { Text } from 'react-native';
 import { createApiClient } from '../api/client';
 import { openSecureCache, type SecureCacheDeps } from '../cache/secure-cache';
 import { ApiClientError } from '../api/errors';
+import { clearNotificationState } from '../notifications/poll-task';
 import { AppProviders, shouldRetryQuery } from '../providers';
 import { createSessionStore } from '../session/session-store';
 
+jest.mock('../notifications/poll-task', () => ({ clearNotificationState: jest.fn() }));
 jest.mock('react-native-mmkv', () => ({ createMMKV: jest.fn(), deleteMMKV: jest.fn() }));
 jest.mock('expo-secure-store', () => ({
   getItemAsync: jest.fn(),
@@ -159,6 +161,24 @@ describe('AppProviders', () => {
     await renderReady(s);
     expect(s.cacheStore.data.size).toBe(0);
     expect(s.queryClient.getQueryCache().getAll()).toHaveLength(0);
+  });
+
+  it('a signed-out start runs the notification cleanup', async () => {
+    const s = setup();
+    await s.store.signOut();
+    jest.mocked(clearNotificationState).mockClear();
+    await renderReady(s);
+    expect(clearNotificationState).toHaveBeenCalled();
+  });
+
+  it('a sign-out with the app tree never unlocked still runs the notification cleanup', async () => {
+    const s = setup();
+    await renderReady(s);
+    jest.mocked(clearNotificationState).mockClear();
+    await act(async () => {
+      await s.store.signOut();
+    });
+    expect(clearNotificationState).toHaveBeenCalledTimes(1);
   });
 
   it('a signed-out start with an unavailable cache deletes the MMKV store', async () => {

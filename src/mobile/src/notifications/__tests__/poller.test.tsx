@@ -5,7 +5,6 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { NotificationPoller } from '../NotificationPoller';
 import * as pollTask from '../poll-task';
 
-const mockOnSignOut = jest.fn(() => jest.fn());
 jest.mock('react-native-mmkv', () => ({ createMMKV: jest.fn(), deleteMMKV: jest.fn() }));
 jest.mock('expo-secure-store', () => ({}));
 jest.mock('expo-task-manager', () => ({ defineTask: jest.fn(), isTaskRegisteredAsync: jest.fn() }));
@@ -15,14 +14,10 @@ jest.mock('expo-notifications', () => ({
   getPermissionsAsync: jest.fn(),
   requestPermissionsAsync: jest.fn(),
 }));
-jest.mock('../../session/instance', () => ({
-  getSessionStore: () => ({ onSignOut: mockOnSignOut }),
-}));
 jest.mock('../poll-task', () => ({
   ensureNotificationChannel: jest.fn().mockResolvedValue(undefined),
   registerNotificationTask: jest.fn().mockResolvedValue(undefined),
   pollNotifications: jest.fn().mockResolvedValue('empty'),
-  clearNotificationState: jest.fn(),
 }));
 
 let handler: ((s: AppStateStatus) => void) | null = null;
@@ -39,18 +34,6 @@ beforeEach(() => {
 afterEach(() => jest.restoreAllMocks());
 
 describe('NotificationPoller', () => {
-  it('registers the sign-out cleanup', async () => {
-    jest
-      .mocked(Notifications.getPermissionsAsync)
-      .mockResolvedValue({ granted: true, canAskAgain: true } as never);
-    await render(<NotificationPoller />);
-    await flush();
-    expect(mockOnSignOut).toHaveBeenCalledTimes(1);
-    const hook = (mockOnSignOut.mock.calls[0] as unknown as [() => void])[0];
-    hook();
-    expect(pollTask.clearNotificationState).toHaveBeenCalled();
-  });
-
   it('sets up the channel and task, polls on mount and on every return to the foreground', async () => {
     jest
       .mocked(Notifications.getPermissionsAsync)

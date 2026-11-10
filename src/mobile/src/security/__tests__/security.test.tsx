@@ -210,14 +210,29 @@ describe('AppLock resume cover and edge cases', () => {
     expect(screen.getByTestId('app-lock-notice')).toBeTruthy();
   });
 
-  it('the lock screen offers Sign out, which wipes the session', async () => {
+  it('the lock screen offers Sign out, which revokes the session then wipes', async () => {
     const { store } = makeStore();
-    const spy = jest.spyOn(store, 'signOut').mockResolvedValue(undefined);
-    await renderLock(store, auth('failed'));
+    const order: string[] = [];
+    const revoke = jest.fn(async () => {
+      order.push('revoke');
+    });
+    store.onSignOut(() => {
+      order.push('wipe');
+    });
+    await render(
+      <PaperProvider>
+        <AppLock store={store} authenticate={auth('failed')} revoke={revoke}>
+          <Text>secret content</Text>
+        </AppLock>
+      </PaperProvider>,
+    );
+    await flush();
     await act(async () => {
       await fireEvent.press(screen.getByTestId('app-lock-signout'));
     });
-    expect(spy).toHaveBeenCalledTimes(1);
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['revoke', 'wipe']);
+    expect(store.getSnapshot().status).toBe('signed_out');
   });
 
   it('after sign-out and sign-in a fresh mount starts unlocked; a restored session starts locked', async () => {

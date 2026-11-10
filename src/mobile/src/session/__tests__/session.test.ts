@@ -159,6 +159,31 @@ describe('session store', () => {
     expect(store.getSnapshot().expired).toBe(true);
   });
 
+  it('userSignOut raises the flag before the revoke: a 401 between revoke and wipe is not "expired"', async () => {
+    const { store, readSecret } = setup();
+    await store.signIn('t');
+    await store.userSignOut({
+      revoke: async () => {
+        await store.expireSession(); // the 401 the revoke itself provokes
+      },
+    });
+    expect(store.getSnapshot().expired).toBe(false);
+    expect(store.getSnapshot().status).toBe('signed_out');
+    expect(readSecret()).toBeNull();
+  });
+
+  it('userSignOut wipes locally even when the revoke fails; overlapping sign-outs keep the flag', async () => {
+    const { store } = setup();
+    await store.signIn('t');
+    let release: () => void = () => undefined;
+    const slow = store.userSignOut({ revoke: () => new Promise<void>((r) => (release = r)) });
+    await store.userSignOut({ revoke: () => Promise.reject(new Error('net')) });
+    await store.expireSession(); // first sign-out still running
+    expect(store.getSnapshot().expired).toBe(false);
+    release();
+    await slow;
+  });
+
   it('keeps the lock preference across signOut', async () => {
     const { store } = setup();
     store.setLockEnabled(false);

@@ -113,15 +113,13 @@ export function SettingsScreen() {
     if (signingOut) return;
     setSigningOut(true);
     try {
-      // Server side first, best effort: an offline or already-revoked session must not block the wipe.
-      try {
-        const list = sessions.data ?? (await api.listSessions()).sessions;
-        const current = list.find((s) => s.current);
-        if (current) await api.revokeSession(current.id);
-      } catch {
-        // ignored: network errors, or a 401 (the client already signed out locally)
-      }
-      await getSessionStore().signOut();
+      await getSessionStore().userSignOut({
+        revoke: async () => {
+          const list = sessions.data ?? (await api.listSessions()).sessions;
+          const current = list.find((x) => x.current);
+          if (current) await api.revokeSession(current.id);
+        },
+      });
     } catch {
       setMessage('Signed out, but some local data could not be cleared.');
     } finally {

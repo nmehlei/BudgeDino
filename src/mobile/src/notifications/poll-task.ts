@@ -74,7 +74,16 @@ export function pollNotifications(deps?: PollDeps): Promise<PollResult> {
 async function runPoll({ store, createApi, show }: PollDeps): Promise<PollResult> {
   try {
     // The store may not be hydrated in a headless background run; the token read is authoritative.
-    if (!store.getSnapshot().serverUrl || !(await store.getToken())) return 'skipped';
+    if (!store.getSnapshot().serverUrl) return 'skipped';
+    if (!(await store.getToken())) {
+      // Signed out: nothing left to poll for, so stop waking the app (best effort).
+      try {
+        await BackgroundTask.unregisterTaskAsync(NOTIFICATION_TASK);
+      } catch {
+        // already unregistered
+      }
+      return 'skipped';
+    }
     const api = createApi(store);
     const { notifications } = await api.listNotifications();
     if (notifications.length === 0) return 'empty';
