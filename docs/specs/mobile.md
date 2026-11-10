@@ -25,6 +25,27 @@ The Expo Android app (development build, never Expo Go) talks to one self-hosted
   endpoints is an ordinary failed attempt and does not touch the session.
 - **Root routing.** Loading shows a splash; signed out goes to the server screen when no server URL is
   stored, otherwise to login; signed in goes home.
+- **Self-hosting link.** Until a server was checked, the server screen offers "No server yet? Host your
+  own", opening the GitHub repository's self-hosting docs in the browser.
+
+## Splash screen and app icon
+
+- The native splash (`expo-splash-screen`) shows the BudgeDino mark (a stegosaurus whose back plates
+  are gold coins) on the accent green (`#2E7D6B`), or on the dark theme background (`#0E1311`) when the
+  device is in dark mode. Assets live in `src/mobile/assets/` (generated PNGs; icon, adaptive icon with
+  monochrome layer for themed icons, splash mark).
+- The splash stays up until the encrypted cache is open and the session is hydrated, then fades out
+  (250 ms). It never stays longer than 5 s, whatever happens during start-up.
+
+## About and versioning
+
+- More > About shows the app version (GitVersion SemVer of the build's commit), the build number
+  (Android `versionCode`), the short commit SHA (opens the commit on GitHub) and the server version
+  (`GET /health`; "Checking…", "Unreachable" or "Not connected").
+- Links (open in the browser): source code (`github.com/nmehlei/BudgeDino`), report a problem (GitHub
+  issues), self-hosting docs, license (AGPL-3.0). Settings > Server links the self-hosting docs too.
+- Versions: [ADR 0010](../adr/0010-gitversion-mainline.md). Every commit gets its own version; the server
+  reports the same scheme from `/health`.
 
 ## Home screen
 

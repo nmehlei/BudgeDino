@@ -5,7 +5,12 @@ import { useEffect } from 'react';
 
 import { AppProviders } from '../src/providers';
 import { SignOutRedirect } from '../src/session/SignOutRedirect';
+import { keepSplashUntilReady } from '../src/splash';
 import { useAppTheme } from '../src/theme';
+
+// The native splash (expo-splash-screen) stays until AppProviders has opened the cache and hydrated
+// the session, so start-up shows the logo instead of a spinner.
+keepSplashUntilReady();
 
 /** Status bar icons and the native root background follow the resolved theme. */
 function ThemedChrome() {

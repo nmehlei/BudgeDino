@@ -7,6 +7,7 @@ import { AuthScreen } from '../../src/auth/AuthScreen';
 import { allowCleartext } from '../../src/auth/config';
 import { healthErrorMessage } from '../../src/auth/messages';
 import { validateServerUrl } from '../../src/auth/validation';
+import { openExternal, SELF_HOSTING_URL } from '../../src/links';
 import { useSession } from '../../src/session/useSession';
 
 export default function ServerScreen() {
@@ -67,6 +68,16 @@ export default function ServerScreen() {
       <Button mode="contained" onPress={() => void check()} loading={checking} disabled={checking}>
         Check
       </Button>
+      {connected === null ? (
+        <Button
+          mode="text"
+          icon="open-in-new"
+          onPress={() => openExternal(SELF_HOSTING_URL)}
+          testID="server-self-hosting"
+        >
+          No server yet? Host your own
+        </Button>
+      ) : null}
       {connected !== null ? (
         <>
           <Text variant="bodyMedium">{`Connected (server ${connected}).`}</Text>

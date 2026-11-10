@@ -34,6 +34,15 @@ export function MoreScreen() {
           onPress={() => router.push('/more/settings')}
           testID="more-settings"
         />
+        <List.Item
+          title="About"
+          description="Version, source code, license"
+          descriptionNumberOfLines={0}
+          left={(p) => <List.Icon {...p} icon="information-outline" />}
+          right={(p) => <List.Icon {...p} icon="chevron-right" />}
+          onPress={() => router.push('/more/about')}
+          testID="more-about"
+        />
       </ScrollView>
     </View>
   );

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { ThemeProvider } from 'expo-router';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { ActivityIndicator, PaperProvider } from 'react-native-paper';
 import { View } from 'react-native';
 
@@ -15,6 +15,7 @@ import { clearNotificationState } from './notifications/poll-task';
 import { getSessionStore } from './session/instance';
 import type { SessionStore } from './session/session-store';
 import { toNavigationTheme } from './navigation-theme';
+import { useHideSplashWhen } from './splash';
 import { useAppTheme } from './theme';
 
 interface AppProvidersProps {
@@ -120,6 +121,9 @@ export function AppProviders({
       cache.clear();
     });
   }, [cache, store]);
+
+  const sessionStatus = useSyncExternalStore(store.subscribe, () => store.getSnapshot().status);
+  useHideSplashWhen(cache !== null && sessionStatus !== 'loading');
 
   let body: ReactNode;
   if (cache === null) {
