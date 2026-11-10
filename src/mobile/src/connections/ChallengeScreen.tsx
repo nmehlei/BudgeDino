@@ -74,6 +74,8 @@ export function ChallengeScreen({ id }: { id: string }) {
   const notBefore = useRef(Date.now() + (entry ? pollDelay(entry.view) : MIN_POLL_MS));
   const rateLimitedUntil = useRef(0);
   const inFlight = useRef(false);
+  const lastRequestAt = useRef(0);
+  const [cancelling, setCancelling] = useState(false);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -156,6 +158,7 @@ export function ChallengeScreen({ id }: { id: string }) {
     const current = viewRef.current;
     if (inFlight.current || !current || current.kind !== 'decoupled') return;
     inFlight.current = true;
+    lastRequestAt.current = Date.now();
     try {
       const res = await api.answerChallenge(current.id, { kind: 'decoupled' });
       if (!mounted.current) return;
@@ -174,9 +177,14 @@ export function ChallengeScreen({ id }: { id: string }) {
           setNotice(`The bank asked us to wait. Checking again in ${Math.ceil(waitMs / 1000)} s.`);
           return;
         }
-        if (e.kind === 'network') {
+        if (e.kind === 'network' || (e.kind === 'server' && e.status === 409)) {
+          // 409 challenge_busy: another request is answering; keep waiting.
           notBefore.current = Date.now() + pollDelay(current);
-          setNotice('No connection. Still waiting, will retry.');
+          setNotice(
+            e.kind === 'network'
+              ? 'No connection. Still waiting, will retry.'
+              : 'The bank is still busy. Still waiting, will retry.',
+          );
           return;
         }
         if (e.kind === 'validation') {
@@ -220,9 +228,18 @@ export function ChallengeScreen({ id }: { id: string }) {
   }, [view, ended, foreground, api, applyStatus, finish]);
 
   const confirmDecoupled = () => {
+    if (cancelling) return;
     const wait = rateLimitedUntil.current - Date.now();
     if (wait > 0) {
       setNotice(`The bank asked us to wait. Try again in ${Math.ceil(wait / 1000)} s.`);
+      return;
+    }
+    const sinceLast = Date.now() - lastRequestAt.current;
+    if (sinceLast < MIN_POLL_MS) {
+      // Floor of 2 s between requests: let the scheduled poll run once it has passed.
+      notBefore.current = Math.max(notBefore.current, lastRequestAt.current + MIN_POLL_MS);
+      setStopped(false);
+      setTick((t) => t + 1);
       return;
     }
     setStopped(false);
@@ -257,10 +274,12 @@ export function ChallengeScreen({ id }: { id: string }) {
   };
 
   const cancel = async () => {
-    const current = viewRef.current;
-    if (current && !ended) {
+    if (cancelling) return;
+    setCancelling(true);
+    setStopped(true); // no poll may fire while the DELETE is in flight
+    if (!ended) {
       try {
-        await api.cancelChallenge(current.id);
+        await api.cancelChallenge(viewRef.current?.id ?? id);
       } catch {
         // Best effort: the server expires the challenge on its own.
       }
@@ -335,7 +354,12 @@ export function ChallengeScreen({ id }: { id: string }) {
         <Text variant="bodyMedium">
           This request can no longer be shown. Cancel it and start again from Connections.
         </Text>
-        <WrappingButton mode="contained" onPress={() => void cancel()}>
+        <WrappingButton
+          mode="contained"
+          onPress={() => void cancel()}
+          disabled={cancelling}
+          testID="challenge-cancel-orphan"
+        >
           Cancel request
         </WrappingButton>
       </View>
@@ -356,7 +380,12 @@ export function ChallengeScreen({ id }: { id: string }) {
         <WrappingButton mode="contained" onPress={confirmDecoupled} testID="challenge-confirm">
           I&apos;ve confirmed in my banking app
         </WrappingButton>
-        <WrappingButton mode="text" onPress={() => void cancel()} testID="challenge-cancel">
+        <WrappingButton
+          mode="text"
+          onPress={() => void cancel()}
+          disabled={cancelling}
+          testID="challenge-cancel"
+        >
           Cancel
         </WrappingButton>
       </View>
@@ -418,7 +447,12 @@ export function ChallengeScreen({ id }: { id: string }) {
         >
           Submit
         </WrappingButton>
-        <WrappingButton mode="text" onPress={() => void cancel()} testID="challenge-cancel">
+        <WrappingButton
+          mode="text"
+          onPress={() => void cancel()}
+          disabled={cancelling}
+          testID="challenge-cancel"
+        >
           Cancel
         </WrappingButton>
         {imageUri ? (
@@ -449,7 +483,12 @@ export function ChallengeScreen({ id }: { id: string }) {
         <Text variant="bodyMedium">
           This bank asks for a sign-in method the app can&apos;t handle yet.
         </Text>
-        <WrappingButton mode="contained" onPress={() => void cancel()} testID="challenge-cancel">
+        <WrappingButton
+          mode="contained"
+          onPress={() => void cancel()}
+          disabled={cancelling}
+          testID="challenge-cancel"
+        >
           Cancel
         </WrappingButton>
       </View>

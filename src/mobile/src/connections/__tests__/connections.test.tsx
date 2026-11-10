@@ -45,10 +45,16 @@ const other: ConnectorInfo = {
   lastSuccessAt: null,
 };
 
+const clients: QueryClient[] = [];
+afterEach(() => {
+  for (const c of clients.splice(0)) c.clear();
+});
+
 async function renderWithProviders(ui: React.ReactElement) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  clients.push(client);
   await render(
     <QueryClientProvider client={client}>
       <PaperProvider>{ui}</PaperProvider>

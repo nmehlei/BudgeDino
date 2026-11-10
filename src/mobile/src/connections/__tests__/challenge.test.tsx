@@ -51,7 +51,7 @@ const setAppState = (s: AppStateStatus) => act(() => appStateHandler?.(s));
 
 async function renderChallenge(view: ChallengeView, connectorId = 'conn1') {
   challengeStore.set({ view, connectorId });
-  const client = new QueryClient();
+  const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } });
   await render(
     <QueryClientProvider client={client}>
       <PaperProvider>
@@ -212,6 +212,88 @@ describe('decoupled challenge', () => {
   });
 });
 
+describe('polling hardening', () => {
+  it('keeps polling after a 409 challenge_busy', async () => {
+    mockApi.answerChallenge
+      .mockRejectedValueOnce(new ApiClientError({ kind: 'server', status: 409 }))
+      .mockResolvedValue({ status: 'open' });
+    await renderChallenge(decoupled({ pollAfterMs: 2000 }));
+    await advance(2100);
+    expect(mockApi.answerChallenge).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/Tap the button to try again/)).toBeNull();
+    await advance(2100);
+    expect(mockApi.answerChallenge).toHaveBeenCalledTimes(2);
+  });
+
+  it('cancel is guarded: no poll during the DELETE and a second tap is ignored', async () => {
+    let finish: (v: unknown) => void = () => undefined;
+    mockApi.cancelChallenge.mockReturnValue(new Promise((r) => (finish = r)));
+    mockApi.answerChallenge.mockResolvedValue({ status: 'open' });
+    await renderChallenge(decoupled({ pollAfterMs: 2000 }));
+    await act(async () => {
+      await fireEvent.press(screen.getByTestId('challenge-cancel'));
+    });
+    await advance(10_000);
+    expect(mockApi.answerChallenge).not.toHaveBeenCalled();
+    await act(async () => {
+      await fireEvent.press(screen.getByTestId('challenge-cancel'));
+    });
+    expect(mockApi.cancelChallenge).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      finish({ status: 'cancelled' });
+    });
+    expect(mockRouter.replace).toHaveBeenCalledWith('/connections');
+  });
+
+  it('confirm keeps a 2 s floor since the last request', async () => {
+    mockApi.answerChallenge.mockResolvedValue({ status: 'open' });
+    await renderChallenge(decoupled({ pollAfterMs: 2000 }));
+    await advance(2100);
+    expect(mockApi.answerChallenge).toHaveBeenCalledTimes(1);
+    await advance(500);
+    await act(async () => {
+      await fireEvent.press(screen.getByTestId('challenge-confirm'));
+    });
+    expect(mockApi.answerChallenge).toHaveBeenCalledTimes(1);
+    await advance(1700);
+    expect(mockApi.answerChallenge).toHaveBeenCalledTimes(2);
+  });
+
+  it('confirm during an in-flight poll sends no second request', async () => {
+    let resolve: (v: unknown) => void = () => undefined;
+    mockApi.answerChallenge.mockReturnValue(new Promise((r) => (resolve = r)));
+    await renderChallenge(decoupled({ pollAfterMs: 2000 }));
+    await advance(2100);
+    expect(mockApi.answerChallenge).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await fireEvent.press(screen.getByTestId('challenge-confirm'));
+    });
+    expect(mockApi.answerChallenge).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolve({ status: 'open' });
+    });
+  });
+
+  it('stops polling after unmount', async () => {
+    mockApi.answerChallenge.mockResolvedValue({ status: 'open' });
+    challengeStore.set({ view: decoupled({ pollAfterMs: 2000 }), connectorId: 'conn1' });
+    const r = await render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })}
+      >
+        <PaperProvider>
+          <ChallengeScreen id="ch1" />
+        </PaperProvider>
+      </QueryClientProvider>,
+    );
+    await advance(2100);
+    expect(mockApi.answerChallenge).toHaveBeenCalledTimes(1);
+    await act(async () => r.unmount());
+    await advance(30_000);
+    expect(mockApi.answerChallenge).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('code challenge', () => {
   it('keeps the screen on a 422 and shows "Invalid input"', async () => {
     mockApi.answerChallenge.mockRejectedValue(
@@ -279,13 +361,20 @@ describe('without a stored challenge', () => {
   it('offers to cancel a still-open challenge', async () => {
     mockApi.getChallenge.mockResolvedValue({ status: 'open' });
     await render(
-      <QueryClientProvider client={new QueryClient()}>
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })}
+      >
         <PaperProvider>
           <ChallengeScreen id="gone" />
         </PaperProvider>
       </QueryClientProvider>,
     );
     expect(await screen.findByTestId('challenge-orphan')).toBeTruthy();
+    mockApi.cancelChallenge.mockResolvedValue({ status: 'cancelled' });
+    await act(async () => {
+      await fireEvent.press(screen.getByTestId('challenge-cancel-orphan'));
+    });
+    expect(mockApi.cancelChallenge).toHaveBeenCalledWith('gone');
   });
 });
 
