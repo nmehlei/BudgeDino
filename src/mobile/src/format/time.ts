@@ -18,3 +18,59 @@ export function formatDateTime(epochMs: number): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}., ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+
+export const HOUSEHOLD_TZ_FALLBACK = 'Europe/Berlin';
+
+const MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+/** Calendar year, month (0-based) and day of an instant in a time zone. */
+function zonedYmd(epochMs: number, timeZone: string): { y: number; m: number; d: number } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+  }).formatToParts(new Date(epochMs));
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+  return { y: get('year'), m: get('month') - 1, d: get('day') };
+}
+
+/**
+ * Human period header from the server's `start` (inclusive) and `end` (exclusive) instants:
+ * monthly "November 2026", weekly "10–16 Nov" or "28 Oct – 3 Nov" across months. Days are taken in
+ * the household time zone, so a Berlin midnight (22:00/23:00Z the day before) is not off by one.
+ */
+export function formatPeriodLabel(
+  kind: 'weekly' | 'monthly',
+  startIso: string,
+  endIso: string,
+  timeZone: string = HOUSEHOLD_TZ_FALLBACK,
+): string {
+  const fallback = kind === 'weekly' ? 'Week' : 'Month';
+  const start = Date.parse(startIso);
+  const end = Date.parse(endIso);
+  if (Number.isNaN(start) || Number.isNaN(end)) return fallback;
+  try {
+    const s = zonedYmd(start, timeZone);
+    if (kind === 'monthly') return `${MONTHS[s.m] ?? ''} ${s.y}`;
+    const e = zonedYmd(Math.max(start, end - 1), timeZone); // end is exclusive: last included day
+    const mon = (m: number) => (MONTHS[m] ?? '').slice(0, 3);
+    if (s.y === e.y && s.m === e.m) return `${s.d}–${e.d} ${mon(e.m)}`;
+    return `${s.d} ${mon(s.m)} – ${e.d} ${mon(e.m)}`;
+  } catch {
+    return fallback;
+  }
+}

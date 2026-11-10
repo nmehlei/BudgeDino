@@ -183,14 +183,60 @@ describe('HomeScreen', () => {
     expect(await screen.findByTestId('uncategorized-income-row')).toBeTruthy();
   });
 
-  it('switches to the previous period', async () => {
-    mockApi.getHome.mockResolvedValue(home());
+  it('switches to the previous period and caches both periods separately', async () => {
+    mockApi.getHome.mockImplementation((period: string) =>
+      Promise.resolve(
+        period === 'previous'
+          ? home({ budgets: [budget({ id: 'b0', name: 'Old budget' })] })
+          : home(),
+      ),
+    );
     await renderHome();
     await screen.findByText('Groceries');
     await fireEvent.press(screen.getByText('Previous'));
     await waitFor(() => {
       expect(mockApi.getHome).toHaveBeenCalledWith('previous');
     });
+    await waitFor(() => {
+      expect(client.getQueryData(['home', 'previous'])).toBeDefined();
+    });
+    const current = client.getQueryData(['home', 'current']);
+    const previous = client.getQueryData(['home', 'previous']);
+    expect(current).toBeDefined();
+    expect(previous).toBeDefined();
+    expect(previous).not.toEqual(current);
+  });
+
+  it('a non-429 sync error shows "Sync failed" and still refetches', async () => {
+    mockApi.getHome.mockResolvedValue(home());
+    mockApi.syncConnector.mockRejectedValue(new ApiClientError({ kind: 'server', status: 500 }));
+    await renderHome();
+    await screen.findByText('Groceries');
+    const calls = mockApi.getHome.mock.calls.length;
+    await act(async () => {
+      await (
+        screen.getByTestId('home-scroll').props.refreshControl as {
+          props: { onRefresh: () => Promise<void> };
+        }
+      ).props.onRefresh();
+    });
+    expect(await screen.findByText('Sync failed')).toBeTruthy();
+    expect(mockApi.getHome.mock.calls.length).toBeGreaterThan(calls);
+  });
+
+  it('shows a humanised period header', async () => {
+    mockApi.getHome.mockResolvedValue(
+      home({
+        period: {
+          kind: 'monthly',
+          key: '2026-11',
+          start: '2026-10-31T23:00:00.000Z',
+          end: '2026-11-30T23:00:00.000Z',
+        },
+      }),
+    );
+    await renderHome();
+    expect(await screen.findByText('November 2026')).toBeTruthy();
   });
 
   it('needs-attention chip of an own connector opens Connections; others are inert', async () => {
@@ -279,8 +325,11 @@ describe('HomeScreen', () => {
     expect(await screen.findByText('Something went wrong', {}, { timeout: 8000 })).toBeTruthy();
   }, 15000);
 
+  // Structural proxy only: jest cannot lay text out, so this checks that nothing opts out of font
+  // scaling or truncates (numberOfLines) and that the screen scrolls. Real layout needs a device.
   it('stays usable at font scale 2: scrollable, wrapping text, no truncation', async () => {
     jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(2);
+    mockApi.syncConnector.mockRejectedValue(new ApiClientError({ kind: 'server', status: 500 }));
     mockApi.getHome.mockResolvedValue(
       home({
         budgets: [budget({ name: 'A very long budget name that has to wrap onto several lines' })],
@@ -289,9 +338,20 @@ describe('HomeScreen', () => {
     await renderHome();
     await screen.findByText(/A very long budget name/);
     expect(screen.getByTestId('home-scroll')).toBeTruthy();
+    // Bring up the Banner (offline) and the Snackbar (sync failed) so their text is covered too.
+    mockApi.getHome.mockRejectedValue(new ApiClientError({ kind: 'network' }));
+    await act(async () => {
+      await (
+        screen.getByTestId('home-scroll').props.refreshControl as {
+          props: { onRefresh: () => Promise<void> };
+        }
+      ).props.onRefresh();
+    });
+    await screen.findByText(/^Offline — showing data from/, {}, { timeout: 5000 });
+    await screen.findByText('Sync failed');
     for (const t of screen.getAllByText(/.+/)) {
-      // Paper's segmented buttons keep their two short labels on one line; all content wraps.
-      if (t.props.children === 'Current' || t.props.children === 'Previous') continue;
+      // Paper's button labels (segmented buttons, Retry) are short and single-line; all content, incl. Banner and Snackbar text, wraps.
+      if (['Current', 'Previous', 'Retry'].includes(t.props.children as string)) continue;
       expect(t.props.numberOfLines).toBeUndefined();
       expect(t.props.allowFontScaling).not.toBe(false);
     }

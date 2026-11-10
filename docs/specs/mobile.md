@@ -49,3 +49,6 @@ screens land). The `(app)` layout is also the root gate (splash, onboarding redi
   data from <time>" banner with Retry (other failures say "Couldn't refresh"). Without a cache a clear
   offline empty state with Retry is shown. A network failure is retried once, so it never spins long.
 - **Accessibility.** Text wraps (no truncation) and the screen scrolls, so it stays usable at font scale 2.
+- **Precision note.** Money is formatted by passing an exact decimal string to `Intl.NumberFormat`; a Hermes without Intl v3 coerces it to a Number, which loses precision beyond 2^53 minor units.
+- **Period header.** Monthly shows "November 2026", weekly "10–16 Nov" (or "28 Oct – 3 Nov" across months), from `period.start`/`end` (end exclusive) in Europe/Berlin.
+- **Sync errors.** A non-429 failure while syncing on pull-to-refresh shows a "Sync failed" snackbar; the refetch still runs.

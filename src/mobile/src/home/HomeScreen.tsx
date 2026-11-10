@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { isApiClientError } from '../api/errors';
 import { useApi } from '../api/useApi';
-import { formatDateTime } from '../format/time';
+import { formatDateTime, formatPeriodLabel } from '../format/time';
 import { shouldRetryQuery } from '../providers';
 import { useAppTheme } from '../theme';
 import { BreakdownList } from './BreakdownList';
@@ -43,6 +43,11 @@ export function HomeScreen() {
       // Sync only the caller's own healthy connectors; others belong to other members.
       const own = (data?.sync ?? []).filter((c) => c.isOwner && c.status === 'ok');
       const results = await Promise.allSettled(own.map((c) => api.syncConnector(c.id)));
+      const syncFailed = results.some(
+        (r) =>
+          r.status === 'rejected' &&
+          !(isApiClientError(r.reason) && r.reason.error.kind === 'rate_limited'),
+      );
       const waits = results.flatMap((r) =>
         r.status === 'rejected' &&
         isApiClientError(r.reason) &&
@@ -52,6 +57,8 @@ export function HomeScreen() {
       );
       if (waits.length > 0) {
         setToast(`Already syncing, try again in ${Math.min(...waits)} s`);
+      } else if (syncFailed) {
+        setToast('Sync failed');
       }
       await refetch();
     } finally {
@@ -84,7 +91,7 @@ export function HomeScreen() {
         ) : null}
         <View style={styles.content}>
           <Text variant="labelLarge" style={{ color: theme.colors.onSurfaceVariant }}>
-            {`${data.period.kind === 'weekly' ? 'Week' : 'Month'} ${data.period.key}`}
+            {formatPeriodLabel(data.period.kind, data.period.start, data.period.end)}
           </Text>
           <SyncStatusBar connectors={data.sync} onNeedsAttention={goToConnections} />
           {data.budgets.length === 0 ? (

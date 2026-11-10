@@ -1,3 +1,12 @@
+jest.mock('@budgedino/shared', () => {
+  const actual = jest.requireActual<typeof import('@budgedino/shared')>('@budgedino/shared');
+  // The shared table only knows exponents 0 and 2; fake a three-decimal currency (KWD) here.
+  return {
+    ...actual,
+    currencyExponent: (code: string) => (code === 'KWD' ? 3 : actual.currencyExponent(code)),
+  };
+});
+
 import { formatMoney, minorToDecimalString } from '../money';
 
 const nb = (s: string) => s.split(String.fromCharCode(160)).join(' ');
@@ -23,6 +32,15 @@ describe('formatMoney', () => {
 
   it('formats foreign currencies', () => {
     expect(nb(formatMoney({ minor: '123456', currency: 'USD' }))).toBe('1.234,56 $');
+  });
+
+  it('honours a three-decimal currency exponent', () => {
+    expect(nb(formatMoney({ minor: '123456', currency: 'KWD' }))).toMatch(/^123,456 /);
+    expect(nb(formatMoney({ minor: '-5', currency: 'KWD' }))).toMatch(/^-0,005 /);
+  });
+
+  it('formats a well-formed but unknown currency code with the code as symbol', () => {
+    expect(nb(formatMoney({ minor: '100', currency: 'XYZ' }))).toBe('1,00 XYZ');
   });
 
   it('does not crash on garbage', () => {

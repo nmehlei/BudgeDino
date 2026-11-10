@@ -3,16 +3,17 @@ import { StyleSheet, View } from 'react-native';
 import { Surface, Text } from 'react-native-paper';
 
 import { formatMoney } from '../format/money';
-import { useAppTheme } from '../theme';
+import { useAppTheme, useWarningColor } from '../theme';
 import { barState, type BarLevel } from './budget-math';
 
 const PERIOD_LABEL = { weekly: 'Weekly', monthly: 'Monthly' } as const;
 
 export function useLevelColor(): Record<BarLevel, string> {
   const theme = useAppTheme();
+  const warning = useWarningColor();
   return {
     ok: theme.colors.primary,
-    warn: theme.dark ? '#FFB74D' : '#B26A00',
+    warn: warning,
     over: theme.colors.error,
   };
 }
