@@ -245,6 +245,35 @@ describe('polling hardening', () => {
     expect(mockRouter.replace).toHaveBeenCalledWith('/connections');
   });
 
+  it('a poll that resolves after Cancel was tapped does not re-arm polling', async () => {
+    let resolvePoll: (v: unknown) => void = () => undefined;
+    mockApi.answerChallenge.mockReturnValueOnce(new Promise((r) => (resolvePoll = r)));
+    mockApi.answerChallenge.mockResolvedValue({ status: 'open' });
+    mockApi.cancelChallenge.mockReturnValue(new Promise(() => undefined));
+    await renderChallenge(decoupled({ pollAfterMs: 2000 }));
+    await advance(2100);
+    expect(mockApi.answerChallenge).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await fireEvent.press(screen.getByTestId('challenge-cancel'));
+    });
+    await act(async () => {
+      resolvePoll({ status: 'open' });
+    });
+    await advance(10_000);
+    expect(mockApi.answerChallenge).toHaveBeenCalledTimes(1);
+  });
+
+  it('two taps on Cancel in the same tick send one DELETE', async () => {
+    mockApi.cancelChallenge.mockReturnValue(new Promise(() => undefined));
+    await renderChallenge(decoupled());
+    const button = screen.getByTestId('challenge-cancel');
+    await act(async () => {
+      fireEvent.press(button);
+      fireEvent.press(button);
+    });
+    expect(mockApi.cancelChallenge).toHaveBeenCalledTimes(1);
+  });
+
   it('confirm keeps a 2 s floor since the last request', async () => {
     mockApi.answerChallenge.mockResolvedValue({ status: 'open' });
     await renderChallenge(decoupled({ pollAfterMs: 2000 }));

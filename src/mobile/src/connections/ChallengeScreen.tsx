@@ -75,7 +75,8 @@ export function ChallengeScreen({ id }: { id: string }) {
   const rateLimitedUntil = useRef(0);
   const inFlight = useRef(false);
   const lastRequestAt = useRef(0);
-  const [cancelling, setCancelling] = useState(false);
+  /** Set once Cancel is tapped: double-tap guard, and the polls must not re-arm afterwards. */
+  const cancellingRef = useRef(false);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -156,17 +157,18 @@ export function ChallengeScreen({ id }: { id: string }) {
 
   const pollOnce = useCallback(async () => {
     const current = viewRef.current;
-    if (inFlight.current || !current || current.kind !== 'decoupled') return;
+    if (cancellingRef.current || inFlight.current || !current || current.kind !== 'decoupled')
+      return;
     inFlight.current = true;
     lastRequestAt.current = Date.now();
     try {
       const res = await api.answerChallenge(current.id, { kind: 'decoupled' });
-      if (!mounted.current) return;
+      if (!mounted.current || cancellingRef.current) return;
       setNotice(null);
       setStopped(false);
       applyResponse(res);
     } catch (error) {
-      if (!mounted.current) return;
+      if (!mounted.current || cancellingRef.current) return;
       if (isApiClientError(error)) {
         const e = error.error;
         if (e.kind === 'unauthorized') return; // the session store signs the user out
@@ -196,7 +198,7 @@ export function ChallengeScreen({ id }: { id: string }) {
       setNotice("Couldn't check the confirmation. Tap the button to try again.");
     } finally {
       inFlight.current = false;
-      if (mounted.current) setTick((t) => t + 1);
+      if (mounted.current && !cancellingRef.current) setTick((t) => t + 1);
     }
   }, [api, applyResponse]);
 
@@ -228,7 +230,7 @@ export function ChallengeScreen({ id }: { id: string }) {
   }, [view, ended, foreground, api, applyStatus, finish]);
 
   const confirmDecoupled = () => {
-    if (cancelling) return;
+    if (cancellingRef.current) return;
     const wait = rateLimitedUntil.current - Date.now();
     if (wait > 0) {
       setNotice(`The bank asked us to wait. Try again in ${Math.ceil(wait / 1000)} s.`);
@@ -274,8 +276,8 @@ export function ChallengeScreen({ id }: { id: string }) {
   };
 
   const cancel = async () => {
-    if (cancelling) return;
-    setCancelling(true);
+    if (cancellingRef.current) return;
+    cancellingRef.current = true;
     setStopped(true); // no poll may fire while the DELETE is in flight
     if (!ended) {
       try {
@@ -357,7 +359,6 @@ export function ChallengeScreen({ id }: { id: string }) {
         <WrappingButton
           mode="contained"
           onPress={() => void cancel()}
-          disabled={cancelling}
           testID="challenge-cancel-orphan"
         >
           Cancel request
@@ -380,12 +381,7 @@ export function ChallengeScreen({ id }: { id: string }) {
         <WrappingButton mode="contained" onPress={confirmDecoupled} testID="challenge-confirm">
           I&apos;ve confirmed in my banking app
         </WrappingButton>
-        <WrappingButton
-          mode="text"
-          onPress={() => void cancel()}
-          disabled={cancelling}
-          testID="challenge-cancel"
-        >
+        <WrappingButton mode="text" onPress={() => void cancel()} testID="challenge-cancel">
           Cancel
         </WrappingButton>
       </View>
@@ -447,12 +443,7 @@ export function ChallengeScreen({ id }: { id: string }) {
         >
           Submit
         </WrappingButton>
-        <WrappingButton
-          mode="text"
-          onPress={() => void cancel()}
-          disabled={cancelling}
-          testID="challenge-cancel"
-        >
+        <WrappingButton mode="text" onPress={() => void cancel()} testID="challenge-cancel">
           Cancel
         </WrappingButton>
         {imageUri ? (
@@ -483,12 +474,7 @@ export function ChallengeScreen({ id }: { id: string }) {
         <Text variant="bodyMedium">
           This bank asks for a sign-in method the app can&apos;t handle yet.
         </Text>
-        <WrappingButton
-          mode="contained"
-          onPress={() => void cancel()}
-          disabled={cancelling}
-          testID="challenge-cancel"
-        >
+        <WrappingButton mode="contained" onPress={() => void cancel()} testID="challenge-cancel">
           Cancel
         </WrappingButton>
       </View>
