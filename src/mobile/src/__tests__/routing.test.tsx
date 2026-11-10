@@ -1,6 +1,6 @@
 import { act, render, screen } from '@testing-library/react-native';
 
-import Index from '../../app/index';
+import Index from '../../app/(app)/_layout';
 import { SignOutRedirect } from '../session/SignOutRedirect';
 import { createSessionStore, type PrefsStorage } from '../session/session-store';
 
@@ -18,6 +18,7 @@ jest.mock('expo-router', () => {
   return {
     useRouter: () => mockRouter,
     Redirect: ({ href }: { href: string }) => <Text>{`redirect:${href}`}</Text>,
+    Tabs: Object.assign(() => <Text>tabs</Text>, { Screen: () => null }),
   };
 });
 jest.mock('../session/useSession', () => {
@@ -55,7 +56,7 @@ describe('root redirect', () => {
   it('shows home when signed in', async () => {
     mockSession = { status: 'signed_in', serverUrl: 'https://budget.example.com' };
     await render(<Index />);
-    expect(screen.getByText('BudgeDino')).toBeTruthy();
+    expect(screen.getByText('tabs')).toBeTruthy();
   });
 });
 

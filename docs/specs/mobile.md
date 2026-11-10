@@ -25,3 +25,27 @@ The Expo Android app (development build, never Expo Go) talks to one self-hosted
   endpoints is an ordinary failed attempt and does not touch the session.
 - **Root routing.** Loading shows a splash; signed out goes to the server screen when no server URL is
   stored, otherwise to login; signed in goes home.
+
+## Home screen
+
+Bottom tabs: Home, Transactions, Connections, Settings (the last three are placeholders until their
+screens land). The `(app)` layout is also the root gate (splash, onboarding redirect, tabs).
+
+- **Data.** `GET /home?period=current|previous`, switched with a segmented control. Budget cards show
+  name, period kind (weekly/monthly), the spent amount large, "of <amount>" and a progress bar. Below:
+  the spending breakdown (largest first), an income line, an uncategorised-income line when non-zero,
+  and a "some foreign amounts couldn't be converted" note when `fxMissing`.
+- **Money.** Displayed from `{minor, currency}` with `Intl.NumberFormat('de-DE')` and the currency
+  exponent from `@budgedino/shared`; minor units are split by string arithmetic, never floats.
+- **Progress bar.** Fill is clamped to 0 to 100 %. Amber from ratio 0.8, red from 1. A ratio above 1
+  shows a full red bar, the amount in red and "Over budget (N %)". Refunds (negative `spent`) show the
+  negative amount and an empty bar. A zero budget never divides: no spending shows an empty bar, any
+  positive spending a full red bar.
+- **Sync status.** One chip per connector in `home.sync` (status and last successful sync, relative).
+  A needs-attention chip of the user's own connector opens Connections; other members' chips are inert.
+- **Pull-to-refresh.** Calls `POST /connectors/:id/sync` for the user's own connectors with status `ok`
+  (`isOwner`), then refetches home. A 429 shows "Already syncing, try again in N s".
+- **Offline.** If the server is unreachable the cached data stays visible under an "Offline — showing
+  data from <time>" banner with Retry (other failures say "Couldn't refresh"). Without a cache a clear
+  offline empty state with Retry is shown. A network failure is retried once, so it never spins long.
+- **Accessibility.** Text wraps (no truncation) and the screen scrolls, so it stays usable at font scale 2.

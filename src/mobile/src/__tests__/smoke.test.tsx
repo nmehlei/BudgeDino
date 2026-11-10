@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react-native';
 
-import Home from '../../app/index';
+import Home from '../../app/(app)/_layout';
 import { AppProviders } from '../providers';
 
 jest.mock('react-native-mmkv', () => {
@@ -23,7 +23,10 @@ jest.mock('expo-secure-store', () => ({
 }));
 jest.mock('expo-router', () => {
   const { Text } = jest.requireActual<typeof import('react-native')>('react-native');
-  return { Redirect: ({ href }: { href: string }) => <Text>{`redirect:${href}`}</Text> };
+  return {
+    Redirect: ({ href }: { href: string }) => <Text>{`redirect:${href}`}</Text>,
+    Tabs: Object.assign(() => null, { Screen: () => null }),
+  };
 });
 jest.mock('expo-crypto', () => ({ getRandomBytes: (n: number) => new Uint8Array(n) }));
 
