@@ -8,7 +8,7 @@ export const IBAN_PLACEHOLDER = '[iban]';
 
 /** Keys whose values are dropped (key kept, value replaced). */
 export const SENSITIVE_KEY =
-  /amount|iban|counterparty|purpose|payee|password|pin|tan|token|secret|key|balance|email|authorization|cookie|credential|^params$/i;
+  /amount|iban|counterparty|purpose|payee|password|pin|tan|token|secret|key|balance|email|authorization|cookie|credential|^params$|^q$/i;
 
 /** Keys that look sensitive or contain hex ids but are safe correlation fields. */
 const SAFE_KEYS = new Set(['trace_id', 'span_id', 'traceId', 'spanId', 'trace_flags']);

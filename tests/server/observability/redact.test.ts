@@ -4,9 +4,13 @@ import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-ho
 import { TracerProvider } from '@opentelemetry/sdk-trace';
 import Fastify from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createLogger, fastifyLoggerOptions } from '@budgedino/server/observability/logger';
+import {
+  createLogger,
+  fastifyLoggerOptions,
+  sanitizeUrl,
+} from '@budgedino/server/observability/logger';
 import { redact, redactString, safeErrorInfo } from '@budgedino/server/observability/redact';
-import { startTelemetry } from '@budgedino/server/observability/otel';
+import { REDACTED_QUERY_PARAMS, startTelemetry } from '@budgedino/server/observability/otel';
 
 const IBAN = 'DE89370400440532013000';
 
@@ -60,6 +64,19 @@ describe('redact', () => {
     expect(redact({ balance: 10n, count: 10n })).toEqual({ balance: '[redacted]', count: '10' });
     expect(redact(null)).toBeNull();
     expect(redact(3)).toBe(3);
+  });
+});
+
+describe('search term redaction', () => {
+  it('drops the q query parameter from logged URLs but keeps other keys', () => {
+    const url = sanitizeUrl('/api/v1/transactions?q=M%C3%BCller&limit=5&request=x');
+    expect(url).not.toContain('M%C3%BCller');
+    expect(url).not.toContain('Müller');
+    expect(url).toBe('/api/v1/transactions?q=redacted&limit=5&request=x');
+  });
+
+  it('redacts q on HTTP spans', () => {
+    expect(REDACTED_QUERY_PARAMS).toContain('q');
   });
 });
 

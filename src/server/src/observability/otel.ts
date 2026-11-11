@@ -15,7 +15,8 @@ export interface Telemetry {
 }
 
 /** Query parameters redacted on HTTP spans (in addition to the library defaults). */
-const REDACTED_QUERY_PARAMS = [
+export const REDACTED_QUERY_PARAMS = [
+  'q',
   'amount',
   'iban',
   'counterparty',
