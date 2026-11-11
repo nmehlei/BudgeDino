@@ -140,6 +140,7 @@ export function categorizationRoutes(app: FastifyInstance): void {
       return {
         transactions: page.items.map((t) => toInfo(t, splits)),
         nextCursor: page.nextCursor,
+        scannedUntil: page.scannedUntil,
       };
     },
   );

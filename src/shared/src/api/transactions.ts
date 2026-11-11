@@ -35,22 +35,35 @@ export const transactionIdParams = z.object({ id: z.uuid() });
 
 export const MAX_TRANSACTION_PAGE = 200;
 
-export const listTransactionsQuery = z.object({
-  from: isoDate.optional(),
-  to: isoDate.optional(),
-  accountId: z.uuid().optional(),
-  categoryId: z.uuid().optional(),
-  cursor: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}\|[0-9a-f-]{36}$/)
-    .optional(),
-  limit: z.coerce.number().int().min(1).max(MAX_TRANSACTION_PAGE).default(50),
-});
+export const listTransactionsQuery = z
+  .object({
+    from: isoDate.optional(),
+    to: isoDate.optional(),
+    accountId: z.uuid().optional(),
+    categoryId: z.uuid().optional(),
+    /** `true` or `1`: only transactions without a category; mutually exclusive with `categoryId`. */
+    uncategorized: z
+      .enum(['true', '1'])
+      .transform(() => true as const)
+      .optional(),
+    /** Case-insensitive substring of counterparty or purpose; trimmed, 2-64 characters. */
+    q: z.string().trim().min(2).max(64).optional(),
+    cursor: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}\|[0-9a-f-]{36}$/)
+      .optional(),
+    limit: z.coerce.number().int().min(1).max(MAX_TRANSACTION_PAGE).default(50),
+  })
+  .refine((v) => !(v.uncategorized === true && v.categoryId !== undefined), {
+    message: 'uncategorized and categoryId are mutually exclusive',
+  });
 export type ListTransactionsQuery = z.infer<typeof listTransactionsQuery>;
 
 export const listTransactionsResponse = z.object({
   transactions: z.array(transactionInfo),
   nextCursor: z.string().nullable(),
+  /** Search only: booking date of the last scanned row when the scan stopped early; null otherwise. */
+  scannedUntil: isoDate.nullable(),
 });
 export type ListTransactionsResponse = z.infer<typeof listTransactionsResponse>;
 

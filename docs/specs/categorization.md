@@ -92,8 +92,20 @@ follow the same rule, attributed to the owner of the account they were learned o
 
 ### Listing: `GET /transactions`
 
-`?from&to&accountId&categoryId&cursor&limit` (limit 1-200, default 50): visible transactions only,
-decrypted, newest booking date first, keyset cursor `<bookingDate>|<id>`, with splits.
+`?from&to&accountId&categoryId&uncategorized&q&cursor&limit` (limit 1-200, default 50): visible
+transactions only, decrypted, newest booking date first, keyset cursor `<bookingDate>|<id>`, with
+splits. The response carries `transactions`, `nextCursor` and `scannedUntil` (always `null` without `q`).
+
+- **Uncategorized filter:** `uncategorized=true` (or `1`) returns transactions with
+  `categoryId IS NULL`. It is mutually exclusive with `categoryId` (400); any other value is 400.
+- **Text search:** `q` matches case-insensitively (`toLocaleLowerCase('de-DE')`) as a plain substring
+  of the decrypted counterparty name **or** purpose (no wildcard semantics for `%` or `_`). `q` is
+  trimmed, then must be 2-64 characters (else 400). Counterparty and purpose are encrypted, so the
+  server scans visible rows in keyset order in batches of 500 (`SEARCH_BATCH`) and stops when `limit`
+  matches were found or 5,000 rows (`SEARCH_SCAN_CAP`) were scanned. `nextCursor` then points at the
+  last _scanned_ row, so paging continues the scan, and `scannedUntil` is the booking date of that
+  row; a page may therefore be empty with a non-null `nextCursor`. `scannedUntil` is `null` when the
+  scan reached the end. `q` is never logged.
 
 ### Categories: `GET /categories`
 

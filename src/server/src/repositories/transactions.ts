@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, lt, lte, or } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, or } from 'drizzle-orm';
 import { blindIndex, decryptString, encryptField, type DataKey } from '../crypto/index.js';
 import type { Db } from '../db/client.js';
 import { newId } from '../db/ids.js';
@@ -137,6 +137,10 @@ export interface TransactionQuery {
   to?: string | undefined;
   accountId?: string | undefined;
   categoryId?: string | undefined;
+  /** Only transactions without a category (`category_id IS NULL`). */
+  uncategorized?: boolean | undefined;
+  /** Case-insensitive substring of counterparty or purpose (scans decrypted rows, see `SEARCH_SCAN_CAP`). */
+  q?: string | undefined;
   /** Opaque keyset cursor from a previous page. */
   cursor?: string | undefined;
   limit: number;
@@ -145,6 +149,33 @@ export interface TransactionQuery {
 export interface TransactionPage {
   items: Transaction[];
   nextCursor: string | null;
+  /** Search only: booking date of the last scanned row when more remains; null otherwise (always null without `q`). */
+  scannedUntil: string | null;
+}
+
+/** Maximum rows a single search request scans before returning what it found. */
+export const SEARCH_SCAN_CAP = 5000;
+/** Rows fetched and decrypted per search batch. */
+export const SEARCH_BATCH = 500;
+
+const searchFold = (value: string) => value.toLocaleLowerCase('de-DE');
+
+function baseConditions(ids: string[], q: TransactionQuery) {
+  const conds = [inArray(transactions.accountId, ids)];
+  if (q.from !== undefined) conds.push(gte(transactions.bookingDate, q.from));
+  if (q.to !== undefined) conds.push(lte(transactions.bookingDate, q.to));
+  if (q.categoryId !== undefined) conds.push(eq(transactions.categoryId, q.categoryId));
+  if (q.uncategorized === true) conds.push(isNull(transactions.categoryId));
+  return conds;
+}
+
+function afterCursor(cursor: string) {
+  const [date, id] = cursor.split('|');
+  if (date === undefined || id === undefined) throw new Error('Invalid cursor');
+  return or(
+    lt(transactions.bookingDate, date),
+    and(eq(transactions.bookingDate, date), lt(transactions.id, id)),
+  );
 }
 
 /** Keyset order: newest booking date first, id as tie-breaker. Cursor = `<bookingDate>|<id>`. */
@@ -155,18 +186,11 @@ export async function queryTransactions(
   q: TransactionQuery,
 ): Promise<TransactionPage> {
   const ids = q.accountId === undefined ? [...visible] : visible.filter((v) => v === q.accountId);
-  if (ids.length === 0) return { items: [], nextCursor: null };
-  const conds = [inArray(transactions.accountId, ids)];
-  if (q.from !== undefined) conds.push(gte(transactions.bookingDate, q.from));
-  if (q.to !== undefined) conds.push(lte(transactions.bookingDate, q.to));
-  if (q.categoryId !== undefined) conds.push(eq(transactions.categoryId, q.categoryId));
+  if (ids.length === 0) return { items: [], nextCursor: null, scannedUntil: null };
+  const conds = baseConditions(ids, q);
+  if (q.q !== undefined) return searchTransactions(db, dk, conds, q.q, q.cursor, q.limit);
   if (q.cursor !== undefined) {
-    const [date, id] = q.cursor.split('|');
-    if (date === undefined || id === undefined) throw new Error('Invalid cursor');
-    const after = or(
-      lt(transactions.bookingDate, date),
-      and(eq(transactions.bookingDate, date), lt(transactions.id, id)),
-    );
+    const after = afterCursor(q.cursor);
     if (after) conds.push(after);
   }
   const rows = await db
@@ -180,7 +204,55 @@ export async function queryTransactions(
   return {
     items: page.map((row) => toTransaction(dk, row)),
     nextCursor: rows.length > q.limit && last ? `${last.bookingDate}|${last.id}` : null,
+    scannedUntil: null,
   };
+}
+
+/** Counterparty and purpose are encrypted, so the scan decrypts keyset batches and filters in memory. */
+async function searchTransactions(
+  db: Db,
+  dk: DataKey,
+  conds: ReturnType<typeof baseConditions>,
+  query: string,
+  startCursor: string | undefined,
+  limit: number,
+): Promise<TransactionPage> {
+  const needle = searchFold(query);
+  const items: Transaction[] = [];
+  let cursor = startCursor;
+  let scanned = 0;
+  while (scanned < SEARCH_SCAN_CAP) {
+    const batchConds = [...conds];
+    if (cursor !== undefined) {
+      const after = afterCursor(cursor);
+      if (after) batchConds.push(after);
+    }
+    const rows = await db
+      .select()
+      .from(transactions)
+      .where(and(...batchConds))
+      .orderBy(desc(transactions.bookingDate), desc(transactions.id))
+      .limit(SEARCH_BATCH);
+    for (const [i, row] of rows.entries()) {
+      scanned += 1;
+      const tx = toTransaction(dk, row);
+      const hit =
+        (tx.counterparty !== null && searchFold(tx.counterparty).includes(needle)) ||
+        (tx.purpose !== null && searchFold(tx.purpose).includes(needle));
+      if (hit) items.push(tx);
+      cursor = `${row.bookingDate}|${row.id}`;
+      if (items.length >= limit) {
+        // the scan may continue after this row unless it was the very last one
+        const exhausted = rows.length < SEARCH_BATCH && i === rows.length - 1;
+        return exhausted
+          ? { items, nextCursor: null, scannedUntil: null }
+          : { items, nextCursor: cursor, scannedUntil: row.bookingDate };
+      }
+    }
+    if (rows.length < SEARCH_BATCH) return { items, nextCursor: null, scannedUntil: null };
+  }
+  const [date] = (cursor ?? '').split('|');
+  return { items, nextCursor: cursor ?? null, scannedUntil: date ?? null };
 }
 
 export interface Split {

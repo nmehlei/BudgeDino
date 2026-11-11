@@ -81,7 +81,9 @@ describe('api client', () => {
   });
 
   it('encodes query parameters and skips undefined ones', async () => {
-    const { client, fetchImpl } = setup(() => json({ transactions: [], nextCursor: null }));
+    const { client, fetchImpl } = setup(() =>
+      json({ transactions: [], nextCursor: null, scannedUntil: null }),
+    );
     await client.listTransactions({ accountId: undefined, limit: 20, from: '2026-11-01' });
     expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
       'https://budget.example.test/api/v1/transactions?limit=20&from=2026-11-01',

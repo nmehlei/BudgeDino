@@ -59,7 +59,7 @@ const API_PREFIX = '/api/v1';
 const DEFAULT_TIMEOUT_MS = 20_000;
 const DEFAULT_RETRY_AFTER_SEC = 60;
 
-type Query = Record<string, string | number | undefined>;
+type Query = Record<string, string | number | boolean | undefined>;
 
 interface RequestSpec<S extends z.ZodType> {
   method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
