@@ -71,6 +71,10 @@ function AppTabs({ theme }: { theme: ReturnType<typeof useAppTheme> }) {
         options={{ title: 'Transactions', tabBarIcon: tabIcon('swap-horizontal') }}
       />
       <Tabs.Screen
+        name="statistics"
+        options={{ title: 'Statistics', tabBarIcon: tabIcon('chart-box-outline') }}
+      />
+      <Tabs.Screen
         name="connections"
         options={{ title: 'Connections', tabBarIcon: tabIcon('bank-outline') }}
       />

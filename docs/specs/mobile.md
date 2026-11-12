@@ -68,7 +68,7 @@ The Expo Android app (development build, never Expo Go) talks to one self-hosted
 
 ## Home screen
 
-Bottom tabs: Home, Transactions, Connections, More. The `(app)` layout is also the root gate (splash, onboarding redirect, tabs).
+Bottom tabs: Home, Transactions, Statistics, Connections, More. The `(app)` layout is also the root gate (splash, onboarding redirect, tabs).
 
 - **Layout.** Quiet, typography first: no elevated cards, 16 dp side padding, 24 dp between blocks, colours
   only from the MD3 theme. Top to bottom: period header, status bar (problems only), headline, pace chart,
@@ -131,6 +131,39 @@ Bottom tabs: Home, Transactions, Connections, More. The `(app)` layout is also t
 - **Precision note.** Money is formatted by passing an exact decimal string to `Intl.NumberFormat`; a Hermes without Intl v3 coerces it to a Number, which loses precision beyond 2^53 minor units.
 - **Period title.** Monthly shows "November 2026", weekly "10–16 Nov" (or "28 Oct – 3 Nov" across months), from `period.start`/`end` (end exclusive) in Europe/Berlin.
 - **Sync errors.** A non-429 failure while syncing on pull-to-refresh shows a "Sync failed" snackbar; the refetch still runs.
+
+## Statistics
+
+Tab "Statistics" (icon `chart-box-outline`) between Transactions and Connections. `GET /statistics?months=6|12`
+([api spec](api.md)); each window is cached separately and the previous one stays visible while the next loads.
+
+- **Layout.** Title "Statistics", a "6 months" / "12 months" segmented toggle (default 6), the section
+  "Income vs spending", then "Top categories, N months". No cards; 16 dp side padding.
+- **Income vs spending** (`MonthBars`). One group of two rounded bars per month, oldest first: income in the
+  accent colour, spending in the `orange` category colour, on a `niceMax` scale with a top and a half gridline
+  (whole currency units). The partial (current) month is drawn at 45 % opacity. Short month names ("Jun") sit
+  under each group; when a group is narrower than 30 dp (12 months on a phone) only every other month is
+  labelled, counting back from the newest, so the current month is always labelled. The partial month reads
+  "Nov so far" when its group is at least 50 dp wide, otherwise "Nov". Each group is a `Pressable` with
+  `accessibilityLabel` "October 2026: income 2.450 €, spending 2.040 €" ("November 2026 (so far): ..." for the
+  partial month); tapping it opens Transactions for that month's first to last day (household time zone,
+  inclusive `from`/`to`, no category).
+- **Average line.** "You kept on average 410,00 € a month" (`averageKept`, the mean over complete months),
+  "You spent on average X more than you earned" when negative; hidden when `averageKept` is null.
+- **Top categories.** The first five of `categories` (server order: `spent` descending), "Show all" expands
+  the rest inline ("Show less" collapses). Row: category icon (`useCategoryStyleById`), name (wraps), total
+  (own non-shrinking text, so the amount never splits from its currency sign at font scale 2), a 6 dp share
+  bar in the category colour (width = spent / largest spent of the list) and a small trend. Trend: whole
+  percent of `spent` against `previousSpent`, computed with bigint and rounded half away from zero,
+  "▲ 8 %" in the warning colour for a rise and "▼ 12 %" in the primary colour for a fall; none when
+  `previousSpent` is 0 or the change rounds to 0 %. Tapping a row opens Transactions for that category (or
+  uncategorised) over the whole window (first month's first day to the current month's last day).
+- **Empty state.** "Statistics appear after your first full month." when `months` has no complete month
+  (a brand-new household: `months: []`); not an error.
+- **FX.** `fxMissing` shows "Some foreign amounts couldn't be converted." under the categories, as on Home.
+- **Pull-to-refresh, loading, error, offline** follow Home: refetch on pull; spinner while loading; cached data
+  stays under an "Offline — showing data from <time>" / "Couldn't refresh" banner with Retry; without a cache
+  an "You're offline" / "Something went wrong" state with Retry. A network failure is retried once.
 
 ## Transactions
 

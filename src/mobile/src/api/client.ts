@@ -29,6 +29,7 @@ import {
   sessionListResponse,
   sessionResponse,
   splitsResponse,
+  statisticsResponse,
   syncStartedResponse,
   type ChallengeAnswer,
   type CreateBudgetRequest,
@@ -362,6 +363,15 @@ export function createApiClient(options: ApiClientOptions) {
     // home
     getHome: (period = 'current') =>
       request({ method: 'GET', path: '/home', query: { period }, schema: homeResponse }),
+
+    // statistics
+    getStatistics: (months: 6 | 12 = 6) =>
+      request({
+        method: 'GET',
+        path: '/statistics',
+        query: { months },
+        schema: statisticsResponse,
+      }),
 
     // net worth
     getNetWorth: () => request({ method: 'GET', path: '/net-worth', schema: netWorthResponse }),
