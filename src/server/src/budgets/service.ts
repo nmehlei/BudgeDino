@@ -416,7 +416,8 @@ export interface Breakdown {
   }[];
   /**
    * Spending per calendar day from the period start through `min(today, last day)`, zeros included; the
-   * same entries as the breakdown (visible accounts, no transfers/income), so it sums to its total.
+   * entries of the categories shown in the breakdown (visible accounts, no transfers/income; categories
+   * with net spent <= 0 are left out, bookings dated after today count on today), so it sums to its total.
    */
   daily: DailySpent[];
   income: Money;
@@ -454,7 +455,6 @@ export async function breakdownFor(
   const base = settings.baseCurrency;
 
   const spending = new Map<string | null, SpendEntry[]>();
-  const spendingByDay = new Map<string, SpendEntry[]>();
   const incomeEntries: SpendEntry[] = [];
   const uncategorizedIncomeEntries: SpendEntry[] = [];
   for (const e of entries) {
@@ -470,16 +470,22 @@ export async function breakdownFor(
     }
     const key = cat ? cat.id : null;
     spending.set(key, [...(spending.get(key) ?? []), e]);
-    // bookingDate is already a household-timezone calendar day
-    spendingByDay.set(e.bookingDate, [...(spendingByDay.get(e.bookingDate) ?? []), e]);
   }
 
   let fxMissing = false;
   const breakdown: Breakdown['breakdown'] = [];
+  const today = localDate(now, settings.timezone);
+  // Only categories shown in the breakdown feed `daily`, so both always total the same. bookingDate is
+  // already a household-timezone day; bookings dated after today count on today.
+  const spendingByDay = new Map<string, SpendEntry[]>();
   for (const [categoryId, list] of spending) {
     const r = await spentOf(list, base, fx);
     fxMissing ||= r.fxMissing;
     if (r.total <= 0n) continue;
+    for (const e of list) {
+      const day = e.bookingDate > today ? today : e.bookingDate;
+      spendingByDay.set(day, [...(spendingByDay.get(day) ?? []), e]);
+    }
     breakdown.push({
       categoryId,
       name: categoryId === null ? 'Uncategorized' : (byId.get(categoryId)?.name ?? 'Uncategorized'),
@@ -489,7 +495,6 @@ export async function breakdownFor(
     });
   }
   const daily: DailySpent[] = [];
-  const today = localDate(now, settings.timezone);
   for (const date of daysBetween(from, to)) {
     if (date > today) break;
     const r = await spentOf(spendingByDay.get(date) ?? [], base, fx);

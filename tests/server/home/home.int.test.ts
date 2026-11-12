@@ -195,14 +195,23 @@ describe('GET /home', () => {
       });
     });
 
-    it('a booking at 23:30 Berlin on the last day of a month lands on that day', async () => {
+    it('a refund-only category is not in the breakdown and not in daily', async () => {
       await at('2026-11-12T12:00:00Z');
-      await w.add(w.aAccount, -900n, '2026-10-31', 'Groceries');
-      const { home } = await getHome(w.aToken, '?period=previous');
-      const last = home.daily.at(-1);
-      expect(last?.date).toBe('2026-10-31');
-      expect(last?.spent.minor).toBe('900');
-      expect(home.daily).toHaveLength(31);
+      await w.add(w.aAccount, -100n, '2026-11-02', 'Groceries');
+      await w.add(w.aAccount, 50n, '2026-11-03', 'Shopping');
+      const { home } = await getHome(w.aToken);
+      expect(sum(home.breakdown)).toBe(100n);
+      expect(sum(home.daily)).toBe(100n);
+    });
+
+    it('bookings dated after today count on today', async () => {
+      await at('2026-11-12T12:00:00Z');
+      await w.add(w.aAccount, -100n, '2026-11-02', 'Groceries');
+      await w.add(w.aAccount, -70n, '2026-11-14', 'Groceries');
+      const { home } = await getHome(w.aToken);
+      expect(home.daily).toHaveLength(12);
+      expect(home.daily[11]?.spent.minor).toBe('70');
+      expect(sum(home.daily)).toBe(sum(home.breakdown));
     });
 
     it('transfers and income are not in daily', async () => {

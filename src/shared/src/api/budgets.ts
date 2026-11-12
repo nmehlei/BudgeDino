@@ -85,7 +85,8 @@ export const homeResponse = z.object({
   ),
   /**
    * Spending per household-timezone day from the period start through min(today, last day), zeros included;
-   * sums to the breakdown total. Refunds can make a day negative.
+   * covers exactly the categories shown in the breakdown (so it sums to its total); bookings dated after
+   * today count on today. Refunds can make a day negative.
    */
   daily: z.array(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), spent: moneyJson })),
   /** Income over the viewer's visible accounts; refunds are not income. */

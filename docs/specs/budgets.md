@@ -41,9 +41,9 @@
   every member), a **breakdown** over the viewer's _visible_ accounts only (spending categories, transfers
   and income excluded, refunds netted, largest first; rows with net spent <= 0 omitted; uncategorized positive
   amounts excluded; each row carries the category's raw stored `icon`/`color`, null for uncategorized) plus
-  `daily` (the same entries bucketed by booking day in the household timezone, one `{date, spent}` per day
+  `daily` (the entries of exactly the categories shown in the breakdown, bucketed by booking day in the household timezone, one `{date, spent}` per day
   from the period start through `min(today, last day)`, zeros included, base currency, refunds kept as
-  negative day sums; entries without an FX rate are left out and set `fxMissing`; it sums to the
+  negative day sums; bookings dated after today count on today; entries without an FX rate are left out and set `fxMissing`; it sums to the
   breakdown total), plus `income` and `uncategorizedIncome` separately, and `sync` (own connectors
   in full, others' only when they back household-visible accounts). The headline period is monthly for
   `current`/`previous` and of the key's kind for `2026-11` / `2026-W46`; budgets of the other kind are
