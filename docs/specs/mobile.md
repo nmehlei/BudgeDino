@@ -149,6 +149,27 @@ of other members only read "Shared by another member". A successful update inval
 - **Accessibility.** The screen scrolls and buttons wrap (Paper's Button truncates labels to one line, so the
   challenge screen uses its own wrapping button), so it stays usable at font scale 2.
 
+## Budgets
+
+More has a "Budgets" entry (`piggy-bank-outline`, above Settings) that opens `more/budgets`. `GET /budgets`
+([budgets.md](budgets.md)). Editing is admin-only (as the routes are); members see a read-only list.
+
+- **List.** Each row shows the name, the period (Weekly/Monthly) and the budget amount. Admins get a "New budget"
+  FAB, tap a row to edit it and a delete icon with a confirm dialog (`DELETE /budgets/:id` archives). Members get no
+  FAB, no edit and no delete, plus the note "Only admins can change budgets". Load errors show a Retry.
+- **Admin check.** `useIsAdmin()` (`household/queries.ts`) reads the caller's row (`isSelf`) of
+  `GET /households/members`. It is `false` while unknown or when the lookup fails (e.g. 403), so the app falls back
+  to the read-only view and never surfaces a crash.
+- **Form** (`more/budgets/new`, `more/budgets/[id]`). Name (1-80), category chips (multi-select, at least one),
+  period (weekly/monthly) and amount. Only active spending categories are offered (no income, transfer or archived
+  ones); an archived category an existing budget still uses stays visible as an "(archived)" chip. `useCategories()`
+  (`budgets/queries.ts`) hides archived categories by default and is reused by other screens.
+- **Amount input.** German style, `.` thousands and `,` decimal (`1.234,56`, `12,5`, `500`). Only positive amounts
+  with at most the currency's decimals (`currencyExponent`) parse; anything else shows a field error and nothing is
+  sent. Parsing is string/bigint only (`parseMoneyInput`); the body carries `amount: { minor: '<digits>', currency }`.
+  The currency is that of the existing budgets, `EUR` when there are none.
+- **After a change** the `budgets` and `home` queries are invalidated; a 403 reads "Only admins can change budgets.".
+
 ## Net worth
 
 More has a "Net worth" entry (`chart-line`) that opens `more/net-worth`. `GET /net-worth` ([net-worth.md](net-worth.md)).

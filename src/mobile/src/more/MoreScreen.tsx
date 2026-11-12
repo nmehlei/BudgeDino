@@ -26,6 +26,15 @@ export function MoreScreen() {
           testID="more-net-worth"
         />
         <List.Item
+          title="Budgets"
+          description="Spending limits per category and period"
+          descriptionNumberOfLines={0}
+          left={(p) => <List.Icon {...p} icon="piggy-bank-outline" />}
+          right={(p) => <List.Icon {...p} icon="chevron-right" />}
+          onPress={() => router.push('/more/budgets')}
+          testID="more-budgets"
+        />
+        <List.Item
           title="Settings"
           description="Appearance, security, devices, accounts, server"
           descriptionNumberOfLines={0}

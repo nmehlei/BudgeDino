@@ -16,6 +16,7 @@ import {
   healthResponse,
   homeResponse,
   listTransactionsResponse,
+  membersResponse,
   netWorthResponse,
   notificationsResponse,
   ownConnectorInfo,
@@ -202,6 +203,8 @@ export function createApiClient(options: ApiClientOptions) {
       request({ method: 'DELETE', path: idPath('/auth/sessions', id) }).then(() => undefined),
 
     // households
+    listMembers: () =>
+      request({ method: 'GET', path: '/households/members', schema: membersResponse }),
     createInvite: (input: CreateInviteRequest = { role: 'member' }) =>
       request({
         method: 'POST',
