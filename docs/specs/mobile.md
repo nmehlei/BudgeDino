@@ -95,7 +95,9 @@ Bottom tabs: Home, Transactions, Connections, More. The `(app)` layout is also t
   booking dates; labelled "1 Nov – 30 Nov"). Each active chip has a remove control. Filters and `q` are part of
   the query key. The category picker hides archived categories. **Text searches are never persisted to the
   offline cache** (search text and matches are payees and purposes): they live under the
-  `transactions/search` query prefix, which the cache's `shouldDehydrateQuery` excludes.
+  `transactions/search` query prefix, which the cache's `shouldDehydrateQuery` excludes. The **members list**
+  (`GET /households/members`, names and, for admins, emails) is persisted in the encrypted offline cache and wiped on
+  sign-out; unlike searches and rules it is not excluded.
 - **Search scan cap.** The server scans at most 5,000 rows per request. A page with no matches but a
   `nextCursor` shows "Searched back to <dd.mm.yyyy>" (from `scannedUntil`) with a "Search further" button that
   fetches the next page, instead of "No results"; the list does not auto-continue an empty scan. An
@@ -104,6 +106,9 @@ Bottom tabs: Home, Transactions, Connections, More. The `(app)` layout is also t
   `categoryId` (or `uncategorized=1` for the uncategorised row) plus `from`/`to`, the displayed period's
   first and last day in Europe/Berlin. The screen applies them as chips (replacing earlier category and
   date filters, keeping the account filter); a `n` param (timestamp) makes repeating the same drill-down re-apply it. The detail screen finds a transaction in any cached list (plain, filtered or search), so search hits open and recategorize.
+  The drill-down lists transactions whose **own** category matches (or is empty, for the uncategorised row) in the
+  period over the visible accounts. Split parts and the budget's rules (budget-counting accounts only, transfers and
+  uncategorised income excluded) are not applied, so the list can differ from the breakdown amount it was opened from.
 - **Accessibility.** Rows and fields wrap instead of truncating, so they stay usable at font scale 2.
 
 ## Settings > Accounts
@@ -230,7 +235,7 @@ Budgets, Household, Categories & rules, Settings, About) that opens `more/catego
 - **Members** see the list read-only ("Only admins can change categories."). If the members lookup fails the screen
   shows an error with Retry instead of a silent member view.
 - **After a change** the `categories`, `budgets`, `home` and `transactions` queries are invalidated.
-- **Rules.** `more/categories/rules` lists the caller's own rules as "<counterparty text or IBAN> -> <category>"
+- **Rules.** `more/categories/rules` lists the caller's own rules as "<counterparty text or IBAN> → <category>"
   (archived categories resolve too) with a delete action behind a confirm dialog that says past transactions keep
   their category. Match values are sensitive: never logged, and the `rules` query is excluded from the offline cache
   (`shouldDehydrateQuery`, like text searches).

@@ -60,7 +60,9 @@
     household: `id`, `role`, `expiresAt`. Tokens are shown once at creation and never listed again
     (only the hash is stored, and it is never returned).
   - `DELETE /households/invites/:id` (admin) deletes a pending invite: 204; already used 409
-    (`invite_used`); unknown, expired or another household's 404. Members get 403 on all three admin routes.
+    (`invite_used`, also when the used invite has expired); unknown, expired (unused) or another household's 404; a
+    non-UUID `:id` is 400. Members get 403 on `POST /households/invites`, `GET /households/invites` and
+    `DELETE /households/invites/:id`.
 - `budgedino init-key` prints a new master key once on stdout and requires typing its last 6
   characters; `budgedino rotate-master-key --server-stopped` re-wraps all keys (R19: it prints the "stop all running servers
   first" warning before doing anything and refuses without the flag; old key from `BUDGEDINO_MASTER_KEY[_FILE]`,

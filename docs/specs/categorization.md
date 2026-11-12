@@ -67,7 +67,8 @@ characters, and an empty string stores `null`. `PATCH { name?, group?, archived?
 renames, regroups or (un)archives; a rename colliding with another category is 409, another household's
 category is 404. The Transfer category (`isTransfer`) is immutable: any PATCH of it is 422. Archived
 categories stay on old transactions and in existing budgets and keep being returned by `GET /categories`
-with `archived: true`; the app hides them from every picker. Members get 403.
+with `archived: true`; the app hides them from every picker. Archiving does not disable rules pointing at the
+category: new transactions can still land in an archived category. Members get 403.
 
 ### Rules: `GET /rules`, `DELETE /rules/:id` (member)
 
@@ -124,6 +125,10 @@ splits. The response carries `transactions`, `nextCursor` and `scannedUntil` (al
   last _scanned_ row, so paging continues the scan, and `scannedUntil` is the booking date of that
   row; a page may therefore be empty with a non-null `nextCursor`. `scannedUntil` is `null` when the
   scan reached the end. `q` is never logged.
+- **Drill-down semantics:** `categoryId` / `uncategorized` match the transaction's **own** `category_id`
+  (or its absence) in the period. Split parts and the budget rules (budget-counting accounts only, transfers and
+  uncategorised income excluded) are not applied, so a list opened from the Home breakdown can differ from the
+  breakdown amount.
 
 ### Categories: `GET /categories`
 
