@@ -35,6 +35,8 @@ const cat = (id: string, name: string, over: Partial<CategoryInfo> = {}): Catego
   isIncome: false,
   isTransfer: false,
   archived: false,
+  icon: null,
+  color: null,
   ...over,
 });
 const CATEGORIES = [

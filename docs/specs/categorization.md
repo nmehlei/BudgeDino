@@ -61,10 +61,10 @@ is recategorized. The category must belong to the household (422); a transaction
 
 ### Category management: `POST /categories`, `PATCH /categories/:id` (admin)
 
-`POST { name, group?, isIncome? }` -> 201 `{ category }`. `name` is trimmed, 1-40 characters, unique per
+`POST { name, group?, isIncome?, icon?, color? }` -> 201 `{ category }`. `name` is trimmed, 1-40 characters, unique per
 household case-insensitively (`de-DE` lower-casing), else 409; `group` is trimmed, at most 40
-characters, and an empty string stores `null`. `PATCH { name?, group?, archived? }` (at least one field)
-renames, regroups or (un)archives; a rename colliding with another category is 409, another household's
+characters, and an empty string stores `null`. `PATCH { name?, group?, archived?, icon?, color? }` (at least one field)
+renames, regroups, (un)archives or restyles (`icon`/`color` accept `null` to clear; see "Icon and colour"); a rename colliding with another category is 409, another household's
 category is 404. The Transfer category (`isTransfer`) is immutable: any PATCH of it is 422. Archived
 categories stay on old transactions and in existing budgets and keep being returned by `GET /categories`
 with `archived: true`; the app hides them from every picker. Archiving does not disable rules pointing at the
@@ -133,5 +133,49 @@ splits. The response carries `transactions`, `nextCursor` and `scannedUntil` (al
 ### Categories: `GET /categories`
 
 Member route. The caller's household categories (`id`, `name`, `group`, `isIncome`, `isTransfer`,
-`archived`), ordered by name, archived ones included so old transactions still resolve. Never another
+`archived`, `icon`, `color`), ordered by name, archived ones included so old transactions still resolve. Never another
 household's. No path parameters, so the visibility harness probes it without a fixture.
+
+### Icon and colour
+
+Every category has an optional `icon` and `color` (nullable text columns), returned by `categoryInfo`
+(`GET/POST/PATCH /categories`) as nullable strings and accepted by `POST`/`PATCH`.
+
+- `icon` is a MaterialCommunityIcons name from the allowlist `CATEGORY_ICONS` in `@budgedino/shared`
+  (40 names: the 19 defaults below, `tag`, and 20 extras). A mobile test checks that each name exists in
+  the installed glyph map. Anything else is 400.
+- `color` is a key from `CATEGORY_COLOR_KEYS` (18 keys: `green`, `orange`, `blue`, `brown`, `amber`,
+  `indigo`, `violet`, `pink`, `rose`, `apricot`, `teal`, `sky`, `red`, `slate`, `olive`, `gold`,
+  `accent`, `grey`). `CATEGORY_COLORS` maps each to a `{ light, dark }` hex; each value reaches 3:1
+  contrast against the theme surface (`#FBFDFB` / `#151B18`), checked by a unit test. Anything else is 400.
+- `null` on `PATCH` clears the stored value; omitting a field leaves it unchanged.
+- **Fallback** (`resolveCategoryStyle`): per field, a null or unknown value resolves to the icon `tag`
+  and a colour `CATEGORY_COLOR_KEYS[fnv1a(id) % 16]` (deterministic; `accent` and `grey` excluded).
+- **Internal `key`:** a nullable stable slug on the 19 seeded defaults, unique per household where set
+  (partial unique index). It is never returned by the API and never accepted from a client.
+
+| Default             | Icon                    | Colour    |
+| ------------------- | ----------------------- | --------- |
+| groceries           | `cart`                  | `green`   |
+| eating-out          | `silverware-fork-knife` | `orange`  |
+| transport           | `bus`                   | `blue`    |
+| housing             | `home-variant`          | `brown`   |
+| utilities           | `lightning-bolt`        | `amber`   |
+| insurance           | `shield-check`          | `indigo`  |
+| subscriptions       | `play-box-multiple`     | `violet`  |
+| shopping            | `shopping`              | `pink`    |
+| health              | `heart-pulse`           | `rose`    |
+| kids                | `teddy-bear`            | `apricot` |
+| leisure             | `ticket`                | `teal`    |
+| travel              | `airplane`              | `sky`     |
+| gifts-donations     | `gift`                  | `red`     |
+| fees                | `receipt-text`          | `slate`   |
+| cash                | `cash`                  | `olive`   |
+| savings-investments | `piggy-bank`            | `gold`    |
+| income              | `cash-plus`             | `accent`  |
+| transfer            | `swap-horizontal`       | `grey`    |
+| uncategorized       | `help`                  | `grey`    |
+
+Bootstrap seeds `key`, `icon` and `color` for new households. Migration `0013` backfills existing
+households by exact match on the English default name, only where the household has exactly one
+category with that name; renamed or duplicated defaults stay null and render with the fallback.

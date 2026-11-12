@@ -30,8 +30,19 @@ const categories: CategoryInfo[] = [
     isIncome: false,
     isTransfer: false,
     archived: false,
+    icon: null,
+    color: null,
   },
-  { id: 'old', name: 'Old', group: null, isIncome: false, isTransfer: false, archived: true },
+  {
+    id: 'old',
+    name: 'Old',
+    group: null,
+    isIncome: false,
+    isTransfer: false,
+    archived: true,
+    icon: null,
+    color: null,
+  },
 ];
 const account: AccountInfo = {
   id: 'acc1',

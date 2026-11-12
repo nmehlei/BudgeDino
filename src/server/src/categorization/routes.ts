@@ -50,6 +50,8 @@ const toCategoryInfo = (c: CategoryRow) => ({
   isIncome: c.isIncome,
   isTransfer: c.isTransfer,
   archived: c.archived,
+  icon: c.icon,
+  color: c.color,
 });
 
 /** Names are unique per household, case-insensitively (compared the way search is, de-DE). */
@@ -155,7 +157,7 @@ export function categorizationRoutes(app: FastifyInstance): void {
     async (req, reply) => {
       const auth = authOf(req);
       const { db } = app.ctx;
-      const { name, group, isIncome } = req.body;
+      const { name, group, isIncome, icon, color } = req.body;
       await assertNameFree(db, auth.householdId, name);
       const [row] = await db
         .insert(categories)
@@ -165,6 +167,8 @@ export function categorizationRoutes(app: FastifyInstance): void {
           name,
           group: group ?? null,
           isIncome: isIncome ?? false,
+          icon: icon ?? null,
+          color: color ?? null,
         })
         .returning();
       if (!row) throw new Error('category insert returned no row');
@@ -195,7 +199,7 @@ export function categorizationRoutes(app: FastifyInstance): void {
       if (current.isTransfer) {
         throw new HttpError(422, 'category_immutable', 'The Transfer category cannot be changed');
       }
-      const { name, group, archived } = req.body;
+      const { name, group, archived, icon, color } = req.body;
       if (name !== undefined) await assertNameFree(db, auth.householdId, name, current.id);
       const [row] = await db
         .update(categories)
@@ -203,6 +207,8 @@ export function categorizationRoutes(app: FastifyInstance): void {
           ...(name === undefined ? {} : { name }),
           ...(group === undefined ? {} : { group }),
           ...(archived === undefined ? {} : { archived }),
+          ...(icon === undefined ? {} : { icon }),
+          ...(color === undefined ? {} : { color }),
         })
         .where(eq(categories.id, current.id))
         .returning();

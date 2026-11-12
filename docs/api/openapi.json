@@ -930,6 +930,18 @@
                           },
                           "archived": {
                             "type": "boolean"
+                          },
+                          "icon": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "color": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
                           }
                         },
                         "required": [
@@ -938,7 +950,9 @@
                           "group",
                           "isIncome",
                           "isTransfer",
-                          "archived"
+                          "archived",
+                          "icon",
+                          "color"
                         ],
                         "additionalProperties": false
                       }
@@ -1019,6 +1033,74 @@
                   },
                   "isIncome": {
                     "type": "boolean"
+                  },
+                  "icon": {
+                    "type": "string",
+                    "enum": [
+                      "cart",
+                      "silverware-fork-knife",
+                      "bus",
+                      "home-variant",
+                      "lightning-bolt",
+                      "shield-check",
+                      "play-box-multiple",
+                      "shopping",
+                      "heart-pulse",
+                      "teddy-bear",
+                      "ticket",
+                      "airplane",
+                      "gift",
+                      "receipt-text",
+                      "cash",
+                      "piggy-bank",
+                      "cash-plus",
+                      "swap-horizontal",
+                      "help",
+                      "tag",
+                      "dog",
+                      "school",
+                      "dumbbell",
+                      "car",
+                      "gas-station",
+                      "phone",
+                      "wifi",
+                      "tshirt-crew",
+                      "hammer-wrench",
+                      "flower",
+                      "baby-carriage",
+                      "glass-cocktail",
+                      "coffee",
+                      "book-open-variant",
+                      "music",
+                      "gamepad-variant",
+                      "briefcase",
+                      "hospital-box",
+                      "bank",
+                      "credit-card"
+                    ]
+                  },
+                  "color": {
+                    "type": "string",
+                    "enum": [
+                      "green",
+                      "orange",
+                      "blue",
+                      "brown",
+                      "amber",
+                      "indigo",
+                      "violet",
+                      "pink",
+                      "rose",
+                      "apricot",
+                      "teal",
+                      "sky",
+                      "red",
+                      "slate",
+                      "olive",
+                      "gold",
+                      "accent",
+                      "grey"
+                    ]
                   }
                 },
                 "required": [
@@ -1064,6 +1146,18 @@
                         },
                         "archived": {
                           "type": "boolean"
+                        },
+                        "icon": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "color": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         }
                       },
                       "required": [
@@ -1072,7 +1166,9 @@
                         "group",
                         "isIncome",
                         "isTransfer",
-                        "archived"
+                        "archived",
+                        "icon",
+                        "color"
                       ],
                       "additionalProperties": false
                     }
@@ -1154,6 +1250,88 @@
                   },
                   "archived": {
                     "type": "boolean"
+                  },
+                  "icon": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "cart",
+                          "silverware-fork-knife",
+                          "bus",
+                          "home-variant",
+                          "lightning-bolt",
+                          "shield-check",
+                          "play-box-multiple",
+                          "shopping",
+                          "heart-pulse",
+                          "teddy-bear",
+                          "ticket",
+                          "airplane",
+                          "gift",
+                          "receipt-text",
+                          "cash",
+                          "piggy-bank",
+                          "cash-plus",
+                          "swap-horizontal",
+                          "help",
+                          "tag",
+                          "dog",
+                          "school",
+                          "dumbbell",
+                          "car",
+                          "gas-station",
+                          "phone",
+                          "wifi",
+                          "tshirt-crew",
+                          "hammer-wrench",
+                          "flower",
+                          "baby-carriage",
+                          "glass-cocktail",
+                          "coffee",
+                          "book-open-variant",
+                          "music",
+                          "gamepad-variant",
+                          "briefcase",
+                          "hospital-box",
+                          "bank",
+                          "credit-card"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "color": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "green",
+                          "orange",
+                          "blue",
+                          "brown",
+                          "amber",
+                          "indigo",
+                          "violet",
+                          "pink",
+                          "rose",
+                          "apricot",
+                          "teal",
+                          "sky",
+                          "red",
+                          "slate",
+                          "olive",
+                          "gold",
+                          "accent",
+                          "grey"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 }
               }
@@ -1208,6 +1386,18 @@
                         },
                         "archived": {
                           "type": "boolean"
+                        },
+                        "icon": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "color": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         }
                       },
                       "required": [
@@ -1216,7 +1406,9 @@
                         "group",
                         "isIncome",
                         "isTransfer",
-                        "archived"
+                        "archived",
+                        "icon",
+                        "color"
                       ],
                       "additionalProperties": false
                     }

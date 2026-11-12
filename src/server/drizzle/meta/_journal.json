@@ -92,6 +92,13 @@
       "when": 1794343212890,
       "tag": "0012_accounts_household_index",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1794498806941,
+      "tag": "0013_category_style",
+      "breakpoints": true
     }
   ]
 }

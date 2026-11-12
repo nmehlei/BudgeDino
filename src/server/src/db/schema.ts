@@ -171,18 +171,31 @@ export const accounts = pgTable(
   ],
 );
 
-export const categories = pgTable('categories', {
-  id: id(),
-  householdId: uuid('household_id')
-    .notNull()
-    .references(() => households.id, { onDelete: 'cascade' }),
-  // [call] category names are plaintext by design (see docs/specs/security.md)
-  name: text('name').notNull(),
-  group: text('group'),
-  isIncome: boolean('is_income').notNull().default(false),
-  isTransfer: boolean('is_transfer').notNull().default(false),
-  archived: boolean('archived').notNull().default(false),
-});
+export const categories = pgTable(
+  'categories',
+  {
+    id: id(),
+    householdId: uuid('household_id')
+      .notNull()
+      .references(() => households.id, { onDelete: 'cascade' }),
+    // internal stable slug of a seeded default (null for custom or ambiguous ones); never exposed by the API
+    key: text('key'),
+    // [call] category names are plaintext by design (see docs/specs/security.md)
+    name: text('name').notNull(),
+    group: text('group'),
+    // MaterialCommunityIcons name and palette key from the allowlists in @budgedino/shared (null: fallback)
+    icon: text('icon'),
+    color: text('color'),
+    isIncome: boolean('is_income').notNull().default(false),
+    isTransfer: boolean('is_transfer').notNull().default(false),
+    archived: boolean('archived').notNull().default(false),
+  },
+  (t) => [
+    uniqueIndex('categories_household_key')
+      .on(t.householdId, t.key)
+      .where(sql`${t.key} is not null`),
+  ],
+);
 
 export const transactions = pgTable(
   'transactions',

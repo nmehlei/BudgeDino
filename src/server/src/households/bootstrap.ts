@@ -40,7 +40,10 @@ export async function bootstrapHousehold(
     await tx.insert(categories).values(
       DEFAULT_CATEGORIES.map((c) => ({
         householdId,
+        key: c.key,
         name: c.name,
+        icon: c.icon,
+        color: c.color,
         isIncome: c.isIncome ?? false,
         isTransfer: c.isTransfer ?? false,
       })),

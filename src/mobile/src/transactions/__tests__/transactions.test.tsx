@@ -33,9 +33,36 @@ jest.mock('react-native-safe-area-context', () => ({
 const FOOD = 'cat-food';
 const FUN = 'cat-fun';
 const categories: CategoryInfo[] = [
-  { id: FOOD, name: 'Food', group: null, isIncome: false, isTransfer: false, archived: false },
-  { id: FUN, name: 'Fun', group: 'Leisure', isIncome: false, isTransfer: false, archived: false },
-  { id: 'old', name: 'Old', group: null, isIncome: false, isTransfer: false, archived: true },
+  {
+    id: FOOD,
+    name: 'Food',
+    group: null,
+    isIncome: false,
+    isTransfer: false,
+    archived: false,
+    icon: null,
+    color: null,
+  },
+  {
+    id: FUN,
+    name: 'Fun',
+    group: 'Leisure',
+    isIncome: false,
+    isTransfer: false,
+    archived: false,
+    icon: null,
+    color: null,
+  },
+  {
+    id: 'old',
+    name: 'Old',
+    group: null,
+    isIncome: false,
+    isTransfer: false,
+    archived: true,
+    icon: null,
+    color: null,
+  },
 ];
 
 function tx(over: Partial<TransactionInfo> = {}): TransactionInfo {
