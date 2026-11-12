@@ -1,15 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
-import {
-  AccessibilityInfo,
-  Animated,
-  Easing,
-  StyleSheet,
-  useColorScheme,
-  View,
-} from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AccessibilityInfo, Animated, Appearance, Easing, StyleSheet, View } from 'react-native';
 import Svg, { Circle, Ellipse, Path, Rect } from 'react-native-svg';
 
-import { useSplashHidden } from './splash';
+import { isSplashHidden, useSplashHidden } from './splash';
 
 /** Same colours as the native splash (app.config.ts): accent green, or the dark background. */
 const BG_LIGHT = '#2E7D6B';
@@ -23,6 +16,44 @@ const COIN_HOP_SCALE = 1.12;
 const COIN_STAGGER_MS = 90;
 const BLINK_START_MS = 650;
 const HOLD_UNTIL_MS = 1300;
+/** The overlay ends by itself after this long, whatever the animation does (never stuck on screen). */
+const FAILSAFE_MS = 2500;
+/** If the reduce-motion setting does not answer in time, assume motion is allowed. */
+const REDUCE_MOTION_TIMEOUT_MS = 300;
+
+/**
+ * The native splash follows the device scheme, not the in-app appearance preference, which is applied
+ * via `Appearance.setColorScheme` later (theme store). Read it once at module load, before that.
+ */
+const DEVICE_SCHEME = Appearance.getColorScheme();
+
+/**
+ * The overlay plays once per process, and only if it was mounted before the native splash hid.
+ * Mounting later (the 5 s safety timeout hid the splash first, fast refresh, activity recreate) must
+ * not show a second opaque splash.
+ */
+let phase: 'undecided' | 'eligible' | 'finished' | 'skipped' = 'undecided';
+
+/** Test seam. */
+export function resetAnimatedSplashForTests(): void {
+  phase = 'undecided';
+}
+
+function motionReduced(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), REDUCE_MOTION_TIMEOUT_MS);
+    AccessibilityInfo.isReduceMotionEnabled().then(
+      (r) => {
+        clearTimeout(timer);
+        resolve(r);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(false);
+      },
+    );
+  });
+}
 
 /*
  * Geometry. The native splash draws a 1024 px square PNG at 220 dp, centred; the mark inside it spans
@@ -140,8 +171,13 @@ function StaticLayer({ children }: { children: React.ReactNode }) {
  */
 export function AnimatedSplash() {
   const hidden = useSplashHidden();
-  const dark = useColorScheme() === 'dark';
-  const [done, setDone] = useState(false);
+  if (phase === 'undecided') phase = isSplashHidden() ? 'skipped' : 'eligible';
+  const dark = DEVICE_SCHEME === 'dark';
+  const [done, setDone] = useState(phase !== 'eligible');
+  const finish = useCallback(() => {
+    phase = 'finished';
+    setDone(true);
+  }, []);
 
   // Coins are visible at rest from mount (like the native image); `hop` 0 = rest, 1 = top of the hop.
   const coinHops = useRef(COINS.map(() => new Animated.Value(0))).current;
@@ -149,11 +185,12 @@ export function AnimatedSplash() {
   const wag = useRef(new Animated.Value(0)).current; // degrees
   const fade = useRef(new Animated.Value(1)).current;
   const reduce = useRef<Promise<boolean>>(undefined as unknown as Promise<boolean>);
-  reduce.current ??= AccessibilityInfo.isReduceMotionEnabled().catch(() => false);
+  reduce.current ??= motionReduced();
 
   useEffect(() => {
-    if (!hidden) return;
+    if (!hidden || done) return;
     let cancelled = false;
+    const failsafe = setTimeout(finish, FAILSAFE_MS);
     let running: Animated.CompositeAnimation | undefined;
     void reduce.current.then((reduceMotion) => {
       if (cancelled) return;
@@ -220,14 +257,15 @@ export function AnimatedSplash() {
         ]);
       }
       running.start(({ finished }) => {
-        if (finished) setDone(true);
+        if (finished) finish();
       });
     });
     return () => {
       cancelled = true;
+      clearTimeout(failsafe);
       running?.stop();
     };
-  }, [hidden, coinHops, blink, wag, fade]);
+  }, [hidden, done, finish, coinHops, blink, wag, fade]);
 
   if (done) return null;
 
@@ -236,8 +274,8 @@ export function AnimatedSplash() {
   return (
     <Animated.View
       testID="animated-splash"
-      accessible
-      accessibilityLabel="BudgeDino"
+      importantForAccessibility="no-hide-descendants"
+      accessibilityElementsHidden
       pointerEvents="none"
       style={[
         StyleSheet.absoluteFill,
@@ -252,6 +290,7 @@ export function AnimatedSplash() {
           return (
             <Animated.View
               key={c.cx}
+              testID={`splash-coin-${i}`}
               style={[
                 frame(c.cx, c.cy, c.r + 1.5),
                 {

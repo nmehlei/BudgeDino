@@ -46,6 +46,10 @@ The Expo Android app (development build, never Expo Go) talks to one self-hosted
   back with a slight bounce, 90 ms stagger); the dino blinks once and wags its tail
   once; then the overlay fades out (250 ms) and unmounts. Each animated part (coin, eye, tail) is its own
   positioned `Animated.View` using native-driver transforms and opacity only (no new native dependency).
+- The overlay plays once per process and only if it mounted before the native splash hid; if the 5 s
+  safety timeout hid it first (or the tree remounts later), nothing is shown. It is hidden from
+  accessibility (TalkBack does not announce it), removes itself after at most 2.5 s whatever the
+  animation does, and treats an unanswered reduce-motion query (300 ms) as "motion allowed".
 - With reduce motion on (`AccessibilityInfo.isReduceMotionEnabled()`), the animation is skipped and the
   overlay only fades out.
 

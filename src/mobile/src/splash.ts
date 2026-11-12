@@ -12,6 +12,10 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+export function isSplashHidden(): boolean {
+  return hidden;
+}
+
 /** True once the native splash has been told to hide (the in-app overlay then takes over). */
 export function useSplashHidden(): boolean {
   return useSyncExternalStore(
