@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Appearance, Easing, StyleSheet, View } from 'react-native';
 import Svg, { Circle, Ellipse, Path, Rect } from 'react-native-svg';
 
-import { isSplashHidden, useSplashHidden } from './splash';
+import { isSplashHidden, markSplashFinished, useSplashHidden } from './splash';
 
 /** Same colours as the native splash (app.config.ts): accent green, or the dark background. */
 const BG_LIGHT = '#2E7D6B';
@@ -266,6 +266,13 @@ export function AnimatedSplash() {
       running?.stop();
     };
   }, [hidden, done, finish, coinHops, blink, wag, fade]);
+
+  // Tell waiting work (the app lock's cold-start prompt) once the overlay is gone: finished, skipped,
+  // failsafe, or unmounted early.
+  useEffect(() => {
+    if (done) markSplashFinished();
+  }, [done]);
+  useEffect(() => markSplashFinished, []);
 
   if (done) return null;
 

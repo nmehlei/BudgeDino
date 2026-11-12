@@ -25,6 +25,38 @@ export function useSplashHidden(): boolean {
   );
 }
 
+let finished = false;
+const finishedListeners = new Set<() => void>();
+
+function subscribeFinished(listener: () => void): () => void {
+  finishedListeners.add(listener);
+  return () => finishedListeners.delete(listener);
+}
+
+/**
+ * True once the animated splash overlay is over: it finished, was skipped (mounted after the native
+ * splash hid, reduce motion only shortens it), hit its failsafe or unmounted. The app lock waits for
+ * this before showing the system authentication prompt on cold start, so the prompt never covers it.
+ */
+export function isSplashFinished(): boolean {
+  return finished;
+}
+
+export function useSplashFinished(): boolean {
+  return useSyncExternalStore(
+    subscribeFinished,
+    () => finished,
+    () => finished,
+  );
+}
+
+/** Set by the overlay (`AnimatedSplash`); idempotent. */
+export function markSplashFinished(): void {
+  if (finished) return;
+  finished = true;
+  finishedListeners.forEach((l) => l());
+}
+
 /** Called once at module load of the root layout: the native splash stays until the app is ready. */
 export function keepSplashUntilReady(): void {
   try {

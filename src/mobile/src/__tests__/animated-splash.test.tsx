@@ -8,10 +8,12 @@ configure({ defaultIncludeHiddenElements: true });
 
 let mockHidden = false;
 const mockListeners = new Set<() => void>();
+const mockMarkFinished = jest.fn();
 jest.mock('../splash', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- hoisted mock factory
   const { useSyncExternalStore } = require('react') as typeof import('react');
   return {
+    markSplashFinished: () => mockMarkFinished(),
     isSplashHidden: () => mockHidden,
     useSplashHidden: () =>
       useSyncExternalStore(
@@ -47,6 +49,7 @@ async function flush(ms: number): Promise<void> {
 describe('AnimatedSplash', () => {
   beforeEach(() => {
     mockHidden = false;
+    mockMarkFinished.mockClear();
     resetAnimatedSplashForTests();
     jest.useFakeTimers();
     jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
@@ -74,6 +77,35 @@ describe('AnimatedSplash', () => {
     await flush(300);
     expect(screen.queryByTestId('animated-splash')).toBeNull();
     expect(screen.getByText('app content')).toBeTruthy();
+  });
+
+  it('signals "splash finished" only once the overlay is gone', async () => {
+    await render(<App />);
+    await hideNative();
+    await flush(1300);
+    expect(mockMarkFinished).not.toHaveBeenCalled();
+    await flush(300);
+    expect(mockMarkFinished).toHaveBeenCalled();
+  });
+
+  it('signals "splash finished" at once when it is skipped', async () => {
+    mockHidden = true;
+    await render(<App />);
+    expect(mockMarkFinished).toHaveBeenCalled();
+  });
+
+  it('signals "splash finished" when the failsafe ends it', async () => {
+    jest.spyOn(Animated, 'sequence').mockReturnValue({
+      start: jest.fn(),
+      stop: jest.fn(),
+      reset: jest.fn(),
+    } as unknown as Animated.CompositeAnimation);
+    await render(<App />);
+    await hideNative();
+    await flush(2000);
+    expect(mockMarkFinished).not.toHaveBeenCalled();
+    await flush(700);
+    expect(mockMarkFinished).toHaveBeenCalled();
   });
 
   it('shows the coins at rest from the first frame (no coinless flash)', async () => {

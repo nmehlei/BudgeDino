@@ -37,4 +37,15 @@ describe('splash', () => {
       expect(mockSplash.hideAsync).toHaveBeenCalledTimes(1);
     });
   });
+
+  it('reports "splash finished" once marked (idempotent)', () => {
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- fresh module state per test
+      const splash = require('../splash') as typeof import('../splash');
+      expect(splash.isSplashFinished()).toBe(false);
+      splash.markSplashFinished();
+      splash.markSplashFinished();
+      expect(splash.isSplashFinished()).toBe(true);
+    });
+  });
 });

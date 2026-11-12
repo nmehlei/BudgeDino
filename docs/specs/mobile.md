@@ -52,6 +52,9 @@ The Expo Android app (development build, never Expo Go) talks to one self-hosted
   animation does, and treats an unanswered reduce-motion query (300 ms) as "motion allowed".
 - With reduce motion on (`AccessibilityInfo.isReduceMotionEnabled()`), the animation is skipped and the
   overlay only fades out.
+- **Splash finished signal.** The splash module exposes `isSplashFinished()` / `useSplashFinished()`, set once
+  the overlay is gone: it finished, faded out (reduce motion), hit its 2.5 s failsafe, was skipped (rendered
+  nothing) or unmounted. The app lock waits for it before the cold-start prompt (see App lock).
 
 ## About and versioning
 
@@ -287,6 +290,10 @@ More has a "Net worth" entry (`chart-line`) that opens `more/net-worth`. `GET /n
   biometric nor a screen lock enrolled (`getEnrolledLevelAsync` is `NONE`), a one-time notice explains that the
   app lock needs a screen lock and the user is let in. The preference "App lock" (default on) is stored in MMKV
   prefs; turning it off requires passing the lock once (authentication is skipped only when the device has no screen lock).
+  On a cold start the opaque lock screen shows at once (no content), but the system prompt is started only once
+  the animated splash is finished (signal above), so the BiometricPrompt never covers the animation; if the
+  splash was skipped the prompt starts immediately. The Unlock button works meanwhile, and the deferred prompt
+  then does not run again. Resume-from-background authentication is unchanged (the splash is cold start only).
 - **Screen protection.** Authenticated screens call `preventScreenCaptureAsync`, so screenshots and the recents
   thumbnail are blocked; the login screens are not protected, except the TOTP setup screen (it shows the
   provisioning secret), which is.

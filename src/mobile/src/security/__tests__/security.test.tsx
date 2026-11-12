@@ -8,6 +8,7 @@ import {
   type PrefsStorage,
   type SessionStore,
 } from '../../session/session-store';
+import { markSplashFinished } from '../../splash';
 import { AppLock } from '../AppLock';
 import type { DeviceAuthResult } from '../device-auth';
 import { useScreenProtection } from '../useScreenProtection';
@@ -38,12 +39,19 @@ let appStateHandler: ((s: AppStateStatus) => void) | null = null;
 const setAppState = (s: AppStateStatus) => act(() => appStateHandler?.(s));
 const flush = () => act(async () => undefined);
 
-async function renderLock(store: SessionStore, authenticate: jest.Mock, e2eBypass?: boolean) {
+async function renderLock(
+  store: SessionStore,
+  authenticate: jest.Mock,
+  e2eBypass?: boolean,
+  /** `'signal'`: leave it to the real splash module. */
+  splashFinished: boolean | 'signal' = true,
+) {
   await render(
     <PaperProvider>
       <AppLock
         store={store}
         authenticate={authenticate}
+        {...(splashFinished === 'signal' ? {} : { splashFinished })}
         {...(e2eBypass === undefined ? {} : { e2eBypass })}
       >
         <Text>secret content</Text>
@@ -182,6 +190,73 @@ describe('AppLock', () => {
     const { store } = makeStore({ prefs: { lockNoticeSeen: '1' } });
     await renderLock(store, auth('unavailable'));
     expect(screen.queryByTestId('app-lock-notice')).toBeNull();
+    expect(screen.getByText('secret content')).toBeTruthy();
+  });
+});
+
+describe('AppLock and the animated splash', () => {
+  it('shows the lock screen at once but prompts only after the splash finished', async () => {
+    const authenticate = auth('success');
+    await renderLock(makeStore().store, authenticate, undefined, 'signal');
+    // `splashFinished` left to the splash module's signal, which has not fired yet.
+    expect(screen.getByTestId('app-lock')).toBeTruthy();
+    expect(screen.queryByText('secret content')).toBeNull();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10_000);
+    });
+    expect(authenticate).not.toHaveBeenCalled();
+    await act(async () => markSplashFinished());
+    expect(authenticate).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('secret content')).toBeTruthy();
+  });
+
+  it('prompts at once when the splash was skipped or is already over', async () => {
+    // markSplashFinished has fired in the test above (module state), as after a skipped splash.
+    const authenticate = auth('failed');
+    await renderLock(makeStore().store, authenticate, undefined, 'signal');
+    expect(authenticate).toHaveBeenCalledTimes(1);
+  });
+
+  it('prompts once the injected signal flips, and only once', async () => {
+    const store = makeStore().store;
+    const authenticate = auth('failed');
+    const tree = (splashFinished: boolean) => (
+      <PaperProvider>
+        <AppLock store={store} authenticate={authenticate} splashFinished={splashFinished}>
+          <Text>secret content</Text>
+        </AppLock>
+      </PaperProvider>
+    );
+    const view = await render(tree(false));
+    await flush();
+    expect(authenticate).not.toHaveBeenCalled();
+    await view.rerender(tree(true));
+    await flush();
+    expect(authenticate).toHaveBeenCalledTimes(1);
+    await view.rerender(tree(true));
+    await flush();
+    expect(authenticate).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('app-lock')).toBeTruthy();
+  });
+
+  it('the Unlock button works before the splash finished and the deferred prompt does not repeat', async () => {
+    const store = makeStore().store;
+    const authenticate = auth('success');
+    const tree = (splashFinished: boolean) => (
+      <PaperProvider>
+        <AppLock store={store} authenticate={authenticate} splashFinished={splashFinished}>
+          <Text>secret content</Text>
+        </AppLock>
+      </PaperProvider>
+    );
+    const view = await render(tree(false));
+    await act(async () => {
+      await fireEvent.press(screen.getByTestId('app-lock-unlock'));
+    });
+    expect(authenticate).toHaveBeenCalledTimes(1);
+    await view.rerender(tree(true));
+    await flush();
+    expect(authenticate).toHaveBeenCalledTimes(1);
     expect(screen.getByText('secret content')).toBeTruthy();
   });
 });
