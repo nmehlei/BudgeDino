@@ -16,7 +16,10 @@ const BG_LIGHT = '#2E7D6B';
 const BG_DARK = '#0E1311';
 
 export const SPLASH_FADE_MS = 250;
-const COIN_POP_MS = 260;
+const COIN_HOP_UP_MS = 110;
+const COIN_HOP_SETTLE_MS = 200;
+const COIN_HOP_DP = 3.5;
+const COIN_HOP_SCALE = 1.12;
 const COIN_STAGGER_MS = 90;
 const BLINK_START_MS = 650;
 const HOLD_UNTIL_MS = 1300;
@@ -131,7 +134,7 @@ function StaticLayer({ children }: { children: React.ReactNode }) {
 
 /**
  * The in-app half of the splash. The native splash (static mark) hides when the app is ready; this
- * overlay then plays one short sequence over the already rendered app: four coin plates pop up, the
+ * overlay then plays one short sequence over the already rendered app: four coin plates hop in turn, the
  * dino blinks and wags its tail once, then everything fades out and unmounts. It never blocks input
  * (`pointerEvents="none"`) and never delays anything. With reduce motion it only fades out.
  */
@@ -140,30 +143,13 @@ export function AnimatedSplash() {
   const dark = useColorScheme() === 'dark';
   const [done, setDone] = useState(false);
 
-  // `shown`: 0 = hidden, 1 = rest. `scale` overshoots on the way.
-  const coinAnims = useRef(
-    COINS.map(() => ({ shown: new Animated.Value(0), scale: new Animated.Value(0.6) })),
-  ).current;
+  // Coins are visible at rest from mount (like the native image); `hop` 0 = rest, 1 = top of the hop.
+  const coinHops = useRef(COINS.map(() => new Animated.Value(0))).current;
   const blink = useRef(new Animated.Value(1)).current;
   const wag = useRef(new Animated.Value(0)).current; // degrees
   const fade = useRef(new Animated.Value(1)).current;
   const reduce = useRef<Promise<boolean>>(undefined as unknown as Promise<boolean>);
   reduce.current ??= AccessibilityInfo.isReduceMotionEnabled().catch(() => false);
-
-  useEffect(() => {
-    // Reduce motion: show the finished mark from the start so the hand-off has nothing to animate.
-    let cancelled = false;
-    void reduce.current.then((r) => {
-      if (cancelled || !r) return;
-      coinAnims.forEach((c) => {
-        c.shown.setValue(1);
-        c.scale.setValue(1);
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [coinAnims]);
 
   useEffect(() => {
     if (!hidden) return;
@@ -180,26 +166,21 @@ export function AnimatedSplash() {
       if (reduceMotion) {
         running = fadeOut;
       } else {
-        const pops = coinAnims.map((c, i) =>
+        const pops = coinHops.map((hop, i) =>
           Animated.sequence([
             Animated.delay(i * COIN_STAGGER_MS),
-            Animated.parallel([
-              Animated.timing(c.shown, { toValue: 1, duration: 100, useNativeDriver: true }),
-              Animated.sequence([
-                Animated.timing(c.scale, {
-                  toValue: 1.08,
-                  duration: COIN_POP_MS * 0.6,
-                  easing: Easing.out(Easing.cubic),
-                  useNativeDriver: true,
-                }),
-                Animated.timing(c.scale, {
-                  toValue: 1,
-                  duration: COIN_POP_MS * 0.4,
-                  easing: Easing.inOut(Easing.quad),
-                  useNativeDriver: true,
-                }),
-              ]),
-            ]),
+            Animated.timing(hop, {
+              toValue: 1,
+              duration: COIN_HOP_UP_MS,
+              easing: Easing.out(Easing.cubic),
+              useNativeDriver: true,
+            }),
+            Animated.timing(hop, {
+              toValue: 0,
+              duration: COIN_HOP_SETTLE_MS,
+              easing: Easing.out(Easing.back(2.2)),
+              useNativeDriver: true,
+            }),
           ]),
         );
         const blinkAnim = Animated.sequence([
@@ -246,7 +227,7 @@ export function AnimatedSplash() {
       cancelled = true;
       running?.stop();
     };
-  }, [hidden, coinAnims, blink, wag, fade]);
+  }, [hidden, coinHops, blink, wag, fade]);
 
   if (done) return null;
 
@@ -266,23 +247,27 @@ export function AnimatedSplash() {
     >
       <View style={styles.canvas}>
         {COINS.map((c, i) => {
-          const anim = coinAnims[i];
-          if (!anim) return null;
+          const hop = coinHops[i];
+          if (!hop) return null;
           return (
             <Animated.View
               key={c.cx}
               style={[
                 frame(c.cx, c.cy, c.r + 1.5),
                 {
-                  opacity: anim.shown,
                   transform: [
                     {
-                      translateY: anim.shown.interpolate({
+                      translateY: hop.interpolate({
                         inputRange: [0, 1],
-                        outputRange: [8, 0],
+                        outputRange: [0, -COIN_HOP_DP],
                       }),
                     },
-                    { scale: anim.scale },
+                    {
+                      scale: hop.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, COIN_HOP_SCALE],
+                      }),
+                    },
                   ],
                 },
               ]}

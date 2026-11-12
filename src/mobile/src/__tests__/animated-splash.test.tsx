@@ -72,6 +72,13 @@ describe('AnimatedSplash', () => {
     expect(screen.getByText('app content')).toBeTruthy();
   });
 
+  it('shows the coins at rest from the first frame (no coinless flash)', async () => {
+    await render(<App />);
+    const tree = JSON.stringify(screen.toJSON());
+    expect(tree).not.toContain('"opacity":0');
+    expect(tree).not.toContain('"scale":0.6');
+  });
+
   it('waits for the native splash to hide before playing', async () => {
     await render(<App />);
     await flush(10_000);

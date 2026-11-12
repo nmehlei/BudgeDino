@@ -41,8 +41,9 @@ The Expo Android app (development build, never Expo Go) talks to one self-hosted
   splash for the device scheme (not the in-app theme override) and the mark drawn from the vector art at
   the native image's size and position (220 dp square, centred). The app renders underneath the whole
   time; the overlay is `pointerEvents="none"` and never delays readiness or navigation.
-- One short sequence, about 1.3 s, no looping, no text, no sound: the four coin plates pop up left to
-  right (scale 0.6, 1.08, 1, small upward offset, 90 ms stagger); the dino blinks once and wags its tail
+- One short sequence, about 1.3 s, no looping, no text, no sound: the four coin plates, visible at rest from the
+  first frame like the native image, hop in turn left to right (up about 3.5 dp, scale 1.12, then settle
+  back with a slight bounce, 90 ms stagger); the dino blinks once and wags its tail
   once; then the overlay fades out (250 ms) and unmounts. Each animated part (coin, eye, tail) is its own
   positioned `Animated.View` using native-driver transforms and opacity only (no new native dependency).
 - With reduce motion on (`AccessibilityInfo.isReduceMotionEnabled()`), the animation is skipped and the
