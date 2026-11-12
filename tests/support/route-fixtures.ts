@@ -40,6 +40,9 @@ export const OWNER_POSITIVE_CONTROL_EXEMPT: Record<string, string> = {
   // Public bank artwork, not account data; the harness uses an unknown bank so it never touches the network.
   // The 200 and 404 cases are asserted in tests/server/connectors/bank-icons.int.test.ts.
   '/api/v1/banks/:bank/icon': 'static bank logo, no canary data (see bank-icons.int.test.ts)',
+  // Admin-only: the harness's owner (member B) is a plain member and gets 403 by design. Pending-invite
+  // listing and the 403/404/409 cases are asserted in tests/server/households/members.int.test.ts.
+  '/api/v1/households/invites': 'admin-only, member B gets 403 (see members.int.test.ts)',
 };
 
 /** Substitutes every `:param` of a route URL, throwing when a parameter has no fixture. */

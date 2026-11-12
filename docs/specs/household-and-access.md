@@ -51,6 +51,16 @@
   default categories (`src/server/src/categorization/defaults.ts`) and prints a one-time admin invite
   token. `budgedino invite --household <id> --role member|admin` prints further invites. Invites live
   7 days and are single use. Admins can also create invites over `POST /households/invites`; members get 403. Join flow: `register` -> authenticator app -> `register/confirm` ([security.md](security.md)).
+- **Members and invite management.**
+  - `GET /households/members` (member access) lists the caller's household, oldest first (`joinedAt`
+    = membership creation time): `id`, `displayName`, `role`, `joinedAt`, `isSelf`, `disabled` (the
+    member's `disabled_at` is set), and `email` only when the caller is an admin. Other households'
+    members never appear. Removing members is out of scope.
+  - `GET /households/invites` (admin) lists pending invites (unused and unexpired) of the caller's
+    household: `id`, `role`, `expiresAt`. Tokens are shown once at creation and never listed again
+    (only the hash is stored, and it is never returned).
+  - `DELETE /households/invites/:id` (admin) deletes a pending invite: 204; already used 409
+    (`invite_used`); unknown, expired or another household's 404. Members get 403 on all three admin routes.
 - `budgedino init-key` prints a new master key once on stdout and requires typing its last 6
   characters; `budgedino rotate-master-key --server-stopped` re-wraps all keys (R19: it prints the "stop all running servers
   first" warning before doing anything and refuses without the flag; old key from `BUDGEDINO_MASTER_KEY[_FILE]`,

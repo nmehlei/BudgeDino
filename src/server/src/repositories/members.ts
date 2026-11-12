@@ -69,6 +69,10 @@ export function decryptMemberEmail(dk: DataKey, id: string, blob: Buffer): strin
   return decryptString(dk, blob, aad('email', id));
 }
 
+export function decryptMemberDisplayName(dk: DataKey, id: string, blob: Buffer): string {
+  return decryptString(dk, blob, aad('display_name', id));
+}
+
 export async function getMember(db: Db, dk: DataKey, id: string): Promise<Member> {
   const [row] = await db.select().from(members).where(eq(members.id, id));
   if (!row) throw new Error('Member not found');

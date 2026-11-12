@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull } from 'drizzle-orm';
 import { hashToken, newToken } from '../auth/tokens.js';
 import type { DbOrTx } from '../db/client.js';
 import { invites } from '../db/schema.js';
@@ -24,6 +24,59 @@ export async function createInvite(
     expiresAt,
   });
   return { token, expiresAt };
+}
+
+export interface PendingInviteRow {
+  id: string;
+  role: 'admin' | 'member';
+  expiresAt: Date;
+}
+
+/** Unused, unexpired invites of one household, soonest-expiring first. Never selects the token hash. */
+export async function listPendingInvites(
+  db: DbOrTx,
+  householdId: string,
+  now: Date,
+): Promise<PendingInviteRow[]> {
+  return db
+    .select({ id: invites.id, role: invites.role, expiresAt: invites.expiresAt })
+    .from(invites)
+    .where(
+      and(eq(invites.householdId, householdId), isNull(invites.usedAt), gt(invites.expiresAt, now)),
+    )
+    .orderBy(asc(invites.expiresAt), asc(invites.id));
+}
+
+export type RevokeInviteResult = 'revoked' | 'used' | 'not_found';
+
+/**
+ * Deletes a pending invite of the household. A single conditional DELETE (so it cannot race with
+ * `consumeInvite`); when nothing was deleted a second lookup tells "already used" from "not found"
+ * (unknown, expired or another household's).
+ */
+export async function revokeInvite(
+  db: DbOrTx,
+  householdId: string,
+  id: string,
+  now: Date,
+): Promise<RevokeInviteResult> {
+  const deleted = await db
+    .delete(invites)
+    .where(
+      and(
+        eq(invites.id, id),
+        eq(invites.householdId, householdId),
+        isNull(invites.usedAt),
+        gt(invites.expiresAt, now),
+      ),
+    )
+    .returning({ id: invites.id });
+  if (deleted.length > 0) return 'revoked';
+  const [row] = await db
+    .select({ usedAt: invites.usedAt })
+    .from(invites)
+    .where(and(eq(invites.id, id), eq(invites.householdId, householdId)));
+  return row?.usedAt ? 'used' : 'not_found';
 }
 
 export interface InviteInfo {
