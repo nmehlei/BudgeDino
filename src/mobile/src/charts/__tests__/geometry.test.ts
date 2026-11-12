@@ -20,10 +20,11 @@ describe('niceMax', () => {
     expect(niceMax(50000n)).toBe(50000n);
     expect(niceMax(50001n)).toBe(100000n);
     expect(niceMax(120000n)).toBe(200000n);
-    expect(niceMax(100n)).toBe(100n);
+    expect(niceMax(100n)).toBe(200n);
+    expect(niceMax(201n)).toBe(1000n);
   });
-  it('is at least 100 for zero', () => {
-    expect(niceMax(0n)).toBe(100n);
+  it('is at least 200 for zero, so the half is a whole unit', () => {
+    expect(niceMax(0n)).toBe(200n);
   });
 });
 

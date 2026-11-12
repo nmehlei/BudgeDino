@@ -10,12 +10,16 @@ export function cumulative(daily: Array<{ spent: { minor: string } }>): bigint[]
   return out;
 }
 
-/** The next 1/2/5 x 10^k at or above `maxMinor`, at least 100 minor units (whole currency units). */
+/**
+ * The next 1/2/5 x 10^k at or above `maxMinor`, at least 200 minor units, skipping 500 so that the half
+ * gridline value is always a whole currency unit (200 -> 100, 1000 -> 500, ...).
+ */
 export function niceMax(maxMinor: bigint): bigint {
   let magnitude = 100n;
   for (;;) {
     for (const factor of [1n, 2n, 5n]) {
       const candidate = factor * magnitude;
+      if (candidate < 200n || candidate === 500n) continue;
       if (candidate >= maxMinor) return candidate;
     }
     magnitude *= 10n;

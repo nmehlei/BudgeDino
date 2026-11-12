@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { PaperProvider } from 'react-native-paper';
 
-import { lightTheme } from '../../theme';
+import { darkTheme, lightTheme } from '../../theme';
 import { PaceChart } from '../PaceChart';
 
 const day = (date: string, minor: number) => ({
@@ -11,9 +11,12 @@ const day = (date: string, minor: number) => ({
 const range = (prefix: string, minors: number[]) =>
   minors.map((m, i) => day(`${prefix}-${String(i + 1).padStart(2, '0')}`, m));
 
-async function renderChart(props: Partial<React.ComponentProps<typeof PaceChart>> = {}) {
+async function renderChart(
+  props: Partial<React.ComponentProps<typeof PaceChart>> = {},
+  theme = lightTheme,
+) {
   await render(
-    <PaperProvider theme={lightTheme}>
+    <PaperProvider theme={theme}>
       <PaceChart
         current={range('2026-11', [10000, 15138, 10000])}
         previous={range('2026-10', [20000, 20000, 940, 0])}
@@ -25,7 +28,7 @@ async function renderChart(props: Partial<React.ComponentProps<typeof PaceChart>
       />
     </PaperProvider>,
   );
-  await fireEvent(screen.getByTestId('pace-chart').children[0] as never, 'layout', {
+  await fireEvent(screen.getByTestId('pace-plot'), 'layout', {
     nativeEvent: { layout: { width: 290, height: 150 } },
   });
 }
@@ -70,5 +73,26 @@ describe('PaceChart', () => {
     const d = screen.getByTestId('pace-current-path').props.d as string;
     expect(d).not.toContain('NaN');
     expect(d.startsWith('M0,')).toBe(true);
+  });
+
+  const lastX = (d: string) => Number(/L([\d.]+),[\d.]+$/.exec(d)?.[1]);
+  // layout width 290 minus 2 x 6 inset = 278 over 29 day steps
+  const step = 278 / 29;
+
+  it('ends a shorter previous period at its own last x', async () => {
+    await renderChart({ previous: range('2026-10', [100, 100, 100, 100]) });
+    const d = screen.getByTestId('pace-previous-path').props.d as string;
+    expect(lastX(d)).toBeCloseTo(3 * step, 1);
+  });
+
+  it('clips a previous period longer than dayCount at the right edge', async () => {
+    await renderChart({ previous: range('2026-10', Array<number>(35).fill(100)) });
+    const d = screen.getByTestId('pace-previous-path').props.d as string;
+    expect(lastX(d)).toBeCloseTo(278, 1);
+  });
+
+  it('renders in the dark theme', async () => {
+    await renderChart({}, darkTheme);
+    expect(screen.getByTestId('pace-today-dot')).toBeTruthy();
   });
 });
