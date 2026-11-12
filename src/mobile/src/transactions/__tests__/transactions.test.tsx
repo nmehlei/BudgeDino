@@ -169,6 +169,28 @@ describe('TransactionDetailScreen', () => {
   const checked = (id: string) =>
     screen.getByTestId(`category-${id}`).props.accessibilityState?.selected as boolean;
 
+  it('opens and recategorizes a search hit that is not in the unfiltered list', async () => {
+    mockApi.listTransactions.mockResolvedValue({
+      transactions: [],
+      nextCursor: null,
+      scannedUntil: null,
+    });
+    let resolve: (v: unknown) => void = () => undefined;
+    mockApi.patchTransaction.mockReturnValue(new Promise((r) => (resolve = r)));
+    await renderWithProviders(<TransactionDetailScreen id="t9" />);
+    await act(async () => {
+      client.setQueryData(['transactions', 'search', { q: 'rewe' }], {
+        pages: [{ transactions: [tx({ id: 't9' })], nextCursor: null, scannedUntil: null }],
+        pageParams: [undefined],
+      });
+    });
+    await screen.findByText('Girokonto');
+    await fireEvent.press(screen.getByTestId(`category-${FUN}`));
+    await waitFor(() => expect(checked(FUN)).toBe(true));
+    expect(mockApi.patchTransaction).toHaveBeenCalledWith('t9', { categoryId: FUN });
+    resolve({ transaction: tx({ id: 't9', categoryId: FUN }), recategorized: 0 });
+  });
+
   it('shows the transaction facts and hides archived categories', async () => {
     await renderDetail();
     expect(screen.getByText('REWE Markt')).toBeTruthy();

@@ -85,7 +85,11 @@ export function HomeScreen() {
             };
       router.push({
         pathname: '/transactions',
-        params: categoryId === null ? { uncategorized: '1', ...period } : { categoryId, ...period },
+        params: {
+          ...(categoryId === null ? { uncategorized: '1' } : { categoryId }),
+          ...period,
+          n: String(Date.now()),
+        },
       });
     },
     [data, router],

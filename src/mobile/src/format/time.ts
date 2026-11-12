@@ -95,19 +95,21 @@ const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 /** "09.11.2026" for a `YYYY-MM-DD` calendar date (no time zone involved). */
 export function formatIsoDate(iso: string): string {
   const m = ISO_DATE.exec(iso);
-  return m ? `${m[3]}.${m[2]}.${m[1]}` : 'unknown';
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : '';
 }
 
 function dayMonth(iso: string): string {
   const m = ISO_DATE.exec(iso);
-  if (!m) return 'unknown';
+  if (!m) return '';
   return `${Number(m[3])} ${(MONTHS[Number(m[2]) - 1] ?? '').slice(0, 3)}`;
 }
 
 /** "1 Nov – 30 Nov" for inclusive `YYYY-MM-DD` bounds; one open end reads "From 1 Nov" / "Until 30 Nov". */
 export function formatDateRange(from: string | undefined, to: string | undefined): string {
-  if (from && to) return `${dayMonth(from)} – ${dayMonth(to)}`;
-  if (from) return `From ${dayMonth(from)}`;
-  if (to) return `Until ${dayMonth(to)}`;
+  const f = from ? dayMonth(from) : '';
+  const t = to ? dayMonth(to) : '';
+  if (f && t) return `${f} – ${t}`;
+  if (f) return `From ${f}`;
+  if (t) return `Until ${t}`;
   return '';
 }

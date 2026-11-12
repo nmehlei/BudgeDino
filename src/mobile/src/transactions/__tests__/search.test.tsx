@@ -80,13 +80,15 @@ async function renderScreen(params?: Parameters<typeof TransactionsScreen>[0]['p
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
   });
-  await render(
+  const ui = (p: typeof params) => (
     <QueryClientProvider client={client}>
       <PaperProvider>
-        <TransactionsScreen params={params} />
+        <TransactionsScreen params={p} />
       </PaperProvider>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  const result = await render(ui(params));
+  return { rerender: (p: typeof params) => result.rerender(ui(p)) };
 }
 
 const lastQuery = () => mockApi.listTransactions.mock.calls.at(-1)?.[0] as Record<string, unknown>;
@@ -204,5 +206,43 @@ describe('transaction search and filters', () => {
     await fireEvent.press(await screen.findByText('Search further'));
     expect(await screen.findByText('No results')).toBeTruthy();
     expect(screen.queryByText('Search further')).toBeNull();
+  });
+
+  it('keeps offering "Search further" when an empty capped page follows earlier matches', async () => {
+    const CURSOR2 = '2026-01-02|00000000-0000-0000-0000-000000000008';
+    mockApi.listTransactions.mockImplementation(async (q: { q?: string; cursor?: string }) => {
+      if (!q.q) return page();
+      if (!q.cursor) return page({ nextCursor: CURSOR, scannedUntil: '2026-03-02' });
+      if (q.cursor === CURSOR)
+        return page({ transactions: [], nextCursor: CURSOR2, scannedUntil: '2026-01-02' });
+      return page({ transactions: [tx({ id: 't7', counterparty: 'Rewe Spät' })] });
+    });
+    await renderScreen();
+    await screen.findByText('REWE Markt');
+    await fireEvent.changeText(screen.getByTestId('transactions-search'), 'rewe');
+    await waitFor(() => expect(lastQuery()).toMatchObject({ q: 'rewe' }));
+    await screen.findByText('REWE Markt');
+    await act(async () => {
+      await fireEvent(screen.getByTestId('transactions-list'), 'endReached');
+    });
+    expect(await screen.findByText('Searched back to 02.01.2026')).toBeTruthy();
+    expect(screen.getByText('REWE Markt')).toBeTruthy();
+    await fireEvent.press(screen.getByText('Search further'));
+    expect(await screen.findByText('Rewe Spät')).toBeTruthy();
+    expect(screen.queryByText('Search further')).toBeNull();
+  });
+
+  it('re-applies a repeated drill-down after the chips were cleared', async () => {
+    const drill = { categoryId: 'cat-food', from: '2026-11-01', to: '2026-11-30', n: '1' };
+    const { rerender } = await renderScreen(drill);
+    await fireEvent.press(await screen.findByLabelText('Remove category filter'));
+    await fireEvent.press(screen.getByLabelText('Remove date filter'));
+    await waitFor(() => expect(lastQuery().categoryId).toBeUndefined());
+
+    await rerender({ ...drill, n: '2' });
+    await waitFor(() =>
+      expect(lastQuery()).toMatchObject({ categoryId: 'cat-food', from: '2026-11-01' }),
+    );
+    expect(await screen.findByText('1 Nov – 30 Nov')).toBeTruthy();
   });
 });

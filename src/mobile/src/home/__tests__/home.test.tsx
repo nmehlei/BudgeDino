@@ -204,13 +204,13 @@ describe('HomeScreen', () => {
     await fireEvent.press(rent);
     expect(mockRouter.push).toHaveBeenLastCalledWith({
       pathname: '/transactions',
-      params: { categoryId: 'c2', from: '2026-11-01', to: '2026-11-30' },
+      params: { categoryId: 'c2', from: '2026-11-01', to: '2026-11-30', n: expect.any(String) },
     });
 
     await fireEvent.press(uncategorised);
     expect(mockRouter.push).toHaveBeenLastCalledWith({
       pathname: '/transactions',
-      params: { uncategorized: '1', from: '2026-11-01', to: '2026-11-30' },
+      params: { uncategorized: '1', from: '2026-11-01', to: '2026-11-30', n: expect.any(String) },
     });
   });
 

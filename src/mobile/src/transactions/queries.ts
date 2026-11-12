@@ -5,7 +5,9 @@ import type {
   TransactionInfo,
   UpdateAccountRequest,
 } from '@budgedino/shared';
+import { useCallback, useSyncExternalStore } from 'react';
 import {
+  keepPreviousData,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -59,8 +61,32 @@ export function useTransactionsList(filters: TransactionFilters = {}) {
     queryFn: ({ pageParam }) =>
       api.listTransactions({ ...clean, cursor: pageParam, limit: PAGE_SIZE }),
     initialPageParam: undefined as string | undefined,
+    // Keep showing the previous results while a new search or filter loads.
+    placeholderData: keepPreviousData,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
+}
+
+/**
+ * Finds a transaction in any cached list (plain, filtered or search) and follows cache updates, so a
+ * search hit opens and an optimistic recategorize reaches it.
+ */
+export function useCachedTransaction(id: string): TransactionInfo | undefined {
+  const client = useQueryClient();
+  const find = useCallback(() => {
+    for (const [, data] of client.getQueriesData<TransactionPages>({ queryKey: txKeys.all })) {
+      for (const page of data?.pages ?? []) {
+        const hit = page.transactions.find((t) => t.id === id);
+        if (hit) return hit;
+      }
+    }
+    return undefined;
+  }, [client, id]);
+  const subscribe = useCallback(
+    (onChange: () => void) => client.getQueryCache().subscribe(onChange),
+    [client],
+  );
+  return useSyncExternalStore(subscribe, find, find);
 }
 
 export function useCategories() {

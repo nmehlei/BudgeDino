@@ -99,11 +99,11 @@ Bottom tabs: Home, Transactions, Connections, More. The `(app)` layout is also t
 - **Search scan cap.** The server scans at most 5,000 rows per request. A page with no matches but a
   `nextCursor` shows "Searched back to <dd.mm.yyyy>" (from `scannedUntil`) with a "Search further" button that
   fetches the next page, instead of "No results"; the list does not auto-continue an empty scan. An
-  empty final page (no cursor) reads "No results". Matches already shown keep paging on end-reached.
+  empty final page (no cursor) reads "No results". Matches already shown keep paging on end-reached; if a later page is empty but has a cursor, the same "Searched back to" / "Search further" footer is shown below them. Previous results stay visible while a new search or filter loads. Chips wrap onto several lines.
 - **Home drill-down.** Tapping a Home breakdown row opens the Transactions tab with route params
   `categoryId` (or `uncategorized=1` for the uncategorised row) plus `from`/`to`, the displayed period's
   first and last day in Europe/Berlin. The screen applies them as chips (replacing earlier category and
-  date filters, keeping the account filter).
+  date filters, keeping the account filter); a `n` param (timestamp) makes repeating the same drill-down re-apply it. The detail screen finds a transaction in any cached list (plain, filtered or search), so search hits open and recategorize.
 - **Accessibility.** Rows and fields wrap instead of truncating, so they stay usable at font scale 2.
 
 ## Settings > Accounts

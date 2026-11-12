@@ -8,6 +8,7 @@ export default function Transactions() {
     uncategorized?: string;
     from?: string;
     to?: string;
+    n?: string;
   }>();
   return <TransactionsScreen params={params} />;
 }

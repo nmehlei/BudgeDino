@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshControl, ScrollView, SectionList, StyleSheet, View } from 'react-native';
+import { RefreshControl, SectionList, StyleSheet, View } from 'react-native';
 import { ActivityIndicator, Banner, Button, Chip, Menu, Searchbar, Text } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -28,6 +28,8 @@ export interface TransactionsParams {
   uncategorized?: string | string[];
   from?: string | string[];
   to?: string | string[];
+  /** Changes on every drill-down so repeating the same one re-applies its filters. */
+  n?: string | string[];
 }
 
 type ChipFilters = Omit<TransactionFilters, 'q'>;
@@ -61,13 +63,15 @@ export function TransactionsScreen({ params }: { params?: TransactionsParams }) 
   // Chip filters start from the route params and are replaced when a new drill-down arrives.
   const [filters, setFilters] = useState<ChipFilters>(() => filtersFromParams(params));
   const paramKey = JSON.stringify(filtersFromParams(params));
+  const nonce = first(params?.n);
   useEffect(() => {
     const incoming = JSON.parse(paramKey) as ChipFilters;
     setFilters((prev) => ({
       ...(prev.accountId ? { accountId: prev.accountId } : {}),
       ...incoming,
     }));
-  }, [paramKey]);
+    // `nonce` is a dependency only to force a re-apply of an identical drill-down.
+  }, [paramKey, nonce]);
 
   const [text, setText] = useState('');
   const [debounced, setDebounced] = useState('');
@@ -98,8 +102,25 @@ export function TransactionsScreen({ params }: { params?: TransactionsParams }) 
   }, [empty, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const offline = isApiClientError(list.error) && list.error.error.kind === 'network';
+  const lastEmpty = (list.data?.pages.at(-1)?.transactions.length ?? 0) === 0;
   const scannedUntil = list.data?.pages.at(-1)?.scannedUntil ?? null;
   const filtered = Object.keys(filters).length > 0;
+
+  const searchMore = (
+    <View style={styles.message} testID="transactions-search-more">
+      <Text variant="bodyMedium" style={styles.centerText}>
+        {scannedUntil ? `Searched back to ${formatIsoDate(scannedUntil)}` : 'No matches so far'}
+      </Text>
+      <Button
+        mode="outlined"
+        onPress={() => void fetchNextPage()}
+        loading={isFetchingNextPage}
+        disabled={isFetchingNextPage}
+      >
+        Search further
+      </Button>
+    </View>
+  );
 
   const hasCategory = filters.uncategorized === true || filters.categoryId !== undefined;
   const categoryLabel = filters.uncategorized
@@ -126,11 +147,7 @@ export function TransactionsScreen({ params }: { params?: TransactionsParams }) 
         autoCapitalize="none"
         style={styles.search}
       />
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.chips}
-      >
+      <View style={styles.chips}>
         <Menu
           visible={menu === 'category'}
           onDismiss={closeMenu}
@@ -201,7 +218,7 @@ export function TransactionsScreen({ params }: { params?: TransactionsParams }) 
             {dateLabel}
           </Chip>
         ) : null}
-      </ScrollView>
+      </View>
     </View>
   );
 
@@ -287,21 +304,7 @@ export function TransactionsScreen({ params }: { params?: TransactionsParams }) 
         )}
         ListEmptyComponent={
           searching && hasNextPage ? (
-            <View style={styles.message} testID="transactions-search-more">
-              <Text variant="bodyMedium" style={styles.centerText}>
-                {scannedUntil
-                  ? `Searched back to ${formatIsoDate(scannedUntil)}`
-                  : 'No matches so far'}
-              </Text>
-              <Button
-                mode="outlined"
-                onPress={() => void fetchNextPage()}
-                loading={isFetchingNextPage}
-                disabled={isFetchingNextPage}
-              >
-                Search further
-              </Button>
-            </View>
+            searchMore
           ) : (
             <View style={styles.message} testID="transactions-empty">
               <Text variant="bodyMedium">
@@ -315,7 +318,9 @@ export function TransactionsScreen({ params }: { params?: TransactionsParams }) 
           )
         }
         ListFooterComponent={
-          isFetchingNextPage && !empty ? (
+          !empty && searching && hasNextPage && lastEmpty ? (
+            searchMore
+          ) : isFetchingNextPage && !empty ? (
             <ActivityIndicator animating accessibilityLabel="Loading more" style={styles.footer} />
           ) : undefined
         }
@@ -332,5 +337,12 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4 },
   footer: { paddingVertical: 16 },
   search: { marginHorizontal: 16, marginBottom: 8 },
-  chips: { paddingHorizontal: 16, paddingBottom: 8, gap: 8, alignItems: 'center' },
+  chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    gap: 8,
+    alignItems: 'center',
+  },
 });

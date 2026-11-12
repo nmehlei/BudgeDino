@@ -17,8 +17,8 @@ import { PendingBadge } from './PendingBadge';
 import {
   categoryNameMap,
   describeWriteError,
-  flattenPages,
   useAccounts,
+  useCachedTransaction,
   useCategories,
   useRecategorize,
   useTransactionsList,
@@ -47,7 +47,7 @@ export function TransactionDetailScreen({ id }: { id: string }) {
   const [applyToCounterparty, setApplyToCounterparty] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  const tx = useMemo(() => flattenPages(list.data).find((t) => t.id === id), [list.data, id]);
+  const tx = useCachedTransaction(id);
   const names = useMemo(() => categoryNameMap(categories.data), [categories.data]);
   const amountColor = useAmountColor(tx?.amountMinor ?? '0');
 
