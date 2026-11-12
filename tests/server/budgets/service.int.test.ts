@@ -34,7 +34,13 @@ interface BudgetView {
 interface HomeView {
   period: { key: string };
   budgets: BudgetView[];
-  breakdown: { categoryId: string | null; name: string; spent: Money }[];
+  breakdown: {
+    categoryId: string | null;
+    name: string;
+    spent: Money;
+    icon: string | null;
+    color: string | null;
+  }[];
   income: Money;
   fxMissing: boolean;
 }
@@ -114,6 +120,8 @@ describe('spent and ratio', () => {
       {
         categoryId: w.cat['Groceries'],
         name: 'Groceries',
+        icon: null,
+        color: null,
         spent: { minor: '32000', currency: 'EUR' },
       },
     ]);
@@ -224,6 +232,8 @@ describe('owner_only account that counts toward budgets', () => {
       {
         categoryId: w.cat['Groceries'],
         name: 'Groceries',
+        icon: null,
+        color: null,
         spent: { minor: '2000', currency: 'EUR' },
       },
     ]);

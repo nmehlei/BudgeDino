@@ -71,9 +71,10 @@ function home(over: Partial<HomeResponse> = {}): HomeResponse {
     },
     budgets: [budget()],
     breakdown: [
-      { categoryId: 'c2', name: 'Rent', spent: eur('90000') },
-      { categoryId: 'c1', name: 'Food', spent: eur('12345') },
+      { categoryId: 'c2', name: 'Rent', spent: eur('90000'), icon: null, color: null },
+      { categoryId: 'c1', name: 'Food', spent: eur('12345'), icon: null, color: null },
     ],
+    daily: [],
     income: eur('250000'),
     uncategorizedIncome: eur('0'),
     fxMissing: false,
@@ -250,8 +251,8 @@ describe('HomeScreen', () => {
           end: '2026-11-30T23:00:00.000Z',
         },
         breakdown: [
-          { categoryId: 'c2', name: 'Rent', spent: eur('90000') },
-          { categoryId: null, name: 'Uncategorised', spent: eur('500') },
+          { categoryId: 'c2', name: 'Rent', spent: eur('90000'), icon: null, color: null },
+          { categoryId: null, name: 'Uncategorised', spent: eur('500'), icon: null, color: null },
         ],
       }),
     );
@@ -534,8 +535,14 @@ describe('HomeScreen redesign', () => {
           budget({ id: 'b3', name: 'Coffee', periodKind: 'weekly', amount: eur('2000') }),
         ],
         breakdown: [
-          { categoryId: 'c2', name: 'Rent', spent: eur('9007199254740993') },
-          { categoryId: 'c1', name: 'Food', spent: eur('12345') },
+          {
+            categoryId: 'c2',
+            name: 'Rent',
+            spent: eur('9007199254740993'),
+            icon: null,
+            color: null,
+          },
+          { categoryId: 'c1', name: 'Food', spent: eur('12345'), icon: null, color: null },
         ],
       }),
     );
@@ -554,8 +561,14 @@ describe('HomeScreen redesign', () => {
       home({
         budgets: [],
         breakdown: [
-          { categoryId: 'c1', name: 'Food', spent: eur('100') },
-          { categoryId: 'c2', name: 'Travel', spent: { minor: '100', currency: 'USD' } },
+          { categoryId: 'c1', name: 'Food', spent: eur('100'), icon: null, color: null },
+          {
+            categoryId: 'c2',
+            name: 'Travel',
+            spent: { minor: '100', currency: 'USD' },
+            icon: null,
+            color: null,
+          },
         ],
       }),
     );
@@ -570,8 +583,8 @@ describe('HomeScreen redesign', () => {
     mockApi.getHome.mockResolvedValue(
       home({
         breakdown: [
-          { categoryId: 'c2', name: 'Rent', spent: eur('75000') },
-          { categoryId: 'c1', name: 'Food', spent: eur('25000') },
+          { categoryId: 'c2', name: 'Rent', spent: eur('75000'), icon: null, color: null },
+          { categoryId: 'c1', name: 'Food', spent: eur('25000'), icon: null, color: null },
         ],
       }),
     );

@@ -74,8 +74,20 @@ export const homeResponse = z.object({
   budgets: z.array(budgetView),
   /** Spending per category over the viewer's visible accounts, largest first. */
   breakdown: z.array(
-    z.object({ categoryId: z.string().nullable(), name: z.string(), spent: moneyJson }),
+    z.object({
+      categoryId: z.string().nullable(),
+      name: z.string(),
+      spent: moneyJson,
+      /** Raw stored icon/colour key (null: the client resolves the fallback). */
+      icon: z.string().nullable(),
+      color: z.string().nullable(),
+    }),
   ),
+  /**
+   * Spending per household-timezone day from the period start through min(today, last day), zeros included;
+   * sums to the breakdown total. Refunds can make a day negative.
+   */
+  daily: z.array(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), spent: moneyJson })),
   /** Income over the viewer's visible accounts; refunds are not income. */
   income: moneyJson,
   /** Positive amounts without a category; excluded from the breakdown. */

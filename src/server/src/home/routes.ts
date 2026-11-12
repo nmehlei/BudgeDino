@@ -47,13 +47,14 @@ export function homeRoutes(app: FastifyInstance): void {
       const visible = await visibleAccountIds(db, auth);
       const [budgets, breakdown, sync] = await Promise.all([
         budgetViews(db, dk, auth.householdId, now(), spec, settings),
-        breakdownFor(db, dk, visible, auth.householdId, period, settings),
+        breakdownFor(db, dk, visible, auth.householdId, period, settings, now()),
         listConnectorInfos(db, keyring, registry, auth),
       ]);
       return {
         period: { kind: period.kind, ...periodView(period) },
         budgets: budgets.views,
         breakdown: breakdown.breakdown.map((b) => ({ ...b, spent: toJSON(b.spent) })),
+        daily: breakdown.daily.map((d) => ({ date: d.date, spent: toJSON(d.spent) })),
         income: toJSON(breakdown.income),
         uncategorizedIncome: toJSON(breakdown.uncategorizedIncome),
         fxMissing: budgets.fxMissing || breakdown.fxMissing,

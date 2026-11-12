@@ -389,8 +389,36 @@ export function toView(b: Budget, period: Period, result: SpentResult): BudgetVi
   };
 }
 
+/** Local dates `from` (inclusive) to `to` (exclusive), as `YYYY-MM-DD`. */
+function daysBetween(from: string, to: string): string[] {
+  const out: string[] = [];
+  for (let t = Date.parse(`${from}T00:00:00Z`); t < Date.parse(`${to}T00:00:00Z`); t += DAY_MS) {
+    out.push(new Date(t).toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+export interface DailySpent {
+  /** Household-timezone calendar day, `YYYY-MM-DD`. */
+  date: string;
+  /** Net spending of that day in the base currency (refunds can make it negative). */
+  spent: Money;
+}
+
 export interface Breakdown {
-  breakdown: { categoryId: string | null; name: string; spent: Money }[];
+  breakdown: {
+    categoryId: string | null;
+    name: string;
+    spent: Money;
+    /** Raw stored values (null for uncategorized or unset); the client resolves fallbacks. */
+    icon: string | null;
+    color: string | null;
+  }[];
+  /**
+   * Spending per calendar day from the period start through `min(today, last day)`, zeros included; the
+   * same entries as the breakdown (visible accounts, no transfers/income), so it sums to its total.
+   */
+  daily: DailySpent[];
   income: Money;
   /** Positive amounts without a category (deposits not yet classified); not part of the breakdown. */
   uncategorizedIncome: Money;
@@ -410,6 +438,7 @@ export async function breakdownFor(
   householdId: string,
   period: Period,
   settings: HouseholdSettings,
+  now: Date,
 ): Promise<Breakdown> {
   const { from, to } = periodDates(period, settings.timezone);
   const entries = await loadSpendEntries(db, dk, {
@@ -425,6 +454,7 @@ export async function breakdownFor(
   const base = settings.baseCurrency;
 
   const spending = new Map<string | null, SpendEntry[]>();
+  const spendingByDay = new Map<string, SpendEntry[]>();
   const incomeEntries: SpendEntry[] = [];
   const uncategorizedIncomeEntries: SpendEntry[] = [];
   for (const e of entries) {
@@ -440,6 +470,8 @@ export async function breakdownFor(
     }
     const key = cat ? cat.id : null;
     spending.set(key, [...(spending.get(key) ?? []), e]);
+    // bookingDate is already a household-timezone calendar day
+    spendingByDay.set(e.bookingDate, [...(spendingByDay.get(e.bookingDate) ?? []), e]);
   }
 
   let fxMissing = false;
@@ -452,7 +484,17 @@ export async function breakdownFor(
       categoryId,
       name: categoryId === null ? 'Uncategorized' : (byId.get(categoryId)?.name ?? 'Uncategorized'),
       spent: money(r.total, base),
+      icon: categoryId === null ? null : (byId.get(categoryId)?.icon ?? null),
+      color: categoryId === null ? null : (byId.get(categoryId)?.color ?? null),
     });
+  }
+  const daily: DailySpent[] = [];
+  const today = localDate(now, settings.timezone);
+  for (const date of daysBetween(from, to)) {
+    if (date > today) break;
+    const r = await spentOf(spendingByDay.get(date) ?? [], base, fx);
+    fxMissing ||= r.fxMissing;
+    daily.push({ date, spent: money(r.total, base) });
   }
   breakdown.sort((a, b) =>
     a.spent.minor === b.spent.minor
@@ -467,6 +509,7 @@ export async function breakdownFor(
   fxMissing ||= unc.fxMissing;
   return {
     breakdown,
+    daily,
     income: money(-inc.total, base),
     uncategorizedIncome: money(-unc.total, base),
     fxMissing,

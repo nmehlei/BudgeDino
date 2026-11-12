@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { connectors } from '@budgedino/server/db/schema';
+import { eq } from 'drizzle-orm';
+import { categories, connectors } from '@budgedino/server/db/schema';
 import { createWorld, type World } from '../../support/budget-world.js';
 import { startTestDatabase, type TestDatabase } from '../../support/postgres.js';
 
@@ -10,7 +11,15 @@ interface Money {
 interface HomeView {
   period: { kind: string; key: string; start: string; end: string };
   budgets: { name: string; period: { key: string }; spent: Money; ratio: string }[];
-  breakdown: { categoryId: string | null; name: string; spent: Money }[];
+  breakdown: {
+    categoryId: string | null;
+    name: string;
+    spent: Money;
+    icon: string | null;
+    color: string | null;
+  }[];
+  daily: { date: string; spent: Money }[];
+  fxMissing: boolean;
   income: Money;
   uncategorizedIncome: Money;
   sync: Record<string, unknown>[];
@@ -143,5 +152,92 @@ describe('GET /home', () => {
   it('requires authentication', async () => {
     const res = await w.app.inject({ method: 'GET', url: '/api/v1/home' });
     expect(res.statusCode).toBe(401);
+  });
+
+  describe('daily series', () => {
+    const at = async (iso: string) => {
+      await w.app.close();
+      w = await createWorld(database, { now: () => new Date(iso) });
+    };
+    const sum = (xs: { spent: Money }[]) => xs.reduce((a, x) => a + BigInt(x.spent.minor), 0n);
+
+    it('daily has one entry per elapsed day with zeros, and sums to the breakdown total', async () => {
+      await at('2026-11-12T12:00:00Z');
+      await w.add(w.aAccount, -1_000n, '2026-11-01', 'Groceries');
+      await w.add(w.aAccount, -2_500n, '2026-11-03', 'Shopping');
+      await w.add(w.aAccount, -400n, '2026-11-12', 'Transport');
+      const { home } = await getHome(w.aToken);
+      expect(home.daily).toHaveLength(12);
+      expect(home.daily[0]).toEqual({
+        date: '2026-11-01',
+        spent: { minor: '1000', currency: 'EUR' },
+      });
+      expect(home.daily[1]?.spent.minor).toBe('0');
+      expect(home.daily[11]?.date).toBe('2026-11-12');
+      expect(sum(home.daily)).toBe(sum(home.breakdown));
+    });
+
+    it('on the 1st before any spending daily is a single zero entry', async () => {
+      await at('2026-11-01T08:00:00Z');
+      const { home } = await getHome(w.aToken);
+      expect(home.daily).toEqual([{ date: '2026-11-01', spent: { minor: '0', currency: 'EUR' } }]);
+    });
+
+    it('previous period daily covers the whole month', async () => {
+      await at('2026-11-12T12:00:00Z');
+      await w.add(w.aAccount, -700n, '2026-10-31', 'Groceries');
+      const { home } = await getHome(w.aToken, '?period=previous');
+      expect(home.daily).toHaveLength(31);
+      expect(home.daily[0]?.date).toBe('2026-10-01');
+      expect(home.daily[30]).toEqual({
+        date: '2026-10-31',
+        spent: { minor: '700', currency: 'EUR' },
+      });
+    });
+
+    it('a booking at 23:30 Berlin on the last day of a month lands on that day', async () => {
+      await at('2026-11-12T12:00:00Z');
+      await w.add(w.aAccount, -900n, '2026-10-31', 'Groceries');
+      const { home } = await getHome(w.aToken, '?period=previous');
+      const last = home.daily.at(-1);
+      expect(last?.date).toBe('2026-10-31');
+      expect(last?.spent.minor).toBe('900');
+      expect(home.daily).toHaveLength(31);
+    });
+
+    it('transfers and income are not in daily', async () => {
+      await at('2026-11-12T12:00:00Z');
+      await w.add(w.aAccount, 250_000n, '2026-11-01', 'Income');
+      await w.add(w.aAccount, -50_000n, '2026-11-02', 'Transfer');
+      await w.add(w.aAccount, 5_000n, '2026-11-03', null); // uncategorized deposit
+      await w.add(w.aAccount, -300n, '2026-11-04', 'Groceries');
+      const { home } = await getHome(w.aToken);
+      expect(sum(home.daily)).toBe(300n);
+    });
+
+    it('foreign currency without an FX rate is left out of daily and sets fxMissing', async () => {
+      await at('2026-11-12T12:00:00Z');
+      await w.add(w.aAccount, -1_000n, '2026-11-02', 'Groceries', { currency: 'ZAR' });
+      await w.add(w.aAccount, -200n, '2026-11-02', 'Groceries');
+      const { home } = await getHome(w.aToken);
+      expect(home.fxMissing).toBe(true);
+      expect(home.daily[1]?.spent.minor).toBe('200');
+      expect(sum(home.daily)).toBe(200n);
+    });
+
+    it('breakdown entries carry icon and colour; uncategorized has nulls', async () => {
+      await at('2026-11-12T12:00:00Z');
+      await database.db
+        .update(categories)
+        .set({ icon: 'cart', color: 'green' })
+        .where(eq(categories.id, w.cat['Groceries'] as string));
+      await w.add(w.aAccount, -1_000n, '2026-11-02', 'Groceries');
+      await w.add(w.aAccount, -500n, '2026-11-02', null);
+      const { home } = await getHome(w.aToken);
+      const g = home.breakdown.find((b) => b.name === 'Groceries');
+      expect(g).toMatchObject({ icon: 'cart', color: 'green' });
+      const u = home.breakdown.find((b) => b.categoryId === null);
+      expect(u).toMatchObject({ icon: null, color: null });
+    });
   });
 });
