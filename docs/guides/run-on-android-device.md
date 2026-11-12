@@ -59,12 +59,14 @@ and `pnpm dev:seed -- --with-data`.
 Opt-in, never part of CI. The flows need a build that skips the app lock (the lock would block
 `launchApp`), which only a **development** build started with `BUDGEDINO_E2E=1` does. The flag is read from the Metro
 process env (not from prebuild), so stop any Metro already running on port 8081 first; release builds ignore
-the switch (`__DEV__` is false).
+the switch (`__DEV__` is false). The same switch also turns off screen protection (FLAG_SECURE), so
+screenshots (`adb exec-out screencap -p > shot.png`, Maestro `takeScreenshot`) show the UI instead of a black
+frame; normal dev builds and release builds keep it.
 
 ```sh
 # once (either works; see the Maestro docs)
 curl -Ls "https://get.maestro.mobile.dev" | bash      # or: brew tap mobile-dev-inc/tap && brew install maestro
-BUDGEDINO_E2E=1 pnpm mobile:android                   # build without the app lock
+BUDGEDINO_E2E=1 pnpm mobile:android                   # build without the app lock and screen protection
 pnpm maestro:device
 ```
 

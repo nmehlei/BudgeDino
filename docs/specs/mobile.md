@@ -296,7 +296,9 @@ More has a "Net worth" entry (`chart-line`) that opens `more/net-worth`. `GET /n
   then does not run again. Resume-from-background authentication is unchanged (the splash is cold start only).
 - **Screen protection.** Authenticated screens call `preventScreenCaptureAsync`, so screenshots and the recents
   thumbnail are blocked; the login screens are not protected, except the TOTP setup screen (it shows the
-  provisioning secret), which is.
+  provisioning secret), which is. The dev-only E2E build (development variant, `__DEV__`, started with `BUDGEDINO_E2E=1`;
+  the same switch that skips the app lock) skips screen protection, so its screenshots can be reviewed from the dev
+  machine; release builds and normal dev builds are always protected.
 - **Session-expired notice.** `expireSession` (also from the headless background task) persists an
   `expiredNotice` flag in the MMKV prefs; the login screen shows "Session expired, please sign in again" once and
   clears it. A user sign-out never sets it. Sign-out also clears the in-memory challenge and pending-registration

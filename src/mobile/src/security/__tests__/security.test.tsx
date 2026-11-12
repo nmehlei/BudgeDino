@@ -368,4 +368,19 @@ describe('useScreenProtection', () => {
     await unmount();
     expect(mockScreenCapture.allowScreenCaptureAsync).toHaveBeenCalledTimes(1);
   });
+
+  it('protects when the E2E bypass is explicitly off', async () => {
+    jest.mocked(mockScreenCapture.preventScreenCaptureAsync).mockResolvedValue(undefined);
+    await renderHook(() => useScreenProtection(undefined, false));
+    expect(mockScreenCapture.preventScreenCaptureAsync).toHaveBeenCalledWith(
+      'budgedino-authenticated',
+    );
+  });
+
+  it('allows screenshots in the dev-only E2E build', async () => {
+    const { unmount } = await renderHook(() => useScreenProtection(undefined, true));
+    expect(mockScreenCapture.preventScreenCaptureAsync).not.toHaveBeenCalled();
+    await unmount();
+    expect(mockScreenCapture.allowScreenCaptureAsync).not.toHaveBeenCalled();
+  });
 });
