@@ -33,13 +33,20 @@ const mon = (key: string, income: string, spending: string, partial = false) => 
     spending: eur(spending),
   };
 };
-const cat = (id: string | null, name: string, spent: string, previousSpent: string) => ({
+const cat = (
+  id: string | null,
+  name: string,
+  spent: string,
+  previousSpent: string | null,
+  trendSpent = spent,
+) => ({
   categoryId: id,
   name,
   icon: null,
   color: null,
   spent: eur(spent),
-  previousSpent: eur(previousSpent),
+  trendSpent: eur(trendSpent),
+  previousSpent: previousSpent === null ? null : eur(previousSpent),
 });
 
 function stats(over: Partial<StatisticsResponse> = {}): StatisticsResponse {
@@ -165,6 +172,22 @@ describe('StatisticsScreen', () => {
     expect(flat('category-trend-c3').color).toBe(lightTheme.colors.primary);
     expect(screen.queryByTestId('category-trend-c4')).toBeNull();
     expect(screen.queryByTestId('category-trend-c1')).toBeNull();
+  });
+
+  it('compares trendSpent (complete months), not spent, and shows no trend for incomplete history', async () => {
+    mockApi.getStatistics.mockResolvedValue(
+      stats({
+        categories: [
+          // Window total includes a big partial current month; the complete months are steady.
+          cat('s', 'Steady', '300000', '100000', '100000'),
+          cat('n', 'NoHistory', '50000', null, '50000'),
+        ],
+      }),
+    );
+    await renderScreen();
+    await screen.findByText('Steady');
+    expect(screen.queryByTestId('category-trend-s')).toBeNull();
+    expect(screen.queryByTestId('category-trend-n')).toBeNull();
   });
 
   it('rounds the trend half away from zero with bigint maths', async () => {

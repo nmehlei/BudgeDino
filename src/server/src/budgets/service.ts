@@ -316,7 +316,7 @@ export async function spentOf(
 
 type CategoryRow = typeof categories.$inferSelect;
 
-export interface ClassifiedSpend {
+interface ClassifiedSpend {
   /** Spending entries by category id (null: uncategorized); transfers and income are not in here. */
   spending: Map<string | null, SpendEntry[]>;
   incomeEntries: SpendEntry[];
@@ -348,7 +348,9 @@ export function classifySpend(
       continue;
     }
     const key = cat ? cat.id : null;
-    spending.set(key, [...(spending.get(key) ?? []), e]);
+    const list = spending.get(key);
+    if (list) list.push(e);
+    else spending.set(key, [e]);
   }
   return { spending, incomeEntries, uncategorizedIncomeEntries };
 }
@@ -441,14 +443,14 @@ function daysBetween(from: string, to: string): string[] {
   return out;
 }
 
-export interface DailySpent {
+interface DailySpent {
   /** Household-timezone calendar day, `YYYY-MM-DD`. */
   date: string;
   /** Net spending of that day in the base currency (refunds can make it negative). */
   spent: Money;
 }
 
-export interface Breakdown {
+interface Breakdown {
   breakdown: {
     categoryId: string | null;
     name: string;
@@ -511,7 +513,9 @@ export async function breakdownFor(
     if (r.total <= 0n) continue;
     for (const e of list) {
       const day = e.bookingDate > today ? today : e.bookingDate;
-      spendingByDay.set(day, [...(spendingByDay.get(day) ?? []), e]);
+      const dayList = spendingByDay.get(day);
+      if (dayList) dayList.push(e);
+      else spendingByDay.set(day, [e]);
     }
     breakdown.push({
       categoryId,
@@ -548,7 +552,7 @@ export async function breakdownFor(
   };
 }
 
-export interface StatisticsMonth {
+interface StatisticsMonth {
   key: string;
   start: string;
   end: string;
@@ -557,7 +561,7 @@ export interface StatisticsMonth {
   spending: Money;
 }
 
-export interface Statistics {
+interface Statistics {
   months: StatisticsMonth[];
   averageKept: Money | null;
   categories: {
@@ -566,7 +570,10 @@ export interface Statistics {
     icon: string | null;
     color: string | null;
     spent: Money;
-    previousSpent: Money;
+    /** Net spend over the window's complete months (clamped >= 0). */
+    trendSpent: Money;
+    /** The same number of complete months before them; null when that history is incomplete. */
+    previousSpent: Money | null;
   }[];
   fxMissing: boolean;
 }
@@ -587,8 +594,15 @@ async function netByCategory(
   return out;
 }
 
+/** Key (`YYYY-MM`) of the month after `key`. */
+function nextMonthKey(key: string): string {
+  const y = Number(key.slice(0, 4));
+  const m = Number(key.slice(5, 7));
+  return m === 12 ? `${String(y + 1)}-01` : `${String(y)}-${String(m + 1).padStart(2, '0')}`;
+}
+
 /** Rounds `sum / n` half away from zero (integer minor units). */
-function divRound(sum: bigint, n: bigint): bigint {
+export function divRound(sum: bigint, n: bigint): bigint {
   const abs = sum < 0n ? -sum : sum;
   const q = (abs * 2n + n) / (2n * n);
   return sum < 0n ? -q : q;
@@ -631,6 +645,9 @@ export async function statisticsFor(
     .where(inArray(transactions.accountId, [...visible]));
   if (!first?.min) return empty;
   const firstKey = first.min.slice(0, 7);
+  // The month of the first booking is partial unless it was booked on the 1st.
+  const firstMonthPartial = first.min.slice(8, 10) !== '01';
+  const firstCompleteKey = firstMonthPartial ? nextMonthKey(firstKey) : firstKey;
 
   const entries = await loadSpendEntries(db, dk, {
     householdId,
@@ -647,7 +664,9 @@ export async function statisticsFor(
   const byMonth = new Map<string, SpendEntry[]>();
   for (const e of entries) {
     const key = e.bookingDate.slice(0, 7);
-    byMonth.set(key, [...(byMonth.get(key) ?? []), e]);
+    const list = byMonth.get(key);
+    if (list) list.push(e);
+    else byMonth.set(key, [e]);
   }
 
   const months: StatisticsMonth[] = [];
@@ -663,7 +682,7 @@ export async function statisticsFor(
     const inc = await spentOf([...c.incomeEntries, ...c.uncategorizedIncomeEntries], base, fx);
     flag.fxMissing ||= inc.fxMissing;
     const income = -inc.total;
-    const partial = period.key === currentKey;
+    const partial = period.key === currentKey || (firstMonthPartial && period.key === firstKey);
     if (!partial) {
       keptSum += income - spending;
       complete += 1n;
@@ -678,27 +697,42 @@ export async function statisticsFor(
 
   const windowStartKey = window[0]?.key ?? currentKey;
   const inWindow = (e: SpendEntry) => e.bookingDate.slice(0, 7) >= windowStartKey;
+  const netOf = async (keys: ReadonlySet<string>) =>
+    netByCategory(
+      classifySpend(
+        entries.filter((e) => keys.has(e.bookingDate.slice(0, 7))),
+        cats,
+      ).spending,
+      base,
+      fx,
+      flag,
+    );
   const current = await netByCategory(
     classifySpend(entries.filter(inWindow), cats).spending,
     base,
     fx,
     flag,
   );
-  const previous = await netByCategory(
-    classifySpend(
-      entries.filter((e) => !inWindow(e)),
-      cats,
-    ).spending,
-    base,
-    fx,
-    flag,
-  );
+  // Trend: the window's complete months against the same number of complete months right before the
+  // first of them; incomplete history (a month before the first complete one) means no comparison.
+  const completeKeys = months.filter((m) => !m.partial).map((m) => m.key);
+  const firstComplete = completeKeys[0];
+  const k = completeKeys.length;
+  const trend = await netOf(new Set(completeKeys));
+  let previous: Map<string | null, bigint> | null = null;
+  if (firstComplete !== undefined) {
+    const idx = periods.findIndex((x) => x.key === firstComplete);
+    const prevKeys = periods.slice(Math.max(0, idx - k), idx).map((x) => x.key);
+    if (prevKeys.length === k && prevKeys.every((key) => key >= firstCompleteKey)) {
+      previous = await netOf(new Set(prevKeys));
+    }
+  }
   const clamp = (v: bigint | undefined) => (v !== undefined && v > 0n ? v : 0n);
   const categoryRows: Statistics['categories'] = [];
-  for (const id of new Set([...current.keys(), ...previous.keys()])) {
+  for (const id of new Set([...current.keys(), ...trend.keys(), ...(previous?.keys() ?? [])])) {
     const spent = clamp(current.get(id));
-    const previousSpent = clamp(previous.get(id));
-    if (spent === 0n && previousSpent === 0n) continue;
+    const previousSpent = previous ? clamp(previous.get(id)) : null;
+    if (spent === 0n && (previousSpent === null || previousSpent === 0n)) continue;
     const cat = id === null ? undefined : byId.get(id);
     categoryRows.push({
       categoryId: id,
@@ -706,7 +740,8 @@ export async function statisticsFor(
       icon: cat?.icon ?? null,
       color: cat?.color ?? null,
       spent: money(spent, base),
-      previousSpent: money(previousSpent, base),
+      trendSpent: money(clamp(trend.get(id)), base),
+      previousSpent: previousSpent === null ? null : money(previousSpent, base),
     });
   }
   categoryRows.sort((a, b) =>

@@ -154,12 +154,13 @@ Tab "Statistics" (icon `chart-box-outline`) between Transactions and Connections
   the rest inline ("Show less" collapses). Row: category icon (`useCategoryStyleById`), name (wraps), total
   (own non-shrinking text, so the amount never splits from its currency sign at font scale 2), a 6 dp share
   bar in the category colour (width = spent / largest spent of the list) and a small trend. Trend: whole
-  percent of `spent` against `previousSpent`, computed with bigint and rounded half away from zero,
+  percent of `trendSpent` (complete months) against `previousSpent`, computed with bigint and rounded half away from zero,
   "▲ 8 %" in the warning colour for a rise and "▼ 12 %" in the primary colour for a fall; none when
-  `previousSpent` is 0 or the change rounds to 0 %. Tapping a row opens Transactions for that category (or
+  `previousSpent` is null (incomplete history) or 0 or the change rounds to 0 %. Tapping a row opens Transactions for that category (or
   uncategorised) over the whole window (first month's first day to the current month's last day).
 - **Empty state.** "Statistics appear after your first full month." when `months` has no complete month
-  (a brand-new household: `months: []`); not an error.
+  (a brand-new household: `months: []`, or only partial months: the current one and a first month that
+  started after the 1st); not an error.
 - **FX.** `fxMissing` shows "Some foreign amounts couldn't be converted." under the categories, as on Home.
 - **Pull-to-refresh, loading, error, offline** follow Home: refetch on pull; spinner while loading; cached data
   stays under an "Offline — showing data from <time>" / "Couldn't refresh" banner with Retry; without a cache

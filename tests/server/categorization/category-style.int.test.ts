@@ -205,6 +205,14 @@ describe('migration 0013 backfill', () => {
         );
       }
 
+      // A second household where Cash is unambiguous: its count is per household, so it gets its key.
+      const hh2 = '22222222-2222-4222-8222-222222222222';
+      await handle.pool.query(`insert into households (id, name) values ($1, 'old2')`, [hh2]);
+      await handle.pool.query(
+        `insert into categories (id, household_id, name) values (gen_random_uuid(), $1, 'Cash')`,
+        [hh2],
+      );
+
       writeFileSync(journalPath, JSON.stringify(full));
       await migrate(handle.pool, tmp);
 
@@ -213,16 +221,29 @@ describe('migration 0013 backfill', () => {
         key: string | null;
         icon: string | null;
         color: string | null;
-      }>(`select name, key, icon, color from categories order by name`);
+        household_id: string;
+      }>(`select name, key, icon, color, household_id from categories order by name`);
       const eating = rows.find((r) => r.name === 'Eating out');
       expect(eating).toMatchObject({
         key: 'eating-out',
         icon: 'silverware-fork-knife',
         color: 'orange',
       });
-      const rest = rows.filter((r) => r.name !== 'Eating out');
-      expect(rest).toHaveLength(3);
+      const cash2 = rows.find((r) => r.name === 'Cash' && r.household_id === hh2);
+      expect(cash2).toMatchObject({ key: 'cash', icon: 'cash', color: 'olive' });
+      const rest = rows.filter((r) => r.name !== 'Eating out' && r.household_id === hh);
+      expect(rest.filter((r) => r.name !== 'Eating out')).toHaveLength(3);
       for (const r of rest) expect(r).toMatchObject({ key: null, icon: null, color: null });
+
+      // Partial unique index: a repeated non-null key per household fails, repeated nulls are fine.
+      const insert = (name: string, key: string | null) =>
+        handle.pool.query(
+          `insert into categories (id, household_id, name, key) values (gen_random_uuid(), $1, $2, $3)`,
+          [hh2, name, key],
+        );
+      await expect(insert('Another cash', 'cash')).rejects.toThrow(/categories_household_key/);
+      await insert('Null one', null);
+      await insert('Null two', null);
     } finally {
       await handle.close();
     }

@@ -5551,12 +5551,14 @@
                             "additionalProperties": false
                           },
                           "icon": {
+                            "default": null,
                             "type": [
                               "string",
                               "null"
                             ]
                           },
                           "color": {
+                            "default": null,
                             "type": [
                               "string",
                               "null"
@@ -5574,6 +5576,7 @@
                       }
                     },
                     "daily": {
+                      "default": [],
                       "type": "array",
                       "items": {
                         "type": "object",
@@ -5970,12 +5973,14 @@
                             "type": "string"
                           },
                           "icon": {
+                            "default": null,
                             "type": [
                               "string",
                               "null"
                             ]
                           },
                           "color": {
+                            "default": null,
                             "type": [
                               "string",
                               "null"
@@ -5997,7 +6002,7 @@
                             ],
                             "additionalProperties": false
                           },
-                          "previousSpent": {
+                          "trendSpent": {
                             "type": "object",
                             "properties": {
                               "minor": {
@@ -6012,6 +6017,29 @@
                               "currency"
                             ],
                             "additionalProperties": false
+                          },
+                          "previousSpent": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "minor": {
+                                    "type": "string"
+                                  },
+                                  "currency": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "minor",
+                                  "currency"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
                         },
                         "required": [
@@ -6020,6 +6048,7 @@
                           "icon",
                           "color",
                           "spent",
+                          "trendSpent",
                           "previousSpent"
                         ],
                         "additionalProperties": false

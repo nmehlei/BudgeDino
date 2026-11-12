@@ -22,7 +22,8 @@ interface Stats {
     icon: string | null;
     color: string | null;
     spent: Money;
-    previousSpent: Money;
+    trendSpent: Money;
+    previousSpent: Money | null;
   }[];
   fxMissing: boolean;
 }
@@ -82,6 +83,42 @@ describe('GET /statistics', () => {
     expect(stats.months.map((m) => m.key)).toEqual(['2026-09', '2026-10', '2026-11']);
   });
 
+  it('the first booking month is partial unless booked on the 1st', async () => {
+    await w.add(w.aAccount, -1_000n, '2026-09-14', 'Groceries');
+    const { stats } = await getStats(w.aToken);
+    expect(stats.months.map((m) => [m.key, m.partial])).toEqual([
+      ['2026-09', true],
+      ['2026-10', false],
+      ['2026-11', true],
+    ]);
+  });
+
+  it('a first booking on the 1st makes that month complete', async () => {
+    await w.add(w.aAccount, -1_000n, '2026-09-01', 'Groceries');
+    const { stats } = await getStats(w.aToken);
+    expect(stats.months.map((m) => [m.key, m.partial])).toEqual([
+      ['2026-09', false],
+      ['2026-10', false],
+      ['2026-11', true],
+    ]);
+  });
+
+  it('averageKept excludes a partial first month', async () => {
+    await w.add(w.aAccount, 100_000n, '2026-09-14', 'Income'); // partial Sep: ignored
+    await w.add(w.aAccount, 200_000n, '2026-10-01', 'Income');
+    await w.add(w.aAccount, -150_000n, '2026-10-05', 'Groceries');
+    const { stats } = await getStats(w.aToken);
+    expect(stats.averageKept).toEqual({ minor: '50000', currency: 'EUR' });
+  });
+
+  it('only a partial first month and the current month: no complete month, null average', async () => {
+    await w.add(w.aAccount, -1_000n, '2026-10-14', 'Groceries');
+    await w.add(w.aAccount, -1_000n, '2026-11-02', 'Groceries');
+    const { stats } = await getStats(w.aToken);
+    expect(stats.months.map((m) => m.partial)).toEqual([true, true]);
+    expect(stats.averageKept).toBeNull();
+  });
+
   it('averageKept uses complete months only', async () => {
     for (const month of ['2026-09', '2026-10']) {
       await w.add(w.aAccount, 200_000n, `${month}-01`, 'Income');
@@ -124,19 +161,51 @@ describe('GET /statistics', () => {
     expect(total).toBe(4_000n);
   });
 
-  it('previousSpent covers the six months before the window', async () => {
-    await w.add(w.aAccount, -7_000n, '2026-02-10', 'Groceries'); // previous window (2025-12..2026-05)
-    await w.add(w.aAccount, -3_000n, '2026-10-10', 'Groceries');
+  it('trendSpent covers the complete window months, previousSpent the same number before them', async () => {
+    await w.add(w.aAccount, -9_000n, '2025-11-30', 'Shopping'); // first booking: Nov 2025 partial
+    await w.add(w.aAccount, -7_000n, '2026-02-10', 'Groceries'); // previous months (Jan..May)
     await w.add(w.aAccount, -500n, '2026-01-10', 'Transport'); // previous only
-    await w.add(w.aAccount, -9_000n, '2025-11-30', 'Shopping'); // before the previous window
+    await w.add(w.aAccount, -3_000n, '2026-10-10', 'Groceries'); // complete window month
+    await w.add(w.aAccount, -2_000n, '2026-11-05', 'Groceries'); // current (partial) month
     const { stats } = await getStats(w.aToken);
     const g = stats.categories.find((c) => c.name === 'Groceries');
-    expect(g?.spent.minor).toBe('3000');
-    expect(g?.previousSpent.minor).toBe('7000');
+    expect(g?.spent.minor).toBe('5000'); // includes the current month
+    expect(g?.trendSpent.minor).toBe('3000'); // complete months only
+    expect(g?.previousSpent?.minor).toBe('7000');
     const t = stats.categories.find((c) => c.name === 'Transport');
     expect(t?.spent.minor).toBe('0');
-    expect(t?.previousSpent.minor).toBe('500');
+    expect(t?.trendSpent.minor).toBe('0');
+    expect(t?.previousSpent?.minor).toBe('500');
     expect(stats.categories.find((c) => c.name === 'Shopping')).toBeUndefined();
+  });
+
+  it('on the 1st of a month with steady spending the trend is flat, not a drop', async () => {
+    await w.app.close();
+    w = await createWorld(database, { now: () => new Date('2026-11-01T08:00:00Z') });
+    for (const month of ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10']) {
+      await w.add(w.aAccount, -10_000n, `2026-${month}-01`, 'Groceries');
+    }
+    const { stats } = await getStats(w.aToken);
+    const g = stats.categories.find((c) => c.name === 'Groceries');
+    // Complete months Jun..Oct (5) against Jan..May (5): equal, and the empty current month is ignored.
+    expect(g?.spent.minor).toBe('50000');
+    expect(g?.trendSpent.minor).toBe('50000');
+    expect(g?.previousSpent?.minor).toBe('50000');
+  });
+
+  it('history that starts inside the previous window gives no trend', async () => {
+    await w.add(w.aAccount, -1_000n, '2026-03-01', 'Groceries'); // previous months would reach before it
+    await w.add(w.aAccount, -3_000n, '2026-10-10', 'Groceries');
+    const { stats } = await getStats(w.aToken);
+    const g = stats.categories.find((c) => c.name === 'Groceries');
+    expect(g?.previousSpent).toBeNull();
+    expect(g?.trendSpent.minor).toBe('3000');
+  });
+
+  it('keeps a category with spending in the window even when its trend has no history', async () => {
+    await w.add(w.aAccount, -3_000n, '2026-10-10', 'Groceries');
+    const { stats } = await getStats(w.aToken);
+    expect(stats.categories.map((c) => [c.name, c.previousSpent])).toEqual([['Groceries', null]]);
   });
 
   it('categories sorted by spent desc and drop all-zero entries', async () => {
@@ -158,6 +227,14 @@ describe('GET /statistics', () => {
     expect(a.stats.months.find((m) => m.key === '2026-10')?.spending.minor).toBe('1000');
     const b = await getStats(w.bToken);
     expect(b.stats.months.find((m) => m.key === '2026-10')?.spending.minor).toBe('89000');
+  });
+
+  it('foreign amounts without an FX rate set fxMissing', async () => {
+    await w.add(w.aAccount, -1_000n, '2026-10-10', 'Groceries', { currency: 'ZAR' });
+    await w.add(w.aAccount, -200n, '2026-10-10', 'Groceries');
+    const { stats } = await getStats(w.aToken);
+    expect(stats.fxMissing).toBe(true);
+    expect(stats.categories[0]?.spent.minor).toBe('200');
   });
 
   it('months=7 is rejected', async () => {

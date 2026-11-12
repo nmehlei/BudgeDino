@@ -60,7 +60,8 @@ income; the rest is spending; transfer-grouped transactions excluded; splits exp
 
 - `months`: the current month plus the N−1 before it, oldest first, each `{key, start, end, partial,
 income, spending}` (`start`/`end` as in `period`: ISO instants, start inclusive, end exclusive).
-  Only the current month is `partial`. Months before the month of the viewer's first visible transaction
+  The current month is `partial`, and so is the month of the viewer's first visible booking unless that
+  booking is dated the 1st (the month is incomplete). Months before the month of the viewer's first visible transaction
   (earliest booking date on visible accounts, any category) are omitted; no visible transaction means
   `months: []`.
 - `spending` of a month = sum of the net spend of its spending categories whose net is > 0 (the home
@@ -68,9 +69,13 @@ income, spending}` (`start`/`end` as in `period`: ISO instants, start inclusive,
   income categories + uncategorized positive amounts (home `income + uncategorizedIncome`).
 - `averageKept` = mean of `income − spending` over the complete (non-partial) months in `months`, integer
   minor units rounded half away from zero; `null` when there is none.
-- `categories`: net spend per category over the whole window (`spent`) and over the N months before it
-  (`previousSpent`), negative nets reported as 0; entries with both 0 are dropped; sorted by `spent`
-  descending, then name. Carries the raw `icon`/`color` like the breakdown.
+- `categories`: net spend per category over the whole window including the current month (`spent`, what
+  the list shows), negative nets reported as 0. The trend compares complete months only: `trendSpent` is
+  the net spend over the window's complete (non-partial) months, `previousSpent` the net spend over the same
+  number K of complete months immediately before the first complete window month. `previousSpent` is `null`
+  when K = 0 or when any of those K months lies before the first complete month (incomplete history means no
+  trend). Entries with `spent` 0 and `previousSpent` null or 0 are dropped; sorted by `spent` descending,
+  then name. Carries the raw `icon`/`color` like the breakdown.
 - Entries without an FX rate are left out and set `fxMissing`. Nothing is logged from the result.
 
 ## Alerts and notification polling

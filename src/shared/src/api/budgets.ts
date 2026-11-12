@@ -79,8 +79,8 @@ export const homeResponse = z.object({
       name: z.string(),
       spent: moneyJson,
       /** Raw stored icon/colour key (null: the client resolves the fallback). */
-      icon: z.string().nullable(),
-      color: z.string().nullable(),
+      icon: z.string().nullable().default(null),
+      color: z.string().nullable().default(null),
     }),
   ),
   /**
@@ -88,7 +88,9 @@ export const homeResponse = z.object({
    * covers exactly the categories shown in the breakdown (so it sums to its total); bookings dated after
    * today count on today. Refunds can make a day negative.
    */
-  daily: z.array(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), spent: moneyJson })),
+  daily: z
+    .array(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), spent: moneyJson }))
+    .default([]),
   /** Income over the viewer's visible accounts; refunds are not income. */
   income: moneyJson,
   /** Positive amounts without a category; excluded from the breakdown. */

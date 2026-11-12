@@ -45,7 +45,8 @@ export function statisticsRoutes(app: FastifyInstance): void {
         categories: s.categories.map((c) => ({
           ...c,
           spent: toJSON(c.spent),
-          previousSpent: toJSON(c.previousSpent),
+          trendSpent: toJSON(c.trendSpent),
+          previousSpent: c.previousSpent ? toJSON(c.previousSpent) : null,
         })),
         fxMissing: s.fxMissing,
       };

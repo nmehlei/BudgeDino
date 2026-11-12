@@ -30,16 +30,18 @@ function isNetworkError(error: unknown): boolean {
 }
 
 /**
- * Change of `spent` against `previousSpent` in whole percent, rounded half away from zero, with bigint
- * maths only. Null when there is no previous spending to compare with or the change rounds to 0.
+ * Change of `trendSpent` (complete months of the window) against `previousSpent` in whole percent, rounded
+ * half away from zero, with bigint maths only. Null when the history is incomplete (`previousSpent` null),
+ * there is no previous spending to compare with, or the change rounds to 0.
  */
 export function trendOf(
-  spent: string,
-  previousSpent: string,
+  trendSpent: string,
+  previousSpent: string | null,
 ): { up: boolean; percent: bigint } | null {
+  if (previousSpent === null) return null;
   const prev = BigInt(previousSpent);
   if (prev <= 0n) return null;
-  const diff = BigInt(spent) - prev;
+  const diff = BigInt(trendSpent) - prev;
   const abs = diff < 0n ? -diff : diff;
   const percent = (abs * 200n + prev) / (2n * prev);
   if (percent === 0n) return null;
@@ -73,7 +75,7 @@ function CategoryRow({
   const id = category.categoryId ?? 'uncategorized';
   const spent = BigInt(category.spent.minor);
   const share = largest > 0n && spent > 0n ? Number((spent * 10_000n) / largest) / 100 : 0;
-  const trend = trendOf(category.spent.minor, category.previousSpent.minor);
+  const trend = trendOf(category.trendSpent.minor, category.previousSpent?.minor ?? null);
   const value = formatMoney(category.spent);
   const trendText = trend ? `${trend.up ? '▲' : '▼'} ${trend.percent} %` : null;
   return (
