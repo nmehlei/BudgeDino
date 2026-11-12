@@ -1,27 +1,54 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Device from 'expo-device';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button, HelperText, Text, TextInput } from 'react-native-paper';
 
 import { createAuthApi } from '../../src/auth/api';
 import { AuthScreen } from '../../src/auth/AuthScreen';
+import { allowCleartext } from '../../src/auth/config';
 import { registerErrorMessage } from '../../src/auth/messages';
 import { pendingRegistration } from '../../src/auth/pending-registration';
-import { passwordHint } from '../../src/auth/validation';
+import { passwordHint, validateServerUrl } from '../../src/auth/validation';
 import { useSession } from '../../src/session/useSession';
+
+const firstParam = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+
+/** "budget.example.com" from a normalized server URL. */
+const hostOf = (url: string) => url.replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
 
 export default function RegisterScreen() {
   const router = useRouter();
   const session = useSession();
-  const [inviteToken, setInviteToken] = useState('');
+  const params = useLocalSearchParams<{ server?: string | string[]; invite?: string | string[] }>();
+  const linkServer = firstParam(params.server);
+  const [inviteToken, setInviteToken] = useState(firstParam(params.invite) ?? '');
+  // Set only when opened through a join link whose server passed validation.
+  const [joinHost, setJoinHost] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [deviceName, setDeviceName] = useState(
     session.deviceName ?? Device.modelName ?? 'Android device',
   );
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const [error, setError] = useState<string | null>(null);
+
+  // A join link (D5) names the server. Validate it like the server screen does, store it, and show the host
+  // prominently so a link pointing at a foreign host is visible before a password is typed.
+  const { setServerUrl } = session;
+  useEffect(() => {
+    if (!linkServer) return;
+    const parsed = validateServerUrl(linkServer, allowCleartext());
+    if (parsed.ok) {
+      setServerUrl(parsed.url);
+      setJoinHost(hostOf(parsed.url));
+      setError(null);
+    } else {
+      setJoinHost(null);
+      setError(parsed.message);
+    }
+  }, [linkServer, setServerUrl]);
 
   const hint = passwordHint(password);
   const ready =
@@ -60,6 +87,11 @@ export default function RegisterScreen() {
   return (
     <AuthScreen>
       <Text variant="headlineMedium">Join with an invite</Text>
+      {joinHost ? (
+        <Text variant="titleMedium" testID="join-host">
+          {`Joining a household on ${joinHost}`}
+        </Text>
+      ) : null}
       <TextInput
         testID="invite-token"
         mode="outlined"

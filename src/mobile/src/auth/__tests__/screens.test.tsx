@@ -40,6 +40,7 @@ const mockSetString = jest.fn<Promise<void>, [string]>().mockResolvedValue(undef
 
 jest.mock('expo-router', () => ({
   useRouter: () => mockRouter,
+  useLocalSearchParams: () => ({}),
   useNavigation: () => mockNavigation,
 }));
 jest.mock('../../session/useSession', () => ({ useSession: () => mockSession }));

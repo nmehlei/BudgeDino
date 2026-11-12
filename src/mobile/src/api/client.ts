@@ -15,6 +15,7 @@ import {
   errorResponse,
   healthResponse,
   homeResponse,
+  invitesResponse,
   listTransactionsResponse,
   membersResponse,
   netWorthResponse,
@@ -212,6 +213,12 @@ export function createApiClient(options: ApiClientOptions) {
         body: input,
         schema: createInviteResponse,
       }),
+    /** Pending invites (admin). Tokens are never listed again. */
+    listInvites: () =>
+      request({ method: 'GET', path: '/households/invites', schema: invitesResponse }),
+    /** Revokes a pending invite (admin): 204, 404 if gone, 409 if it was already used. */
+    revokeInvite: (id: string) =>
+      request({ method: 'DELETE', path: idPath('/households/invites', id) }).then(() => undefined),
 
     // accounts
     listAccounts: () => request({ method: 'GET', path: '/accounts', schema: accountListResponse }),

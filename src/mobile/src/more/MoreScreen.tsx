@@ -35,6 +35,15 @@ export function MoreScreen() {
           testID="more-budgets"
         />
         <List.Item
+          title="Household"
+          description="Members and invites"
+          descriptionNumberOfLines={0}
+          left={(p) => <List.Icon {...p} icon="account-group-outline" />}
+          right={(p) => <List.Icon {...p} icon="chevron-right" />}
+          onPress={() => router.push('/more/household')}
+          testID="more-household"
+        />
+        <List.Item
           title="Settings"
           description="Appearance, security, devices, accounts, server"
           descriptionNumberOfLines={0}

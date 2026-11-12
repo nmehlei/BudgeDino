@@ -170,6 +170,30 @@ More has a "Budgets" entry (`piggy-bank-outline`, above Settings) that opens `mo
   The currency is that of the existing budgets, `EUR` when there are none.
 - **After a change** the `budgets` and `home` queries are invalidated; a 403 reads "Only admins can change budgets.".
 
+## Household and join link
+
+More has a "Household" entry (`account-group-outline`, after Budgets, above Settings) that opens `more/household`.
+
+- **Members.** `GET /households/members` lists every member with role and a "You" marker (plus "Disabled" and,
+  for admins, the email). If the lookup fails (network, 5xx) the screen shows an error with Retry instead of
+  silently falling back to the member view; `useIsAdmin()` (budgets) keeps its "false when unknown" behaviour.
+- **Members see** the list and the note "Only admins can invite people"; no invite action, no invites request.
+- **Admins** also get "Invite someone" and "Pending invites" (`GET /households/invites`: role and expiry, never a
+  token) with a revoke action per row (`DELETE /households/invites/:id`). A 409 shows "This invite was already
+  used" and, like every revoke outcome, refetches the list (and the members, since a used invite is a new member);
+  404 reads "This invite no longer exists".
+- **Invite sheet.** Role picker (member/admin), then `POST /households/invites`. The result is shown as a QR
+  code and shared via the system share sheet. Both carry the join link
+  `budgedino://register?server=<serverUrl>&invite=<token>` (`buildJoinLink`, both values URL-encoded; the server
+  is the app's configured server URL). The token lives only in the sheet's component state: the call bypasses
+  `useMutation` so it never enters the TanStack Query cache, it is never persisted (MMKV, SecureStore) or logged,
+  and it is dropped when the sheet closes (the sheet is unmounted). The sheet says the code is shown only once.
+- **Register via join link.** `register` reads `server` and `invite` from the route params. The invite prefills
+  the token field. The server goes through `validateServerUrl` (https only unless the development variant allows
+  cleartext); on success it is stored as the session's server URL and the screen shows "Joining a household on
+  <host>" above the form, so a link with a foreign host is visible before a password is typed. A rejected server
+  shows the usual validation message, stores nothing and shows no banner. Without link params nothing changes.
+
 ## Net worth
 
 More has a "Net worth" entry (`chart-line`) that opens `more/net-worth`. `GET /net-worth` ([net-worth.md](net-worth.md)).

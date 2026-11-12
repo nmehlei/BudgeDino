@@ -12,6 +12,18 @@ export function useMembers() {
   });
 }
 
+export const invitesKey = ['household', 'invites'] as const;
+
+/** Pending invites (admin only: pass `enabled` from `useIsAdmin`). Holds ids, roles and expiry, never tokens. */
+export function useInvites(enabled: boolean) {
+  const api = useApi();
+  return useQuery({
+    queryKey: invitesKey,
+    queryFn: async () => (await api.listInvites()).invites,
+    enabled,
+  });
+}
+
 /**
  * Whether the caller is a household admin. `false` until known and whenever the lookup fails (including a
  * 403), so screens fall back to their read-only view instead of surfacing an error.
