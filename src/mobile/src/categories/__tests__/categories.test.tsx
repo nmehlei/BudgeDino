@@ -130,7 +130,7 @@ describe('CategoriesScreen', () => {
     expect(screen.queryByTestId('unarchive-existing')).toBeNull();
   });
 
-  it('says the category cannot be changed on a validation (422) answer', async () => {
+  it('shows the generic rejection message on a validation error', async () => {
     mockApi.createCategory.mockRejectedValue(
       new ApiClientError({ kind: 'validation', issues: [] }),
     );
@@ -139,7 +139,10 @@ describe('CategoriesScreen', () => {
     await fireEvent.press(await screen.findByTestId('add-category'));
     await fireEvent.changeText(screen.getByTestId('category-name'), 'Rent');
     await fireEvent.press(screen.getByTestId('category-save'));
-    expect(await screen.findByText('This category cannot be changed.')).toBeTruthy();
+    expect(
+      await screen.findByText('The server rejected these values. Check them and try again.'),
+    ).toBeTruthy();
+    expect(screen.queryByText('This category cannot be changed.')).toBeNull();
   });
 
   it('offers to unarchive when the clashing name is an archived category', async () => {

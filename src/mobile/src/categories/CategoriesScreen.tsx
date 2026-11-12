@@ -140,9 +140,6 @@ export function CategoriesScreen() {
           categories.data?.find((c) => c.archived && c.name.toLocaleLowerCase('de-DE') === lower) ??
             null,
         );
-      } else if (isApiClientError(error) && error.error.kind === 'validation') {
-        // The client maps 400 and 422 to `validation`; the immutable Transfer category answers 422.
-        setFormError('This category cannot be changed.');
       } else {
         setFormError(describeCategoryError(error, "Couldn't save the category."));
       }
