@@ -2,21 +2,35 @@ import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
-import { ActivityIndicator, Banner, Button, Snackbar, Text } from 'react-native-paper';
+import { ActivityIndicator, Banner, Button, Divider, Snackbar, Text } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { isApiClientError } from '../api/errors';
 import { useApi } from '../api/useApi';
-import { formatDateTime, formatPeriodLabel, HOUSEHOLD_TZ_FALLBACK, zonedYmd } from '../format/time';
+import {
+  daysLeftInPeriod,
+  formatDateTime,
+  formatPeriodLabel,
+  HOUSEHOLD_TZ_FALLBACK,
+  zonedYmd,
+} from '../format/time';
+import { useIsAdmin } from '../household/queries';
 import { shouldRetryQuery } from '../providers';
 import { useAppTheme } from '../theme';
-import { BreakdownList } from './BreakdownList';
-import { BudgetCard } from './BudgetCard';
-import { PeriodSwitcher, type HomePeriod } from './PeriodSwitcher';
+import { BudgetRow } from './BudgetRow';
+import { HomeSummary } from './HomeSummary';
+import { PeriodHeader, type HomePeriod } from './PeriodHeader';
+import { SpendingList } from './SpendingList';
 import { SyncStatusBar } from './SyncStatusBar';
 
 function isNetworkError(error: unknown): boolean {
   return isApiClientError(error) && error.error.kind === 'network';
+}
+
+function daysLeftText(endIso: string): string | undefined {
+  if (Number.isNaN(Date.parse(endIso))) return undefined;
+  const n = daysLeftInPeriod(endIso);
+  return n === 1 ? '1 day left' : `${n} days left`;
 }
 
 export function HomeScreen() {
@@ -24,6 +38,8 @@ export function HomeScreen() {
   const api = useApi();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  // Only admins can edit budgets (the edit screen is read-only otherwise), so only they get a tap target.
+  const isAdmin = useIsAdmin();
   const [period, setPeriod] = useState<HomePeriod>('current');
   const [refreshing, setRefreshing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -95,6 +111,13 @@ export function HomeScreen() {
     [data, router],
   );
 
+  const openBudget = useCallback(
+    (id: string) => {
+      router.push(`/more/budgets/${id}`);
+    },
+    [router],
+  );
+
   const failed = home.isError;
   const offline = isNetworkError(home.error);
 
@@ -115,19 +138,31 @@ export function HomeScreen() {
           </Banner>
         ) : null}
         <View style={styles.content}>
-          <Text variant="labelLarge" style={{ color: theme.colors.onSurfaceVariant }}>
-            {formatPeriodLabel(data.period.kind, data.period.start, data.period.end)}
-          </Text>
           <SyncStatusBar connectors={data.sync} onNeedsAttention={goToConnections} />
-          {data.budgets.length === 0 ? (
-            <Text variant="bodyMedium">No budgets yet.</Text>
-          ) : (
-            data.budgets.map((b) => <BudgetCard key={b.id} budget={b} />)
-          )}
-          <BreakdownList
+          <HomeSummary data={data} />
+          <View>
+            <Text variant="titleSmall" style={styles.sectionTitle} accessibilityRole="header">
+              Budgets
+            </Text>
+            {data.budgets.length === 0 ? (
+              <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
+                No budgets yet.
+              </Text>
+            ) : (
+              data.budgets.map((b, i) => (
+                <View key={b.id}>
+                  {i > 0 ? <Divider /> : null}
+                  <BudgetRow
+                    budget={b}
+                    homePeriodKind={data.period.kind}
+                    onPress={isAdmin ? () => openBudget(b.id) : undefined}
+                  />
+                </View>
+              ))
+            )}
+          </View>
+          <SpendingList
             breakdown={data.breakdown}
-            income={data.income}
-            uncategorizedIncome={data.uncategorizedIncome}
             fxMissing={data.fxMissing}
             onSelectCategory={openCategory}
           />
@@ -171,8 +206,25 @@ export function HomeScreen() {
           />
         }
       >
-        <View style={styles.switcher}>
-          <PeriodSwitcher value={period} onChange={setPeriod} />
+        <View style={styles.header}>
+          <PeriodHeader
+            value={period}
+            onChange={setPeriod}
+            title={
+              data
+                ? formatPeriodLabel(data.period.kind, data.period.start, data.period.end)
+                : period === 'current'
+                  ? 'This period'
+                  : 'Previous period'
+            }
+            subtitle={
+              !data
+                ? undefined
+                : period === 'previous'
+                  ? 'Previous period'
+                  : daysLeftText(data.period.end)
+            }
+          />
         </View>
         {body}
       </ScrollView>
@@ -185,7 +237,9 @@ export function HomeScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  switcher: { paddingHorizontal: 16, paddingBottom: 12 },
-  content: { paddingHorizontal: 16, gap: 20 },
+  // The arrow buttons carry their own touch padding, so the header row sits a little wider.
+  header: { paddingHorizontal: 4, paddingBottom: 8 },
+  content: { paddingHorizontal: 16, gap: 24 },
+  sectionTitle: { marginBottom: 4 },
   empty: { padding: 24, gap: 16, alignItems: 'center' },
 });

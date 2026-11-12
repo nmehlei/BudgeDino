@@ -90,6 +90,28 @@ export function formatPeriodLabel(
   }
 }
 
+/**
+ * Calendar days left in a period, today included, in the household time zone: the last day (the day
+ * before the exclusive `end`) counts as 1. Never negative; 0 for an unparsable end.
+ */
+export function daysLeftInPeriod(
+  endIso: string,
+  now: number = Date.now(),
+  timeZone: string = HOUSEHOLD_TZ_FALLBACK,
+): number {
+  const end = Date.parse(endIso);
+  if (Number.isNaN(end)) return 0;
+  try {
+    const today = zonedYmd(now, timeZone);
+    const last = zonedYmd(end - 1, timeZone);
+    const days =
+      (Date.UTC(last.y, last.m, last.d) - Date.UTC(today.y, today.m, today.d)) / 86_400_000 + 1;
+    return Math.max(0, Math.round(days));
+  } catch {
+    return 0;
+  }
+}
+
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /** "09.11.2026" for a `YYYY-MM-DD` calendar date (no time zone involved). */

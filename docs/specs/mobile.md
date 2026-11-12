@@ -70,16 +70,38 @@ The Expo Android app (development build, never Expo Go) talks to one self-hosted
 
 Bottom tabs: Home, Transactions, Connections, More. The `(app)` layout is also the root gate (splash, onboarding redirect, tabs).
 
-- **Data.** `GET /home?period=current|previous`, switched with a segmented control. Budget cards show
-  name, period kind (weekly/monthly), the spent amount large, "of <amount>" and a progress bar. Below:
-  the spending breakdown (largest first), an income line, an uncategorised-income line when non-zero,
-  and a "some foreign amounts couldn't be converted" note when `fxMissing`.
+- **Layout.** Quiet, typography first: no elevated cards, 16 dp side padding, 24 dp between sections, colours
+  only from the MD3 theme. Top to bottom: period header, sync chips, summary, Budgets, Spending.
+- **Period header.** `GET /home?period=current|previous`. A row with a `‹` icon button ("Previous period"),
+  the period title (`headlineSmall`) and a `›` icon button ("Current period"); `‹` loads the previous period,
+  `›` returns to the current one, and the arrow that leads nowhere is disabled (the API offers only these two).
+  Under the title (`bodyMedium`, onSurfaceVariant): on the current period "N days left" (calendar days in
+  Europe/Berlin, today and the last day included; "1 day left" on the last day), on the previous period
+  "Previous period". Both periods are cached separately.
+- **Summary** (no card). Total spending of the period = the exact bigint sum of `breakdown[].spent`, large
+  (`displaySmall`); below it "of <amount> budgeted" = the sum of the amounts of the budgets of the headline
+  period's kind (a weekly budget on a monthly Home covers a different span and is not added; no line without
+  such budgets); then "Income <amount>" and, when non-zero, "Uncategorised income <amount>". Amounts are in the
+  Home currency (`income.currency`); if any amount is in another currency, no total is shown ("Spending is in
+  several currencies, so no total is shown.") rather than adding different currencies.
+- **Budgets** (section title `titleSmall`, thin dividers between rows). One compact row per budget: name
+  (`bodyLarge`) on the left, "spent / amount" (`bodyMedium`, tabular digits) on the right, a 6 dp rounded bar
+  below, and only when over budget "Over by <spent − amount>" in the error colour. The period kind (Weekly /
+  Monthly) appears under the name only when it differs from the Home period. A "some foreign amounts couldn't
+  be converted" note when the budget has `fxMissing`. "No budgets yet." when there are none. Admins can tap a row
+  to open the budget's edit screen (`/more/budgets/:id`); for members (whose edit screen would be read-only)
+  rows are not tappable.
+- **Spending** (section title `titleSmall`). The breakdown, largest first; each row has the category name,
+  the amount, a chevron and a thin 4 dp bar underneath showing its share of the period's spending
+  (proportional width of the sum of positive amounts, theme `primary` at reduced opacity on a `surfaceVariant`
+  track; computed in bigint basis points). Tapping a row drills down (Transactions > Home drill-down). A "some foreign amounts
+  couldn't be converted" note when `fxMissing`.
 - **Money.** Displayed from `{minor, currency}` with `Intl.NumberFormat('de-DE')` and the currency
   exponent from `@budgedino/shared`; minor units are split by string arithmetic, never floats.
 - **Progress bar.** Fill is clamped to 0 to 100 %. Amber from ratio 0.8, red from 1. A ratio above 1
-  shows a full red bar, the amount in red and "Over budget (N %)". Refunds (negative `spent`) show the
-  negative amount and an empty bar. A zero budget never divides: no spending shows an empty bar, any
-  positive spending a full red bar.
+  shows a full red bar and "Over by <amount>". Refunds (negative `spent`) show the negative amount and an
+  empty bar. A zero budget never divides: no spending shows an empty bar, any positive spending a full red
+  bar and "Over by <spent>".
 - **Sync status.** One chip per connector in `home.sync` (status and last successful sync, relative), labelled with the
   connection's `displayName` (own connections) or the bank name ("Demo bank" for `fake`), never the raw type.
   A needs-attention chip of the user's own connector opens Connections; other members' chips are inert.
@@ -90,7 +112,7 @@ Bottom tabs: Home, Transactions, Connections, More. The `(app)` layout is also t
   offline empty state with Retry is shown. A network failure is retried once, so it never spins long.
 - **Accessibility.** Text wraps (no truncation) and the screen scrolls, so it stays usable at font scale 2.
 - **Precision note.** Money is formatted by passing an exact decimal string to `Intl.NumberFormat`; a Hermes without Intl v3 coerces it to a Number, which loses precision beyond 2^53 minor units.
-- **Period header.** Monthly shows "November 2026", weekly "10–16 Nov" (or "28 Oct – 3 Nov" across months), from `period.start`/`end` (end exclusive) in Europe/Berlin.
+- **Period title.** Monthly shows "November 2026", weekly "10–16 Nov" (or "28 Oct – 3 Nov" across months), from `period.start`/`end` (end exclusive) in Europe/Berlin.
 - **Sync errors.** A non-429 failure while syncing on pull-to-refresh shows a "Sync failed" snackbar; the refetch still runs.
 
 ## Transactions
