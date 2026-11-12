@@ -230,9 +230,12 @@ export function CategoryList({
           const first = g.categories[0];
           const single = g.categories.length === 1 && first ? first : null;
           const icon: Style = styleOf(first ? first.categoryId : g.budget.id);
-          // Budget numbers are household-wide; say what the viewer sees when that can differ.
+          // Budget numbers are household-wide; say what the viewer sees when that can differ. Only for
+          // monthly budgets: a weekly budget's spent is the week, the breakdown amount is the month.
           const viewerSpent =
-            single && (single.spent?.minor ?? '0') !== g.budget.spent.minor
+            single &&
+            g.budget.periodKind === 'monthly' &&
+            (single.spent?.minor ?? '0') !== g.budget.spent.minor
               ? (single.spent ?? { minor: '0', currency: g.budget.spent.currency })
               : null;
           return (

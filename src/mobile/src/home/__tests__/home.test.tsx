@@ -230,6 +230,25 @@ describe('budget rows', () => {
     expect(screen.queryByTestId('budget-viewer-spent')).toBeNull();
   });
 
+  it('shows no "You:" line for a weekly budget (week total vs month breakdown)', async () => {
+    const b = budget({ periodKind: 'weekly' });
+    await render(
+      <PaperProvider>
+        <CategoryList
+          groups={groupForHome(
+            [b],
+            [{ categoryId: 'c1', name: 'Food', spent: eur('99999'), icon: null, color: null }],
+          )}
+          fxMissing={false}
+          styleOf={styleOf}
+          onOpenCategory={jest.fn()}
+          now={new Date('2026-11-12T10:00:00Z')}
+        />
+      </PaperProvider>,
+    );
+    expect(screen.queryByTestId('budget-viewer-spent')).toBeNull();
+  });
+
   it('labels weekly budgets "week" and monthly ones not', async () => {
     await renderRow(budget({ periodKind: 'weekly' }));
     expect(screen.getByText('week')).toBeTruthy();

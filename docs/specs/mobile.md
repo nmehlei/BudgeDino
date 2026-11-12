@@ -111,8 +111,9 @@ Bottom tabs: Home, Transactions, Statistics, Connections, More. The `(app)` layo
   - Icons and colours are resolved per category id from the cached categories (`useCategoryStyleById`).
   - **Scope.** Budget numbers (`spent / amount`, bar) are household-wide and count counting accounts only
     (bar label "household budget"); the headline and chart are the viewer's visible accounts. A single-category
-    budget whose category amount in the viewer's breakdown differs from `budget.spent` shows a second line
-    "You: <visible amount>" under its name. Weekly multi-category sub-rows drill into the budget's week.
+    monthly budget whose category amount in the viewer's breakdown differs from `budget.spent` shows a second
+    line "You: <visible amount>" under its name (never for weekly budgets: their `spent` is the week, the
+    breakdown is the month). Weekly multi-category sub-rows drill into the budget's week.
   - Periods are derived from the `YYYY-MM` key (day count, previous month, month names, drill-down days), never
     from a fixed time zone.
   - Budget editing is no longer a Home tap target (More > Budgets). "No spending in this period." when the list
