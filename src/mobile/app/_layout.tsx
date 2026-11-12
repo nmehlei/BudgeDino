@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import { useEffect } from 'react';
 
+import { AnimatedSplash } from '../src/AnimatedSplash';
 import { AppProviders } from '../src/providers';
 import { SignOutRedirect } from '../src/session/SignOutRedirect';
 import { keepSplashUntilReady } from '../src/splash';
@@ -39,6 +40,7 @@ export default function RootLayout() {
       <ThemedChrome />
       <SignOutRedirect />
       <ThemedStack />
+      <AnimatedSplash />
     </AppProviders>
   );
 }

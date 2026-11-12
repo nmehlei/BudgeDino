@@ -36,6 +36,17 @@ The Expo Android app (development build, never Expo Go) talks to one self-hosted
   monochrome layer for themed icons, splash mark).
 - The splash stays up until the encrypted cache is open and the session is hydrated, then fades out
   (250 ms). It never stays longer than 5 s, whatever happens during start-up.
+- **Animated hand-off.** When the native splash hides, an in-app overlay (`AnimatedSplash`, mounted
+  once in the root layout, so cold start only) takes over seamlessly: same background as the native
+  splash for the device scheme (not the in-app theme override) and the mark drawn from the vector art at
+  the native image's size and position (220 dp square, centred). The app renders underneath the whole
+  time; the overlay is `pointerEvents="none"` and never delays readiness or navigation.
+- One short sequence, about 1.3 s, no looping, no text, no sound: the four coin plates pop up left to
+  right (scale 0.6, 1.08, 1, small upward offset, 90 ms stagger); the dino blinks once and wags its tail
+  once; then the overlay fades out (250 ms) and unmounts. Each animated part (coin, eye, tail) is its own
+  positioned `Animated.View` using native-driver transforms and opacity only (no new native dependency).
+- With reduce motion on (`AccessibilityInfo.isReduceMotionEnabled()`), the animation is skipped and the
+  overlay only fades out.
 
 ## About and versioning
 
