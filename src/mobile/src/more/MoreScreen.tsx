@@ -44,6 +44,15 @@ export function MoreScreen() {
           testID="more-household"
         />
         <List.Item
+          title="Categories & rules"
+          description="Add and archive categories, manage auto-categorization rules"
+          descriptionNumberOfLines={0}
+          left={(p) => <List.Icon {...p} icon="tag-multiple-outline" />}
+          right={(p) => <List.Icon {...p} icon="chevron-right" />}
+          onPress={() => router.push('/more/categories')}
+          testID="more-categories"
+        />
+        <List.Item
           title="Settings"
           description="Appearance, security, devices, accounts, server"
           descriptionNumberOfLines={0}

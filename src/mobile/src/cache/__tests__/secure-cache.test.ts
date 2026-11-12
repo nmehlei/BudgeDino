@@ -152,4 +152,18 @@ describe('secure cache', () => {
     expect(shouldDehydrateQuery(keyed(['transactions', 'list', {}]))).toBe(true);
     expect(shouldDehydrateQuery(keyed(['transactions', 'search', { q: 'rewe' }]))).toBe(false);
   });
+
+  it('never persists the rules list (IBANs, counterparty text) but persists categories', async () => {
+    const { deps } = makeDeps();
+    const cache = await openSecureCache(deps);
+    const client = new QueryClient();
+    const keyed = (queryKey: readonly unknown[]) => {
+      const query = client.getQueryCache().build(client, { queryKey });
+      query.setData({});
+      return query;
+    };
+    const { shouldDehydrateQuery } = cache.dehydrateOptions;
+    expect(shouldDehydrateQuery(keyed(['rules']))).toBe(false);
+    expect(shouldDehydrateQuery(keyed(['categories']))).toBe(true);
+  });
 });

@@ -5,6 +5,8 @@ import {
   budgetArchivedResponse,
   budgetListResponse,
   categoryListResponse,
+  categoryResponse,
+  ruleListResponse,
   budgetResponse,
   challengeAnswerResponse,
   challengeStatusResponse,
@@ -30,6 +32,8 @@ import {
   syncStartedResponse,
   type ChallengeAnswer,
   type CreateBudgetRequest,
+  type CreateCategoryRequest,
+  type PatchCategoryRequest,
   type CreateConnectorRequest,
   type CreateInviteRequest,
   type DeleteConnectorQuery,
@@ -233,6 +237,23 @@ export function createApiClient(options: ApiClientOptions) {
     // categories
     listCategories: () =>
       request({ method: 'GET', path: '/categories', schema: categoryListResponse }),
+    /** Admin: 201; 409 when the name exists (archived categories still reserve theirs). */
+    createCategory: (input: CreateCategoryRequest) =>
+      request({ method: 'POST', path: '/categories', body: input, schema: categoryResponse }),
+    /** Admin: rename / regroup (`group: ''` clears) / archive. 409 on a name clash, 422 for Transfer. */
+    patchCategory: (id: string, input: PatchCategoryRequest) =>
+      request({
+        method: 'PATCH',
+        path: idPath('/categories', id),
+        body: input,
+        schema: categoryResponse,
+      }),
+
+    // rules (own only; match values are sensitive)
+    listRules: () => request({ method: 'GET', path: '/rules', schema: ruleListResponse }),
+    /** Deletes an own rule (204, 404 if gone). Past transactions keep their category. */
+    deleteRule: (id: string) =>
+      request({ method: 'DELETE', path: idPath('/rules', id) }).then(() => undefined),
 
     // connectors
     listConnectors: () =>

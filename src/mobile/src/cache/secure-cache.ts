@@ -5,6 +5,7 @@ import { getRandomBytes } from 'expo-crypto';
 import { getItemAsync, setItemAsync, WHEN_UNLOCKED_THIS_DEVICE_ONLY } from 'expo-secure-store';
 import { createMMKV, deleteMMKV, type MMKV } from 'react-native-mmkv';
 
+import { isRulesQueryKey } from '../categories/keys';
 import { isSearchQueryKey } from '../transactions/keys';
 
 export const CACHE_STORE_ID = 'budgedino-cache';
@@ -109,9 +110,12 @@ export async function openSecureCache(deps: SecureCacheDeps = defaultSecureCache
      */
     dehydrateOptions: {
       shouldDehydrateMutation: () => false,
-      // Search text and its results (payees, purposes) stay in memory only.
+      // Search text and its results (payees, purposes) and rule match values (IBANs, counterparty
+      // text) stay in memory only.
       shouldDehydrateQuery: (query: Query) =>
-        defaultShouldDehydrateQuery(query) && !isSearchQueryKey(query.queryKey),
+        defaultShouldDehydrateQuery(query) &&
+        !isSearchQueryKey(query.queryKey) &&
+        !isRulesQueryKey(query.queryKey),
     },
     /** Wipes every persisted query. Used by sign-out. */
     clear: () => {

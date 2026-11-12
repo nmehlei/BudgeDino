@@ -214,6 +214,27 @@ More has a "Household" entry (`account-group-outline`, after Budgets, above Sett
   validation message, stores nothing and shows no banner. Without link params nothing changes.
 - **Invite sheet and revoke.** The sheet scrolls (font scale 2); revoking an invite asks for confirmation first.
 
+## Categories and rules
+
+More has a "Categories & rules" entry (`tag-multiple-outline`, after Household, above Settings; final order Net worth,
+Budgets, Household, Categories & rules, Settings, About) that opens `more/categories`. Routes: `POST /categories`,
+`PATCH /categories/:id`, `GET /rules`, `DELETE /rules/:id` ([categorization.md](categorization.md)).
+
+- **List.** Active categories grouped by `group` (ungrouped ones under "No group", last), sorted by name; income
+  categories are marked. Archived ones sit in a collapsed "Archived (n)" section (`useCategories({ includeArchived })`).
+  A "Rules" row opens `more/categories/rules`.
+- **Admins** get "Add category" (name 1-40, optional group, income switch), an edit action (rename / regroup; an empty
+  group is sent as `group: ''` to clear it) and archive / unarchive per row, in a scrollable dialog. A 409 reads
+  "A category with this name exists."; archived categories still reserve their name, so when the clash is an
+  archived one the dialog offers "Unarchive <name>". The Transfer category shows no actions (the server answers 422).
+- **Members** see the list read-only ("Only admins can change categories."). If the members lookup fails the screen
+  shows an error with Retry instead of a silent member view.
+- **After a change** the `categories`, `budgets`, `home` and `transactions` queries are invalidated.
+- **Rules.** `more/categories/rules` lists the caller's own rules as "<counterparty text or IBAN> -> <category>"
+  (archived categories resolve too) with a delete action behind a confirm dialog that says past transactions keep
+  their category. Match values are sensitive: never logged, and the `rules` query is excluded from the offline cache
+  (`shouldDehydrateQuery`, like text searches).
+
 ## Net worth
 
 More has a "Net worth" entry (`chart-line`) that opens `more/net-worth`. `GET /net-worth` ([net-worth.md](net-worth.md)).
