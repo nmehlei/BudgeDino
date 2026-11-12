@@ -1,0 +1,25 @@
+# Local development database only (the server runs on the host: `pnpm dev:server`).
+# Port 5433 so it never collides with a Postgres on the default port.
+#   pnpm dev:db     start (and wait until healthy)
+#   docker compose -f docker-compose.dev.yml down        stop, keep data
+#   docker compose -f docker-compose.dev.yml down -v     stop and wipe data
+# Throwaway credentials, bound to localhost only. Never reuse them anywhere else.
+services:
+  postgres:
+    image: postgres:18
+    ports:
+      - '127.0.0.1:5433:5432'
+    environment:
+      POSTGRES_USER: budgedino
+      POSTGRES_PASSWORD: budgedino
+      POSTGRES_DB: budgedino
+    volumes:
+      - budgedino-dev-pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U budgedino -d budgedino']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  budgedino-dev-pgdata:

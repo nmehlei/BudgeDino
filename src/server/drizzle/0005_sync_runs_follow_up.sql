@@ -1,0 +1,1 @@
+ALTER TABLE "sync_runs" ADD COLUMN "follow_up" boolean DEFAULT false NOT NULL;

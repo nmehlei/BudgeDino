@@ -1,0 +1,88 @@
+import * as SplashScreen from 'expo-splash-screen';
+import { useEffect, useSyncExternalStore } from 'react';
+
+/** Never keep the native splash longer than this, whatever happens during start-up. */
+export const SPLASH_MAX_MS = 5000;
+
+let hidden = false;
+const listeners = new Set<() => void>();
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+export function isSplashHidden(): boolean {
+  return hidden;
+}
+
+/** True once the native splash has been told to hide (the in-app overlay then takes over). */
+export function useSplashHidden(): boolean {
+  return useSyncExternalStore(
+    subscribe,
+    () => hidden,
+    () => hidden,
+  );
+}
+
+let finished = false;
+const finishedListeners = new Set<() => void>();
+
+function subscribeFinished(listener: () => void): () => void {
+  finishedListeners.add(listener);
+  return () => finishedListeners.delete(listener);
+}
+
+/**
+ * True once the animated splash overlay is over: it finished, was skipped (mounted after the native
+ * splash hid, reduce motion only shortens it), hit its failsafe or unmounted. The app lock waits for
+ * this before showing the system authentication prompt on cold start, so the prompt never covers it.
+ */
+export function isSplashFinished(): boolean {
+  return finished;
+}
+
+export function useSplashFinished(): boolean {
+  return useSyncExternalStore(
+    subscribeFinished,
+    () => finished,
+    () => finished,
+  );
+}
+
+/** Set by the overlay (`AnimatedSplash`); idempotent. */
+export function markSplashFinished(): void {
+  if (finished) return;
+  finished = true;
+  finishedListeners.forEach((l) => l());
+}
+
+/** Test seam: puts the "finished" flag back to its initial state so tests do not leak it. */
+export function resetSplashFinishedForTests(): void {
+  finished = false;
+}
+
+/** Called once at module load of the root layout: the native splash stays until the app is ready. */
+export function keepSplashUntilReady(): void {
+  try {
+    SplashScreen.setOptions({ duration: 250, fade: true });
+  } catch {
+    // a native module without options: the default animation is fine
+  }
+  SplashScreen.preventAutoHideAsync().catch(() => undefined);
+  setTimeout(hideSplash, SPLASH_MAX_MS);
+}
+
+export function hideSplash(): void {
+  if (hidden) return;
+  hidden = true;
+  listeners.forEach((l) => l());
+  SplashScreen.hideAsync().catch(() => undefined);
+}
+
+/** Hides the splash the first time `ready` is true (cache opened and session hydrated). */
+export function useHideSplashWhen(ready: boolean): void {
+  useEffect(() => {
+    if (ready) hideSplash();
+  }, [ready]);
+}

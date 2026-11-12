@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # GitVersion needs the full history and main
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      # GitVersion 5.x (Mainline, GitVersion.yml): every commit gets its own version. Exported for the
+      # server bundle and the app config (scripts/version.cjs); fails instead of a silent fallback.
+      - name: Compute version (GitVersion 5.x)
+        env:
+          # GitVersion.Tool 5.12 ships net6.0 at most; ubuntu-latest has only .NET 8+.
+          DOTNET_ROLL_FORWARD: Major
+        run: |
+          dotnet tool install --global GitVersion.Tool --version 5.12.0
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          dotnet-gitversion /showvariable FullSemVer # surfaces GitVersion's own error before version.cjs would swallow it
+          node -e '
+            const v = require("./scripts/version.cjs").getVersion();
+            if (v.source !== "gitversion") { console.error("GitVersion did not run:", v); process.exit(1); }
+            const fs = require("node:fs");
+            fs.appendFileSync(process.env.GITHUB_ENV,
+              `BUDGEDINO_VERSION=${v.version}\nBUDGEDINO_VERSION_CODE=${v.versionCode}\nBUDGEDINO_COMMIT=${v.commit}\n`);
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Version: \`${v.version}\` (build ${v.versionCode}, ${v.commit})\n`);
+            console.log(v);
+          '
+
+      - run: pnpm install --frozen-lockfile
+
+      # lint, typecheck, unit, build, OpenAPI drift, integration, e2e, build smoke tests
+      # (Docker is available on ubuntu-latest)
+      - run: bash ci/check.sh

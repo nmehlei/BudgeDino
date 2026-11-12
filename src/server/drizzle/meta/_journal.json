@@ -1,0 +1,104 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1794184510866,
+      "tag": "0000_init",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1794186033666,
+      "tag": "0001_members_totp_last_step",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794193759156,
+      "tag": "0002_sync_aliases_external_ref",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794195160617,
+      "tag": "0003_connectors_state_generation",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794195556603,
+      "tag": "0004_sync_runs_connector_generation",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794195891354,
+      "tag": "0005_sync_runs_follow_up",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794196216122,
+      "tag": "0006_categorization_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794197426057,
+      "tag": "0007_notifications_dedup_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794200201920,
+      "tag": "0008_connectors_account_defaults",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794215563544,
+      "tag": "0009_challenges_cancel_attempted",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794328112905,
+      "tag": "0010_connector_bank_account_disconnect",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794328692177,
+      "tag": "0011_bank_icons",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794343212890,
+      "tag": "0012_accounts_household_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1794498806941,
+      "tag": "0013_category_style",
+      "breakpoints": true
+    }
+  ]
+}

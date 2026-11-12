@@ -1,0 +1,79 @@
+# AGENTS.md
+
+BudgeDino: open-source (AGPL-3.0), self-hostable household finance app. TypeScript monorepo: server
+now, Expo Android app (development build, never Expo Go). Read this before changing anything.
+
+## Workflow
+
+**spec → failing test → code → spec updated in the same PR.**
+
+- Specs in `docs/specs/<area>.md` are the source of truth for behaviour. Change the spec first.
+- Decisions are recorded as ADRs in `docs/adr/NNNN-<title>.md` (Context / Decision / Consequences).
+- **Every change goes through a PR.** No direct pushes to `main`.
+- Versions come from GitVersion 5.x Mainline, one per commit ([ADR 0010](docs/adr/0010-gitversion-mainline.md));
+  never bump versions by hand.
+- Commits use conventional commit messages. **No AI attribution** of any kind in commits, PRs or docs
+  (no `Co-Authored-By`, no "Generated with" lines).
+- AI skills live under `.ai/skills` and are symlinked from `.claude/skills` and `.codex/skills`
+  (none yet; this is the convention).
+- **Never start an Android emulator without the owner's explicit approval, every time.** Prefer a
+  physical device or the device farm.
+
+## Repo map
+
+| Path                   | Content                                                                   |
+| ---------------------- | ------------------------------------------------------------------------- |
+| `src/shared`           | `@budgedino/shared`: types, zod schemas, money/date logic                 |
+| `src/server`           | `@budgedino/server`: Fastify API, jobs, connectors                        |
+| `src/mobile`           | Expo Android app (Router, Paper MD3, React Query)                         |
+| `tests/`               | cross-package tests (`*.test.ts` unit, `*.int.test.ts` integration)       |
+| `ci/`                  | scripts (`ci/check.sh`); GitHub requires workflows in `.github/workflows` |
+| `docs/specs/`          | living per-area specs ([index](docs/specs/README.md))                     |
+| `docs/adr/`            | decision records                                                          |
+| `docs/architecture.md` | architecture diagram, stack, testing strategy                             |
+
+## Commands
+
+| Command                                                 | Purpose                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm install`                                          | install (pnpm 12, Node 22+; CI uses `.nvmrc`)                                                                                                                                                                                                                                                                                                                                            |
+| `pnpm lint`                                             | ESLint (typescript-eslint strict)                                                                                                                                                                                                                                                                                                                                                        |
+| `pnpm typecheck`                                        | `tsc` in every workspace package                                                                                                                                                                                                                                                                                                                                                         |
+| `pnpm test`                                             | unit tests (Vitest `unit` project)                                                                                                                                                                                                                                                                                                                                                       |
+| `pnpm test:integration`                                 | integration tests (Vitest `integration` project, `*.int.test.ts`; **needs Docker**, Testcontainers Postgres)                                                                                                                                                                                                                                                                             |
+| `pnpm test:e2e`                                         | end-to-end household slice through the real entry point (needs Docker)                                                                                                                                                                                                                                                                                                                   |
+| `pnpm fints:live`                                       | **opt-in** live FinTS script (tsx, `scripts/fints-live.ts`) against a real bank (never in `ci/check.sh`/CI; needs `FINTS_LIVE_BANK` = `dkb`/`comdirect`, `FINTS_LIVE_USER`, `FINTS_LIVE_PIN`, `BUDGEDINO_FINTS_PRODUCT_ID`; prompts for the TAN without echo; prints no amounts, names, IBANs or TAN media names)                                                                        |
+| `pnpm test:build`                                       | builds, then smoke-tests `dist` with plain Node (needs Docker)                                                                                                                                                                                                                                                                                                                           |
+| `pnpm build`                                            | esbuild bundle of the server into `src/server/dist` (embeds the GitVersion SemVer, see `node scripts/version.cjs` and ADR 0010)                                                                                                                                                                                                                                                          |
+| `pnpm openapi`                                          | builds and regenerates `docs/api/openapi.json`; commit the result (CI fails on drift)                                                                                                                                                                                                                                                                                                    |
+| `pnpm mobile:test` / `mobile:lint` / `mobile:typecheck` | Expo app checks (jest-expo, ESLint, tsc); part of `ci/check.sh`                                                                                                                                                                                                                                                                                                                          |
+| `pnpm dev:db`                                           | local dev Postgres (`docker-compose.dev.yml`, port 5433; needs Docker)                                                                                                                                                                                                                                                                                                                   |
+| `pnpm dev:server`                                       | dev server from `.env.dev`/`.env.dev.example` (fake connector, `HOST=0.0.0.0`, port 8080); generates a gitignored dev master key in `.dev/` on first use                                                                                                                                                                                                                                 |
+| `pnpm dev:seed [-- --with-data]`                        | `budgedino dev-seed`: demo household + one-time admin invite; `--with-data` adds a demo member, connected fake bank, ~60 days of transactions, two budgets. Dev only, opt-in: needs `NODE_ENV=development` (set by the script) or `--i-know-this-is-dev`; never in production                                                                                                            |
+| `pnpm maestro:device`                                   | opt-in Maestro flows (`src/mobile/maestro`) on the USB-attached **physical** phone; never CI, never an emulator; needs a `BUDGEDINO_E2E=1 pnpm mobile:android` build (app lock skipped, dev variant only). Guide: `docs/guides/run-on-android-device.md`                                                                                                                                 |
+| `pnpm mobile:prebuild`                                  | `expo prebuild --platform android --clean` with `APP_VARIANT` (default `development`; only the native cleartext flag is fixed at prebuild, so switching variants needs `--clean`, which the script does; the JS flags `allowCleartext`/`e2e` come from the Metro env and are ignored by release builds via `__DEV__`; `src/mobile/android/` is generated and ignored by version control) |
+| `pnpm mobile:android`                                   | re-runs the development prebuild (`--clean`), then `expo run:android --device` (cleartext allowed; `BUDGEDINO_E2E=1` here reaches the Metro it starts, so stop any Metro on port 8081 first): installs the dev build on the USB-attached phone. Needs JDK 17 (`.mise.toml`, or `JAVA_HOME`) and `ANDROID_HOME`; never an emulator                                                        |
+| `bash ci/check.sh`                                      | everything CI runs (`SKIP_INTEGRATION=1` skips the Docker-based suites: integration, e2e, build smoke)                                                                                                                                                                                                                                                                                   |
+
+Toolchain: no Node-26-only APIs (packages declare `engines.node >=22`). TypeScript is pinned to 6.x
+until typescript-eslint supports TS 7.
+
+## Global Constraints
+
+- TypeScript throughout; strict mode; no `any` in domain code.
+- Money: integer minor units + ISO 4217 currency; never floating point.
+- Read-only bank access; no payment initiation.
+- Sensitive fields (credentials, PINs, tokens, broker sessions, counterparty, purpose, amounts, balances, holdings, account names/IBANs) are encrypted at application level; the master key never lives in the database.
+- Logs, traces and notification payloads never contain amounts, payees, IBANs or credentials.
+- Every route declares `config.access` (`public` | `member` | `admin`); `buildApp` throws otherwise and attaches the guard itself (never add guards by hand).
+- Adding a GET route requires a `tests/support/route-fixtures.ts` entry for each of its path parameters; the visibility harness (`tests/server/access/visibility.int.test.ts`) probes every registered GET route as another member and fails on a missing entry. It also requires the owner (member B) to get 2xx from every member/admin GET route, and parameterised routes to return one of B's canaries, so a wrong fixture cannot pass vacuously; a route that cannot satisfy this (e.g. admin-only) needs a commented entry in `OWNER_POSITIVE_CONTROL_EXEMPT` in the same file.
+- Reads of accounts, transactions, splits and balances go through `visibleAccountIds(db, auth)`; repositories require its result.
+- Visibility is enforced on the server; `owner-only` accounts are invisible to everyone but their owner, admins included.
+- Connectors belong to the member who created them.
+- Budgets: `weekly` = ISO Mon–Sun, `monthly` = calendar month, in the household timezone (default `Europe/Berlin`); no rollover; base currency EUR by default.
+- Each account has `countsTowardBudgets` (default true for `household`, false for `owner-only`); budgets are computed once per household.
+- PSD2 connectors: max 4 unattended fetches per account per 24 h, default times 06:00/12:00/18:00/23:00; user-present fetches don't count. FinTS: every 4 h default.
+- The server never starts an interactive bank dialog on its own; it sets `needs_attention` and waits for the user.
+- Repo layout: `src/`, `tests/`, `ci/` (scripts; GitHub requires workflows in `.github/workflows`), `docs/`.
+- Every behavioural change updates the relevant `docs/specs/<area>.md` in the same commit/PR.
+- No AI attribution in commits, PRs or docs.

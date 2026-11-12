@@ -1,0 +1,457 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gesmes:Envelope xmlns:gesmes="http://www.gesmes.org/xml/2002-08-01" xmlns="http://www.ecb.int/vocabulary/2002-08-01/eurofxref">
+  <gesmes:subject>Reference rates</gesmes:subject>
+  <gesmes:Sender>
+    <gesmes:name>European Central Bank</gesmes:name>
+  </gesmes:Sender>
+  <Cube>
+      <Cube time='2026-11-09'>
+        <Cube currency='USD' rate='1.0800'/>
+        <Cube currency='GBP' rate='0.8651'/>
+        <Cube currency='CHF' rate='0.9421'/>
+        <Cube currency='JPY' rate='163.31'/>
+        <Cube currency='SEK' rate='11.4539'/>
+      </Cube>
+      <Cube time='2026-11-06'>
+        <Cube currency='USD' rate='1.0800'/>
+        <Cube currency='GBP' rate='0.8652'/>
+        <Cube currency='CHF' rate='0.9422'/>
+        <Cube currency='JPY' rate='163.42'/>
+        <Cube currency='SEK' rate='11.4574'/>
+      </Cube>
+      <Cube time='2026-11-05'>
+        <Cube currency='USD' rate='1.0806'/>
+        <Cube currency='GBP' rate='0.8653'/>
+        <Cube currency='CHF' rate='0.9423'/>
+        <Cube currency='JPY' rate='163.49'/>
+        <Cube currency='SEK' rate='11.4601'/>
+      </Cube>
+      <Cube time='2026-11-04'>
+        <Cube currency='USD' rate='1.0807'/>
+        <Cube currency='GBP' rate='0.8654'/>
+        <Cube currency='CHF' rate='0.9423'/>
+        <Cube currency='JPY' rate='163.54'/>
+        <Cube currency='SEK' rate='11.4617'/>
+      </Cube>
+      <Cube time='2026-11-03'>
+        <Cube currency='USD' rate='1.0807'/>
+        <Cube currency='GBP' rate='0.8654'/>
+        <Cube currency='CHF' rate='0.9423'/>
+        <Cube currency='JPY' rate='163.55'/>
+        <Cube currency='SEK' rate='11.4619'/>
+      </Cube>
+      <Cube time='2026-11-02'>
+        <Cube currency='USD' rate='1.0806'/>
+        <Cube currency='GBP' rate='0.8654'/>
+        <Cube currency='CHF' rate='0.9423'/>
+        <Cube currency='JPY' rate='163.52'/>
+        <Cube currency='SEK' rate='11.4609'/>
+      </Cube>
+      <Cube time='2026-10-30'>
+        <Cube currency='USD' rate='1.0805'/>
+        <Cube currency='GBP' rate='0.8653'/>
+        <Cube currency='CHF' rate='0.9422'/>
+        <Cube currency='JPY' rate='163.45'/>
+        <Cube currency='SEK' rate='11.4587'/>
+      </Cube>
+      <Cube time='2026-10-29'>
+        <Cube currency='USD' rate='1.0803'/>
+        <Cube currency='GBP' rate='0.8652'/>
+        <Cube currency='CHF' rate='0.9421'/>
+        <Cube currency='JPY' rate='163.36'/>
+        <Cube currency='SEK' rate='11.4555'/>
+      </Cube>
+      <Cube time='2026-10-28'>
+        <Cube currency='USD' rate='1.0801'/>
+        <Cube currency='GBP' rate='0.8651'/>
+        <Cube currency='CHF' rate='0.9420'/>
+        <Cube currency='JPY' rate='163.25'/>
+        <Cube currency='SEK' rate='11.4517'/>
+      </Cube>
+      <Cube time='2026-10-27'>
+        <Cube currency='USD' rate='1.0799'/>
+        <Cube currency='GBP' rate='0.8649'/>
+        <Cube currency='CHF' rate='0.9419'/>
+        <Cube currency='JPY' rate='163.13'/>
+        <Cube currency='SEK' rate='11.4477'/>
+      </Cube>
+      <Cube time='2026-10-26'>
+        <Cube currency='USD' rate='1.0796'/>
+        <Cube currency='GBP' rate='0.8648'/>
+        <Cube currency='CHF' rate='0.9418'/>
+        <Cube currency='JPY' rate='163.02'/>
+        <Cube currency='SEK' rate='11.4440'/>
+      </Cube>
+      <Cube time='2026-10-23'>
+        <Cube currency='USD' rate='1.0795'/>
+        <Cube currency='GBP' rate='0.8647'/>
+        <Cube currency='CHF' rate='0.9418'/>
+        <Cube currency='JPY' rate='162.94'/>
+        <Cube currency='SEK' rate='11.4409'/>
+      </Cube>
+      <Cube time='2026-10-22'>
+        <Cube currency='USD' rate='1.0793'/>
+        <Cube currency='GBP' rate='0.8646'/>
+        <Cube currency='CHF' rate='0.9417'/>
+        <Cube currency='JPY' rate='162.87'/>
+        <Cube currency='SEK' rate='11.4389'/>
+      </Cube>
+      <Cube time='2026-10-21'>
+        <Cube currency='USD' rate='1.0793'/>
+        <Cube currency='GBP' rate='0.8646'/>
+        <Cube currency='CHF' rate='0.9417'/>
+        <Cube currency='JPY' rate='162.85'/>
+        <Cube currency='SEK' rate='11.4380'/>
+      </Cube>
+      <Cube time='2026-10-20'>
+        <Cube currency='USD' rate='1.0793'/>
+        <Cube currency='GBP' rate='0.8646'/>
+        <Cube currency='CHF' rate='0.9417'/>
+        <Cube currency='JPY' rate='162.86'/>
+        <Cube currency='SEK' rate='11.4385'/>
+      </Cube>
+      <Cube time='2026-10-19'>
+        <Cube currency='USD' rate='1.0794'/>
+        <Cube currency='GBP' rate='0.8647'/>
+        <Cube currency='CHF' rate='0.9418'/>
+        <Cube currency='JPY' rate='162.92'/>
+        <Cube currency='SEK' rate='11.4402'/>
+      </Cube>
+      <Cube time='2026-10-16'>
+        <Cube currency='USD' rate='1.0796'/>
+        <Cube currency='GBP' rate='0.8648'/>
+        <Cube currency='CHF' rate='0.9418'/>
+        <Cube currency='JPY' rate='163.00'/>
+        <Cube currency='SEK' rate='11.4431'/>
+      </Cube>
+      <Cube time='2026-10-15'>
+        <Cube currency='USD' rate='1.0798'/>
+        <Cube currency='GBP' rate='0.8649'/>
+        <Cube currency='CHF' rate='0.9419'/>
+        <Cube currency='JPY' rate='163.10'/>
+        <Cube currency='SEK' rate='11.4466'/>
+      </Cube>
+      <Cube time='2026-10-14'>
+        <Cube currency='USD' rate='1.0800'/>
+        <Cube currency='GBP' rate='0.8650'/>
+        <Cube currency='CHF' rate='0.9420'/>
+        <Cube currency='JPY' rate='163.22'/>
+        <Cube currency='SEK' rate='11.4506'/>
+      </Cube>
+      <Cube time='2026-10-13'>
+        <Cube currency='USD' rate='1.0803'/>
+        <Cube currency='GBP' rate='0.8651'/>
+        <Cube currency='CHF' rate='0.9421'/>
+        <Cube currency='JPY' rate='163.33'/>
+        <Cube currency='SEK' rate='11.4545'/>
+      </Cube>
+      <Cube time='2026-10-12'>
+        <Cube currency='USD' rate='1.0805'/>
+        <Cube currency='GBP' rate='0.8653'/>
+        <Cube currency='CHF' rate='0.9422'/>
+        <Cube currency='JPY' rate='163.43'/>
+        <Cube currency='SEK' rate='11.4579'/>
+      </Cube>
+      <Cube time='2026-10-09'>
+        <Cube currency='USD' rate='1.0806'/>
+        <Cube currency='GBP' rate='0.8653'/>
+        <Cube currency='CHF' rate='0.9423'/>
+        <Cube currency='JPY' rate='163.50'/>
+        <Cube currency='SEK' rate='11.4604'/>
+      </Cube>
+      <Cube time='2026-10-08'>
+        <Cube currency='USD' rate='1.0807'/>
+        <Cube currency='GBP' rate='0.8654'/>
+        <Cube currency='CHF' rate='0.9423'/>
+        <Cube currency='JPY' rate='163.54'/>
+        <Cube currency='SEK' rate='11.4618'/>
+      </Cube>
+      <Cube time='2026-10-07'>
+        <Cube currency='USD' rate='1.0807'/>
+        <Cube currency='GBP' rate='0.8654'/>
+        <Cube currency='CHF' rate='0.9423'/>
+        <Cube currency='JPY' rate='163.55'/>
+        <Cube currency='SEK' rate='11.4619'/>
+      </Cube>
+      <Cube time='2026-10-06'>
+        <Cube currency='USD' rate='1.0806'/>
+        <Cube currency='GBP' rate='0.8654'/>
+        <Cube currency='CHF' rate='0.9423'/>
+        <Cube currency='JPY' rate='163.51'/>
+        <Cube currency='SEK' rate='11.4606'/>
+      </Cube>
+      <Cube time='2026-10-05'>
+        <Cube currency='USD' rate='1.0805'/>
+        <Cube currency='GBP' rate='0.8653'/>
+        <Cube currency='CHF' rate='0.9422'/>
+        <Cube currency='JPY' rate='163.44'/>
+        <Cube currency='SEK' rate='11.4583'/>
+      </Cube>
+      <Cube time='2026-10-02'>
+        <Cube currency='USD' rate='1.0803'/>
+        <Cube currency='GBP' rate='0.8652'/>
+        <Cube currency='CHF' rate='0.9421'/>
+        <Cube currency='JPY' rate='163.34'/>
+        <Cube currency='SEK' rate='11.4549'/>
+      </Cube>
+      <Cube time='2026-10-01'>
+        <Cube currency='USD' rate='1.0801'/>
+        <Cube currency='GBP' rate='0.8650'/>
+        <Cube currency='CHF' rate='0.9420'/>
+        <Cube currency='JPY' rate='163.23'/>
+        <Cube currency='SEK' rate='11.4511'/>
+      </Cube>
+      <Cube time='2026-09-30'>
+        <Cube currency='USD' rate='1.0798'/>
+        <Cube currency='GBP' rate='0.8649'/>
+        <Cube currency='CHF' rate='0.9419'/>
+        <Cube currency='JPY' rate='163.12'/>
+        <Cube currency='SEK' rate='11.4471'/>
+      </Cube>
+      <Cube time='2026-09-29'>
+        <Cube currency='USD' rate='1.0796'/>
+        <Cube currency='GBP' rate='0.8648'/>
+        <Cube currency='CHF' rate='0.9418'/>
+        <Cube currency='JPY' rate='163.01'/>
+        <Cube currency='SEK' rate='11.4435'/>
+      </Cube>
+      <Cube time='2026-09-28'>
+        <Cube currency='USD' rate='1.0794'/>
+        <Cube currency='GBP' rate='0.8647'/>
+        <Cube currency='CHF' rate='0.9418'/>
+        <Cube currency='JPY' rate='162.92'/>
+        <Cube currency='SEK' rate='11.4405'/>
+      </Cube>
+      <Cube time='2026-09-25'>
+        <Cube currency='USD' rate='1.0793'/>
+        <Cube currency='GBP' rate='0.8646'/>
+        <Cube currency='CHF' rate='0.9417'/>
+        <Cube currency='JPY' rate='162.87'/>
+        <Cube currency='SEK' rate='11.4386'/>
+      </Cube>
+      <Cube time='2026-09-24'>
+        <Cube currency='USD' rate='1.0793'/>
+        <Cube currency='GBP' rate='0.8646'/>
+        <Cube currency='CHF' rate='0.9417'/>
+        <Cube currency='JPY' rate='162.85'/>
+        <Cube currency='SEK' rate='11.4380'/>
+      </Cube>
+      <Cube time='2026-09-23'>
+        <Cube currency='USD' rate='1.0793'/>
+        <Cube currency='GBP' rate='0.8646'/>
+        <Cube currency='CHF' rate='0.9417'/>
+        <Cube currency='JPY' rate='162.87'/>
+        <Cube currency='SEK' rate='11.4387'/>
+      </Cube>
+      <Cube time='2026-09-22'>
+        <Cube currency='USD' rate='1.0795'/>
+        <Cube currency='GBP' rate='0.8647'/>
+        <Cube currency='CHF' rate='0.9418'/>
+        <Cube currency='JPY' rate='162.93'/>
+        <Cube currency='SEK' rate='11.4406'/>
+      </Cube>
+      <Cube time='2026-09-21'>
+        <Cube currency='USD' rate='1.0796'/>
+        <Cube currency='GBP' rate='0.8648'/>
+        <Cube currency='CHF' rate='0.9418'/>
+        <Cube currency='JPY' rate='163.01'/>
+        <Cube currency='SEK' rate='11.4436'/>
+      </Cube>
+      <Cube time='2026-09-18'>
+        <Cube currency='USD' rate='1.0798'/>
+        <Cube currency='GBP' rate='0.8649'/>
+        <Cube currency='CHF' rate='0.9419'/>
+        <Cube currency='JPY' rate='163.12'/>
+        <Cube currency='SEK' rate='11.4472'/>
+      </Cube>
+      <Cube time='2026-09-17'>
+        <Cube currency='USD' rate='1.0801'/>
+        <Cube currency='GBP' rate='0.8650'/>
+        <Cube currency='CHF' rate='0.9420'/>
+        <Cube currency='JPY' rate='163.24'/>
+        <Cube currency='SEK' rate='11.4512'/>
+      </Cube>
+      <Cube time='2026-09-16'>
+        <Cube currency='USD' rate='1.0803'/>
+        <Cube currency='GBP' rate='0.8652'/>
+        <Cube currency='CHF' rate='0.9421'/>
+        <Cube currency='JPY' rate='163.35'/>
+        <Cube currency='SEK' rate='11.4550'/>
+      </Cube>
+      <Cube time='2026-09-15'>
+        <Cube currency='USD' rate='1.0805'/>
+        <Cube currency='GBP' rate='0.8653'/>
+        <Cube currency='CHF' rate='0.9422'/>
+        <Cube currency='JPY' rate='163.44'/>
+        <Cube currency='SEK' rate='11.4583'/>
+      </Cube>
+      <Cube time='2026-09-14'>
+        <Cube currency='USD' rate='1.0806'/>
+        <Cube currency='GBP' rate='0.8654'/>
+        <Cube currency='CHF' rate='0.9423'/>
+        <Cube currency='JPY' rate='163.51'/>
+        <Cube currency='SEK' rate='11.4607'/>
+      </Cube>
+      <Cube time='2026-09-11'>
+        <Cube currency='USD' rate='1.0807'/>
+        <Cube currency='GBP' rate='0.8654'/>
+        <Cube currency='CHF' rate='0.9423'/>
+        <Cube currency='JPY' rate='163.55'/>
+        <Cube currency='SEK' rate='11.4619'/>
+      </Cube>
+      <Cube time='2026-09-10'>
+        <Cube currency='USD' rate='1.0807'/>
+        <Cube currency='GBP' rate='0.8654'/>
+        <Cube currency='CHF' rate='0.9423'/>
+        <Cube currency='JPY' rate='163.54'/>
+        <Cube currency='SEK' rate='11.4618'/>
+      </Cube>
+      <Cube time='2026-09-09'>
+        <Cube currency='USD' rate='1.0806'/>
+        <Cube currency='GBP' rate='0.8653'/>
+        <Cube currency='CHF' rate='0.9423'/>
+        <Cube currency='JPY' rate='163.50'/>
+        <Cube currency='SEK' rate='11.4604'/>
+      </Cube>
+      <Cube time='2026-09-08'>
+        <Cube currency='USD' rate='1.0805'/>
+        <Cube currency='GBP' rate='0.8653'/>
+        <Cube currency='CHF' rate='0.9422'/>
+        <Cube currency='JPY' rate='163.43'/>
+        <Cube currency='SEK' rate='11.4578'/>
+      </Cube>
+      <Cube time='2026-09-07'>
+        <Cube currency='USD' rate='1.0803'/>
+        <Cube currency='GBP' rate='0.8651'/>
+        <Cube currency='CHF' rate='0.9421'/>
+        <Cube currency='JPY' rate='163.33'/>
+        <Cube currency='SEK' rate='11.4544'/>
+      </Cube>
+      <Cube time='2026-09-04'>
+        <Cube currency='USD' rate='1.0800'/>
+        <Cube currency='GBP' rate='0.8650'/>
+        <Cube currency='CHF' rate='0.9420'/>
+        <Cube currency='JPY' rate='163.21'/>
+        <Cube currency='SEK' rate='11.4505'/>
+      </Cube>
+      <Cube time='2026-09-03'>
+        <Cube currency='USD' rate='1.0798'/>
+        <Cube currency='GBP' rate='0.8649'/>
+        <Cube currency='CHF' rate='0.9419'/>
+        <Cube currency='JPY' rate='163.10'/>
+        <Cube currency='SEK' rate='11.4465'/>
+      </Cube>
+      <Cube time='2026-09-02'>
+        <Cube currency='USD' rate='1.0796'/>
+        <Cube currency='GBP' rate='0.8648'/>
+        <Cube currency='CHF' rate='0.9418'/>
+        <Cube currency='JPY' rate='163.00'/>
+        <Cube currency='SEK' rate='11.4430'/>
+      </Cube>
+      <Cube time='2026-09-01'>
+        <Cube currency='USD' rate='1.0794'/>
+        <Cube currency='GBP' rate='0.8647'/>
+        <Cube currency='CHF' rate='0.9418'/>
+        <Cube currency='JPY' rate='162.91'/>
+        <Cube currency='SEK' rate='11.4402'/>
+      </Cube>
+      <Cube time='2026-08-31'>
+        <Cube currency='USD' rate='1.0793'/>
+        <Cube currency='GBP' rate='0.8646'/>
+        <Cube currency='CHF' rate='0.9417'/>
+        <Cube currency='JPY' rate='162.86'/>
+        <Cube currency='SEK' rate='11.4385'/>
+      </Cube>
+      <Cube time='2026-08-28'>
+        <Cube currency='USD' rate='1.0793'/>
+        <Cube currency='GBP' rate='0.8646'/>
+        <Cube currency='CHF' rate='0.9417'/>
+        <Cube currency='JPY' rate='162.85'/>
+        <Cube currency='SEK' rate='11.4380'/>
+      </Cube>
+      <Cube time='2026-08-27'>
+        <Cube currency='USD' rate='1.0794'/>
+        <Cube currency='GBP' rate='0.8646'/>
+        <Cube currency='CHF' rate='0.9417'/>
+        <Cube currency='JPY' rate='162.88'/>
+        <Cube currency='SEK' rate='11.4389'/>
+      </Cube>
+      <Cube time='2026-08-26'>
+        <Cube currency='USD' rate='1.0795'/>
+        <Cube currency='GBP' rate='0.8647'/>
+        <Cube currency='CHF' rate='0.9418'/>
+        <Cube currency='JPY' rate='162.94'/>
+        <Cube currency='SEK' rate='11.4410'/>
+      </Cube>
+      <Cube time='2026-08-25'>
+        <Cube currency='USD' rate='1.0797'/>
+        <Cube currency='GBP' rate='0.8648'/>
+        <Cube currency='CHF' rate='0.9419'/>
+        <Cube currency='JPY' rate='163.03'/>
+        <Cube currency='SEK' rate='11.4441'/>
+      </Cube>
+      <Cube time='2026-08-24'>
+        <Cube currency='USD' rate='1.0799'/>
+        <Cube currency='GBP' rate='0.8649'/>
+        <Cube currency='CHF' rate='0.9419'/>
+        <Cube currency='JPY' rate='163.14'/>
+        <Cube currency='SEK' rate='11.4478'/>
+      </Cube>
+      <Cube time='2026-08-21'>
+        <Cube currency='USD' rate='1.0801'/>
+        <Cube currency='GBP' rate='0.8651'/>
+        <Cube currency='CHF' rate='0.9420'/>
+        <Cube currency='JPY' rate='163.25'/>
+        <Cube currency='SEK' rate='11.4518'/>
+      </Cube>
+      <Cube time='2026-08-20'>
+        <Cube currency='USD' rate='1.0803'/>
+        <Cube currency='GBP' rate='0.8652'/>
+        <Cube currency='CHF' rate='0.9421'/>
+        <Cube currency='JPY' rate='163.36'/>
+        <Cube currency='SEK' rate='11.4556'/>
+      </Cube>
+      <Cube time='2026-08-19'>
+        <Cube currency='USD' rate='1.0805'/>
+        <Cube currency='GBP' rate='0.8653'/>
+        <Cube currency='CHF' rate='0.9422'/>
+        <Cube currency='JPY' rate='163.46'/>
+        <Cube currency='SEK' rate='11.4588'/>
+      </Cube>
+      <Cube time='2026-08-18'>
+        <Cube currency='USD' rate='1.0806'/>
+        <Cube currency='GBP' rate='0.8654'/>
+        <Cube currency='CHF' rate='0.9423'/>
+        <Cube currency='JPY' rate='163.52'/>
+        <Cube currency='SEK' rate='11.4610'/>
+      </Cube>
+      <Cube time='2026-08-17'>
+        <Cube currency='USD' rate='1.0807'/>
+        <Cube currency='GBP' rate='0.8654'/>
+        <Cube currency='CHF' rate='0.9423'/>
+        <Cube currency='JPY' rate='163.55'/>
+        <Cube currency='SEK' rate='11.4620'/>
+      </Cube>
+      <Cube time='2026-08-14'>
+        <Cube currency='USD' rate='1.0807'/>
+        <Cube currency='GBP' rate='0.8654'/>
+        <Cube currency='CHF' rate='0.9423'/>
+        <Cube currency='JPY' rate='163.54'/>
+        <Cube currency='SEK' rate='11.4616'/>
+      </Cube>
+      <Cube time='2026-08-13'>
+        <Cube currency='USD' rate='1.0806'/>
+        <Cube currency='GBP' rate='0.8653'/>
+        <Cube currency='CHF' rate='0.9423'/>
+        <Cube currency='JPY' rate='163.49'/>
+        <Cube currency='SEK' rate='11.4600'/>
+      </Cube>
+      <Cube time='2026-08-12'>
+        <Cube currency='USD' rate='1.0804'/>
+        <Cube currency='GBP' rate='0.8652'/>
+        <Cube currency='CHF' rate='0.9422'/>
+        <Cube currency='JPY' rate='163.41'/>
+        <Cube currency='SEK' rate='11.4573'/>
+      </Cube>
+  </Cube>
+</gesmes:Envelope>

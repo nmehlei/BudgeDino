@@ -1,0 +1,21 @@
+# Runs after login.yaml. Needs the server started with BUDGEDINO_CONNECTORS=fake (pnpm dev:server):
+# "Demo bank" only appears then, and it starts a decoupled challenge that this flow confirms.
+appId: app.budgedino
+name: Connect the demo bank (decoupled challenge)
+---
+- launchApp
+- tapOn: 'Connections'
+- tapOn:
+    id: 'add-bank'
+- tapOn:
+    id: 'bank-demo'
+- tapOn:
+    id: 'connect-submit'
+- assertVisible:
+    id: 'challenge-decoupled'
+- tapOn:
+    id: 'challenge-confirm'
+- assertVisible:
+    id: 'challenge-success'
+- tapOn:
+    id: 'challenge-done'

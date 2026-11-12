@@ -1,0 +1,59 @@
+{
+  "name": "@budgedino/mobile",
+  "version": "0.0.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "main": "index.ts",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "jest",
+    "start": "APP_VARIANT=development expo start --dev-client"
+  },
+  "dependencies": {
+    "@budgedino/shared": "workspace:*",
+    "@expo/vector-icons": "^15.1.1",
+    "@tanstack/query-sync-storage-persister": "^5.107.1",
+    "@tanstack/react-query": "^5.107.1",
+    "@tanstack/react-query-persist-client": "^5.107.1",
+    "expo": "~58.0.23",
+    "expo-background-task": "~58.0.12",
+    "expo-build-properties": "~58.0.12",
+    "expo-clipboard": "^58.0.4",
+    "expo-constants": "~58.0.15",
+    "expo-crypto": "~58.0.7",
+    "expo-dev-client": "~58.0.18",
+    "expo-device": "^58.0.5",
+    "expo-linking": "~58.0.16",
+    "expo-local-authentication": "~58.0.2",
+    "expo-notifications": "~58.1.8",
+    "expo-router": "~58.0.30",
+    "expo-screen-capture": "~58.0.6",
+    "expo-secure-store": "~58.0.2",
+    "expo-splash-screen": "~58.0.13",
+    "expo-status-bar": "~58.0.4",
+    "expo-system-ui": "~58.0.7",
+    "expo-task-manager": "~58.0.13",
+    "react": "19.3.0",
+    "react-native": "0.88.1",
+    "react-native-mmkv": "^4.3.2",
+    "react-native-nitro-modules": "^0.37.2",
+    "react-native-paper": "^5.15.4",
+    "react-native-qrcode-svg": "^6.3.54",
+    "react-native-safe-area-context": "~5.11.1",
+    "react-native-screens": "~4.30.1",
+    "react-native-svg": "15.16.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@testing-library/react-native": "^14.1.0",
+    "@types/jest": "^30.0.0",
+    "@types/react": "^19.3.0",
+    "jest": "^30.5.2",
+    "jest-expo": "^58.0.14",
+    "react-test-renderer": "^19.3.1",
+    "typescript": "~6.0.3"
+  }
+}

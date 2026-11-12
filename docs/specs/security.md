@@ -1,0 +1,195 @@
+# Spec: Security and encryption
+
+- Status: living spec (source of truth for behaviour)
+- Origin: [founding design](2026-11-08-budgedino-design.md) §10. **[owner]** = decided by the owner,
+  **[call]** = AI's call, may be challenged.
+
+Threat model **[owner]**: the server operator is trusted (self-hosting). Protect against: stolen server
+disk, database dumps or backups, curious hosting provider, network attackers, lost/stolen phones,
+leakage via logs and telemetry, and other household members for `owner-only` accounts.
+
+Measures **[call]**:
+
+- **Application-level envelope encryption** of sensitive fields: bank credentials and PINs, aggregator
+  keys and tokens, broker sessions, transaction details (counterparty, purpose, amounts), balances and
+  holdings. A per-household data key encrypts the data; a master key (env var / file / Docker secret,
+  never in the database) wraps the data keys. Key rotation supported.
+  See [ADR 0004](../adr/0004-envelope-encryption.md).
+- Consequence: searching and aggregation over encrypted fields happen in the application layer;
+  acceptable at household scale.
+- Encrypted backups (same key hierarchy); setup forces saving a recovery copy of the master key.
+  ⚠️ Lost key = lost data, documented prominently.
+- TLS everywhere (the owner's instance is exposed over the internet via their ingress **[owner]**).
+- **Auth (internet-facing):** passkeys, or password + mandatory TOTP; device-bound sessions revocable
+  per device; rate limiting and lockout; invite-only.
+- **Phone:** local cache encrypted with a key in Android Keystore; biometric/PIN app lock; no
+  screenshots in the recents switcher.
+- **Notifications (v1): no push service.** The app checks the owner's server in the background
+  (Android-permitted interval, ~15–60 min), fetches pending notifications over TLS and shows them as
+  local notifications. No third party is involved. **[owner]**
+  See [ADR 0006](../adr/0006-no-push-service-v1.md).
+- **Extension point (later, opt-in): instant content-free pings** via a small project-run relay on
+  FCM. A ping carries no data, only "wake up"; the app then fetches the content from its own server.
+  The notification delivery is behind an interface so this can be added without changing callers.
+  ⚠️ The relay is an operated, paid central component. **[owner]**
+- Logs and traces never contain amounts, payees, IBANs, credentials (enforced by a redaction layer
+  and tests).
+- Visibility enforcement is a security property: see [household-and-access.md](household-and-access.md).
+
+## Encryption format
+
+Implemented in `src/server/src/crypto` (`node:crypto` only).
+
+**Key hierarchy.** `master key` (32 bytes, base64 in `BUDGEDINO_MASTER_KEY` or the file named by
+`BUDGEDINO_MASTER_KEY_FILE`; setting both is an error) wraps each per-household `data key` (32 random
+bytes). The master key is used directly for wrapping (no HKDF). Field encryption and blind indexes use
+HKDF-SHA256 subkeys of the data key (empty salt, info = label): `enc` for field encryption and
+`idx:<purpose>` for blind indexes, so the raw data key is never used for any primitive. The master key
+id is the first 8 hex chars of its SHA-256 and is stored next to wrapped keys to support rotation.
+
+**Blob layout** (field values and wrapped data keys alike): `0x01 (version) | iv (12) | tag (16) |
+ciphertext`, AES-256-GCM with a random 12-byte IV. Unknown versions and blobs shorter than 29 bytes are
+rejected with a clear error that contains no plaintext or key material.
+
+**AAD.**
+The version byte is itself authenticated: every AAD starts with it (`AAD = 0x01 || components`).
+
+- Field: `0x01 || table|column|rowId` (UTF-8; `\` and `|` inside a component are backslash-escaped so
+  components cannot be shifted across separators). A blob decrypts only for the row and column it was
+  written for.
+- Wrapped data key: `0x01 || master key id | householdId` (same escaping). A wrapped key only unwraps for the
+  household it was wrapped for, so rows in `household_keys` cannot be swapped between households. The
+  unwrapped plaintext must be exactly 32 bytes.
+
+**Master key encoding.** Base64 must be canonical: after trimming, `decode` then `encode` must reproduce the
+input, and the decoded length must be 32 bytes. Anything else is rejected.
+
+**Blind index.** `HMAC-SHA256(subkey "idx:<purpose>", value)` as lowercase hex; deterministic per data
+key and purpose, used for dedup keys and exact-match lookups only. The one exception is the login email
+index, which uses a master-key subkey instead (see "Authentication and sessions").
+
+**Opacity.** `MasterKey` and `DataKey` keep their bytes in module-private storage; JSON, `util.inspect`
+and string conversion never reveal them. `MasterKeyError` messages never contain key material.
+
+## Data at rest (schema)
+
+Implemented in `src/server/src/db/schema.ts` (Drizzle; migrations in `src/server/drizzle/`, applied on
+start by `migrate()` under a `pg_advisory_lock`). Primary keys are UUID v7 generated by the application,
+because the row id is part of each field's AAD.
+
+- Encrypted columns are `bytea` suffixed `_enc`; blind indexes are `text` suffixed `_bidx` (member email,
+  account external reference, transaction dedup key, counterparty).
+- Amounts and balances are encrypted as decimal strings of integer minor units.
+- **Plaintext by design:** dates, currency codes, enums, foreign keys, `mcc`, household timezone.
+- **Budget names are plaintext [call]:** like category names they are generic labels, and the
+  `"<name> reached 80%"` notification body is built from them. Budget amounts (`amount_minor_enc`) and
+  notification bodies (`body_enc`) are encrypted; `notifications.dedup_key` (`budget:<id>:<period>:<pct>`,
+  ids and a percentage only) is plaintext. FX reference rates (`fx_rates`) are public data, plaintext.
+- **Category names are plaintext [call]:** they are generic labels ("Groceries"), not personal data, and
+  keeping them readable keeps budget and category queries simple. Revisit if users put sensitive text
+  into custom category names.
+- `household_keys` stores one wrapped data key per household and version, with the id of the master key
+  that wrapped it. `Keyring.rotateMaster(old, new)` rewraps all rows in one transaction (all or nothing). The CLI
+  (`budgedino rotate-master-key --server-stopped`, R19) warns to stop all servers first, before anything else, and
+  refuses to run without the flag.
+- Test: `tests/server/db/at-rest.int.test.ts` seeds canary values and asserts a `pg_dump --data-only`
+  of the database contains none of them.
+
+## Observability
+
+Implemented in `src/server/src/observability`.
+
+**Redaction (`redact.ts`).** `redact(value)` returns a deep copy in which every key matching
+`/amount|iban|counterparty|purpose|payee|password|pin|tan|token|secret|key|balance|email|authorization|cookie|credential/i`
+keeps its key but gets the value `"[redacted]"` (also for bigint), IBAN-looking substrings in any
+string become `"[iban]"`, Buffers/typed arrays become `"[binary]"`, cycles become `"[circular]"`.
+Errors keep `message` and `stack` (IBAN-masked). `trace_id`/`span_id` are never redacted. The key
+match is deliberately broad (over-redaction is preferred to leaking).
+
+**Logger (`logger.ts`).** `createLogger()` is a JSON pino logger. Every log call goes through
+`redact`: object fields and child bindings via `formatters`, the message and interpolation args via a
+`logMethod` hook. Lines carry `trace_id`/`span_id` of the active OpenTelemetry span. Request logs
+(`fastifyLoggerOptions(logger)` for Fastify) contain only method, URL, remote address and status:
+never bodies or headers (so no `authorization`/`cookie`), and sensitive query parameters are replaced
+by `redacted`.
+
+**Telemetry (`otel.ts`).** `startTelemetry(env)` is **off by default**: it does nothing unless
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set. When set, it exports traces, metrics and logs over OTLP/HTTP
+(`<endpoint>/v1/{traces,metrics,logs}`; headers via the standard `OTEL_EXPORTER_OTLP_HEADERS`) with
+service name `budgedino-server`. Only HTTP and `pg` instrumentation are enabled: spans carry method,
+route/URL (sensitive query params redacted), status and SQL text with placeholders only
+(`enhancedDatabaseReporting` is off, so query parameter values are never recorded); request/response
+bodies and headers are not captured. No data leaves the server unless the owner configures a
+collector. `startTelemetry` returns `{ enabled, shutdown() }` and is idempotent per process.
+
+**ESM loading (`instrument.ts`).** Under ESM the http/pg instrumentations only patch modules imported
+_after_ the `import-in-the-middle` loader hook is registered. `node --import ./dist/instrument.js
+./dist/main.js` (what `pnpm --filter @budgedino/server start` runs) registers the hook and starts the SDK
+before the application modules load; without `OTEL_EXPORTER_OTLP_ENDPOINT` it does nothing at all.
+Started later (no `--import`), the SDK runs but http spans are missing. Test:
+`tests/build/dist.build.test.ts` runs the built server against a mock OTLP collector and asserts http and
+pg spans arrive.
+
+**Trace id handling.** `trace_id`/`span_id` in a log record always come from the active span context
+(hex ids can look like IBANs, so they bypass redaction). Caller-supplied `trace_id`/`span_id` fields
+are discarded and never logged; outside a span the keys are absent. The IBAN pattern is deliberately
+case-insensitive (a lowercase IBAN is still an IBAN; leaking one is worse than mangling a lowercase
+hex id).
+
+## Authentication and sessions
+
+Implemented in `src/server/src/auth`; routes under `/api/v1` (zod schemas in `src/shared/src/api`).
+
+**Login lookup (server-wide email index).** `members.email_bidx` = HMAC-SHA256 under an HKDF-SHA256
+subkey of the **master key** (info `idx:email`, empty salt) over the trimmed, lower-cased email
+(`masterBlindIndex`). It is globally unique, so login finds the member before the household is known.
+`email_enc` stays encrypted under the household data key. Because the index depends on the master key,
+`Keyring.rotateMaster` recomputes `email_bidx` for every member (decrypting the email with the household
+key) in the same transaction as the key re-wrap. Dump-only attackers without the master key cannot
+test email guesses.
+
+**Passwords.** argon2id via `@node-rs/argon2` (19 MiB, 2 iterations, 1 lane = OWASP minimum). Minimum
+length 12 (enforced at registration), maximum 256.
+
+**TOTP is mandatory.** RFC 6238, SHA-1, 6 digits, 30 s step, +-1 step window (otplib). Provisioning URI
+issuer `BudgeDino`. The secret is stored encrypted under the household key. `members.totp_last_step`
+holds the last consumed step; a code is accepted only for a strictly later step (atomic conditional
+`UPDATE`), so a code cannot be replayed, and the registration confirmation code counts as used. Practical
+consequence: after logging in you must wait for the next code to log in again.
+
+**Registration (two steps, invite-only).** `POST /auth/register` checks the invite (exists, unused,
+unexpired; before any argon2 work), the email and the password policy, then creates a _pending
+registration_ (in memory, 15 min, unguessable id, max 5 wrong codes, behind the
+`PendingRegistrationStore` interface) holding the password hash and a fresh TOTP secret.
+`POST /auth/register/confirm` verifies the code, then in **one transaction** consumes the invite with a
+single conditional `UPDATE ... WHERE used_at IS NULL AND expires_at > now() RETURNING`, creates the
+member and a session. Two concurrent confirmations on one invite: exactly one succeeds, the other gets
+410 (tested). Invalid, expired, used and unknown invites all answer 410 with the same body. Pending
+registrations are lost on server restart (the invitee registers again; the invite is not consumed).
+
+**Invites.** 32 random bytes base64url, only the SHA-256 is stored, 7 days, single use, role `admin` or
+`member`. Created by the CLI (`bootstrap`, `invite`) or by an admin via `POST /households/invites`.
+
+**Sessions.** Token = 32 random bytes base64url sent as `Authorization: Bearer <token>`; only its SHA-256
+is stored. One session per device login (device name stored encrypted); listed and revoked per device
+(`GET /auth/sessions`, `DELETE /auth/sessions/:id`, own sessions only). Revoked sessions and sessions of
+disabled members are rejected with the generic 401. `last_seen_at` is updated at most once per minute.
+Sessions expire after 90 days without use (`last_seen_at`, idle timeout) and 365 days after creation (absolute lifetime, `created_at`); constants in `src/server/src/auth/session-policy.ts`. Expired sessions get the same generic 401 as an invalid token. **[call]** Every route declares
+`config.access` (`public` | `member` | `admin`); an `onRoute` hook in `buildApp` aborts startup when it is missing and attaches the guard for `member`/`admin` routes in `onRequest` (before body parsing and validation, so anonymous callers get 401, never 400).
+
+**No user enumeration.** Unknown email, wrong password, missing/wrong/replayed TOTP code and disabled
+member all return the identical `401 {"error":"invalid_credentials"}` body; an argon2 verification
+against a dummy hash runs for unknown emails. Registration does reveal "email already used", but only
+to holders of a valid invite. Error responses are built from fixed strings and never echo request
+bodies, parser messages or headers.
+
+**Rate limiting.** Login attempts are counted atomically _before_ verification (so a parallel burst
+cannot pass the check): 5 per email and 20 per client IP per 15 min, then `429` with `Retry-After`
+(the 6th attempt is refused even with correct credentials). A successful login clears the email counter
+and gives the IP attempt back.
+
+**Logging of errors.** Unexpected errors are logged as `{type, code, constraint}` only; `redact()` also
+masks any `params` key and the `\nparams:` tail of drizzle query-error messages, so bound query values
+(password hashes, token hashes) never reach logs or CLI output. The counters are in memory (fixed window, bounded key count) behind the
+`RateLimiter` interface; this is correct for one server instance, so move it to Postgres before running
+several instances. Behind a reverse proxy set `BUDGEDINO_TRUST_PROXY` (hop count or proxy CIDR list; the literal `true` is rejected because it would trust any client-supplied `X-Forwarded-For`) so the IP key is the client IP.

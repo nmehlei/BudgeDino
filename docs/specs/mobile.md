@@ -1,0 +1,422 @@
+# Spec: Mobile app
+
+The Expo Android app (development build, never Expo Go) talks to one self-hosted server.
+
+## Mobile onboarding
+
+- **Server URL.** The user enters the server address; "Check" calls the public `GET /api/v1/health`
+  before continuing. The URL is normalised: scheme and host lowercased, trailing slashes and a pasted
+  `/api/v1` removed, any other path kept. Only `https://` is accepted; `http://` is accepted only in the
+  development variant (`extra.allowCleartext`, read from the Metro env and honoured only when `__DEV__`; the native
+  cleartext flag is fixed at prebuild). Release builds reject it.
+- **Registration.** Invite token, email, display name, password (minimum 12 characters, strength hint)
+  and device name (prefilled from the device model) go to `POST /auth/register`. The next screen shows
+  the TOTP QR code and the secret for manual entry; a 6-digit code confirms and stores the session token
+  (expo-secure-store only).
+- **TOTP secret handling.** The provisioning URI is held in memory only (never in route params, MMKV
+  or the query cache), is shown once, and is cleared when the TOTP screen is left. "Copy secret" puts the
+  secret on the clipboard and overwrites it with an empty string after about 60 seconds (best effort),
+  also when the screen was already left; copying again restarts the 60 seconds. The screen says so. The password field is cleared as soon as registration or login succeeds.
+- **Login.** Email, password and a 6-digit code (digits only). Every failure except rate limiting shows
+  the same generic "Login failed"; the app never says which factor was wrong. A 429 shows "Too many
+  attempts, try again in N minutes" from `Retry-After`.
+- **Session expiry.** Any 401 on an authenticated request wipes the session (token, query cache) and
+  lands on login with "Session expired, please sign in again". A 401 from the login or register
+  endpoints is an ordinary failed attempt and does not touch the session.
+- **Root routing.** Loading shows a splash; signed out goes to the server screen when no server URL is
+  stored, otherwise to login; signed in goes home.
+- **Self-hosting link.** Until a server was checked, the server screen offers "No server yet? Host your
+  own", opening the GitHub repository's self-hosting docs in the browser.
+
+## Splash screen and app icon
+
+- The native splash (`expo-splash-screen`) shows the BudgeDino mark (a stegosaurus whose back plates
+  are gold coins) on the accent green (`#2E7D6B`), or on the dark theme background (`#0E1311`) when the
+  device is in dark mode. Assets live in `src/mobile/assets/` (generated PNGs; icon, adaptive icon with
+  monochrome layer for themed icons, splash mark).
+- The splash stays up until the encrypted cache is open and the session is hydrated, then fades out
+  (250 ms). It never stays longer than 5 s, whatever happens during start-up.
+- **Animated hand-off.** When the native splash hides, an in-app overlay (`AnimatedSplash`, mounted
+  once in the root layout, so cold start only) takes over seamlessly: same background as the native
+  splash for the device scheme (not the in-app theme override) and the mark drawn from the vector art at
+  the native image's size and position (220 dp square, centred). The app renders underneath the whole
+  time; the overlay is `pointerEvents="none"` and never delays readiness or navigation.
+- One short sequence, about 1.3 s, no looping, no text, no sound: the four coin plates, visible at rest from the
+  first frame like the native image, hop in turn left to right (up about 3.5 dp, scale 1.12, then settle
+  back with a slight bounce, 90 ms stagger); the dino blinks once and wags its tail
+  once; then the overlay fades out (250 ms) and unmounts. Each animated part (coin, eye, tail) is its own
+  positioned `Animated.View` using native-driver transforms and opacity only (no new native dependency).
+- The overlay plays once per process and only if it mounted before the native splash hid; if the 5 s
+  safety timeout hid it first (or the tree remounts later), nothing is shown. It is hidden from
+  accessibility (TalkBack does not announce it), removes itself after at most 2.5 s whatever the
+  animation does, and treats an unanswered reduce-motion query (300 ms) as "motion allowed".
+- With reduce motion on (`AccessibilityInfo.isReduceMotionEnabled()`), the animation is skipped and the
+  overlay only fades out.
+- **Splash finished signal.** The splash module exposes `isSplashFinished()` / `useSplashFinished()`, set once
+  the overlay is gone: it finished, faded out (reduce motion), hit its 2.5 s failsafe, was skipped (rendered
+  nothing) or unmounted. The app lock waits for it before the cold-start prompt (see App lock).
+
+## About and versioning
+
+- More > About shows the app version (GitVersion SemVer of the build's commit), the build number
+  (Android `versionCode`), the short commit SHA (opens the commit on GitHub) and the server version
+  (`GET /health`; "Checking…", "Unreachable" or "Not connected").
+- Links (open in the browser): source code (`github.com/nmehlei/BudgeDino`), report a problem (GitHub
+  issues), self-hosting docs, license (AGPL-3.0). Settings > Server links the self-hosting docs too.
+- Versions: [ADR 0010](../adr/0010-gitversion-mainline.md). Every commit gets its own version; the server
+  reports the same scheme from `/health`.
+
+## Home screen
+
+Bottom tabs: Home, Transactions, Statistics, Connections, More. The `(app)` layout is also the root gate (splash, onboarding redirect, tabs).
+
+- **Layout.** Quiet, typography first: no elevated cards, 16 dp side padding, 24 dp between blocks, colours
+  only from the MD3 theme. Top to bottom: period header, status bar (problems only), headline, pace chart,
+  one category list.
+- **Period header.** `GET /home?period=current|previous`. A row with a `‹` icon button ("Previous period"),
+  the period title (`headlineSmall`) and a `›` icon button ("Current period"); `‹` loads the previous period,
+  `›` returns to the current one, and the arrow that leads nowhere is disabled (the API offers only these two).
+  Under the title (`bodyMedium`, onSurfaceVariant) one line: on the current period "N days left" (calendar
+  days in Europe/Berlin, today and the last day included; "1 day left" on the last day), on the previous period
+  "Previous period", followed by " · ✓ synced 5 min ago" when every connector is ok and has synced (the age
+  is the stalest one's). Both periods are cached separately.
+- **Headline** (no card). Total spending of the period = the exact bigint sum of `breakdown[].spent`, large
+  (`displaySmall`) with a small "spent so far" ("spent" on the previous period). If any amount is in another
+  currency than `income.currency`, no total is shown ("Spending is in several currencies, so no total is
+  shown."). Below it one comparison line against the previous month at the same day of the period
+  (`comparisonAt`, day index clamped to the shorter month): "↓ 58,00 € less than by this day last month" in the
+  primary colour, "↑ … more than …" in the warning colour; hidden when equal, when the previous period has no
+  spending, while it is still loading, and on the previous period. Then a quiet "Income <amount>" and, when
+  non-zero, "Uncategorised income <amount>".
+- **Pace chart** (`PaceChart`). Cumulative spending from `daily` against the previous period's
+  `daily`: for `current` the app fetches `period=previous`, for `previous` the explicit key of the month before
+  (`period=YYYY-MM`, formatted from `period.start` in Europe/Berlin). `dayCount` is the displayed period's day
+  count; the "today" dot only on the current period. Legend: "this month" (the month name on the previous
+  period) and the name of the month before.
+- **Category list** (one list, no section titles). `groupForHome` orders it: budget groups by budget name, then
+  the categories no budget covers, largest spend first (uncategorised included). A category covered by two
+  budgets appears under both; the headline is not double-counted because it sums `breakdown`.
+  - **Budget row**: `CategoryIcon` of the budget's first category, name, "spent / amount" (`bodyMedium`, tabular
+    digits), a 6 dp rounded bar in the level colour (primary; amber from ratio 0.8; red from 1) and a 2 x 12 dp
+    pace tick (`onSurface` at 55 % opacity) at the fraction of the budget's own period that has elapsed
+    (`elapsedFraction`; weekly budgets use the week). Weekly budgets carry a small "week" label under the name.
+    "Over by <spent - amount>" in the error colour only when over. A "some foreign amounts couldn't be converted"
+    note when the budget has `fxMissing`.
+  - **Single-category budget**: one row with a chevron; tapping drills down to that category for the budget's own
+    period (weekly: the week's `from`/`to`).
+  - **Multi-category budget**: the row is not tappable; each category is an indented (16 dp) sub-row with a `sm`
+    icon, its spending from `breakdown` ("0,00 €" muted when it has none) and a chevron, tapping drills down for
+    the displayed month.
+  - **Rest rows**: icon, name, amount, chevron; tapping drills down (Transactions > Home drill-down).
+  - Icons and colours are resolved per category id from the cached categories (`useCategoryStyleById`).
+  - **Scope.** Budget numbers (`spent / amount`, bar) are household-wide and count counting accounts only
+    (bar label "household budget"); the headline and chart are the viewer's visible accounts. A single-category
+    monthly budget whose category amount in the viewer's breakdown differs from `budget.spent` shows a second
+    line "You: <visible amount>" under its name (never for weekly budgets: their `spent` is the week, the
+    breakdown is the month). Weekly multi-category sub-rows drill into the budget's week.
+  - Periods are derived from the `YYYY-MM` key (day count, previous month, month names, drill-down days), never
+    from a fixed time zone.
+  - Budget editing is no longer a Home tap target (More > Budgets). "No spending in this period." when the list
+    is empty; a "some foreign amounts couldn't be converted" note when `fxMissing`.
+- **Money.** Displayed from `{minor, currency}` with `Intl.NumberFormat('de-DE')` and the currency
+  exponent from `@budgedino/shared`; minor units are split by string arithmetic, never floats.
+- **Progress bar.** Fill is clamped to 0 to 100 %. Amber from ratio 0.8, red from 1. A ratio above 1
+  shows a full red bar and "Over by <amount>". Refunds (negative `spent`) show the negative amount and an
+  empty bar. A zero budget never divides: no spending shows an empty bar, any positive spending a full red
+  bar and "Over by <spent>".
+- **Sync status.** When every connector is ok and has synced, only the header's "✓ synced <age>" shows and the
+  status bar is not rendered. Otherwise (needs attention, error, disabled, never synced) the full bar shows: one
+  chip per connector in `home.sync` (status and last successful sync, relative), labelled with the connection's
+  `displayName` (own connections) or the bank name ("Demo bank" for `fake`), never the raw type. A needs-attention
+  chip of the user's own connector opens Connections; other members' chips are inert.
+- **Pull-to-refresh.** Calls `POST /connectors/:id/sync` for the user's own connectors with status `ok`
+  (`isOwner`), then refetches home. A 429 shows "Already syncing, try again in N s".
+- **Offline.** If the server is unreachable the cached data stays visible under an "Offline — showing
+  data from <time>" banner with Retry (other failures say "Couldn't refresh"). Without a cache a clear
+  offline empty state with Retry is shown. A network failure is retried once, so it never spins long.
+- **Accessibility.** Text wraps (no truncation) and the screen scrolls, so it stays usable at font scale 2.
+- **Precision note.** Money is formatted by passing an exact decimal string to `Intl.NumberFormat`; a Hermes without Intl v3 coerces it to a Number, which loses precision beyond 2^53 minor units.
+- **Period title.** Monthly shows "November 2026", weekly "10–16 Nov" (or "28 Oct – 3 Nov" across months), from `period.start`/`end` (end exclusive) in Europe/Berlin.
+- **Sync errors.** A non-429 failure while syncing on pull-to-refresh shows a "Sync failed" snackbar; the refetch still runs.
+
+## Statistics
+
+Tab "Statistics" (icon `chart-box-outline`) between Transactions and Connections. `GET /statistics?months=6|12`
+([api spec](api.md)); each window is cached separately and the previous one stays visible while the next loads.
+
+- **Layout.** Title "Statistics", a "6 months" / "12 months" segmented toggle (default 6), the section
+  "Income vs spending", then "Top categories, N months". No cards; 16 dp side padding.
+- **Income vs spending** (`MonthBars`). One group of two rounded bars per month, oldest first: income in the
+  accent colour, spending in the `orange` category colour, on a `niceMax` scale with a top and a half gridline
+  (whole currency units). The partial (current) month is drawn at 45 % opacity. Short month names ("Jun") sit
+  under each group; when a group is narrower than 30 dp (12 months on a phone) only every other month is
+  labelled, counting back from the newest, so the current month is always labelled. The partial month reads
+  "Nov so far" when its group is at least 50 dp wide, otherwise "Nov". Each group is a `Pressable` with
+  `accessibilityLabel` "October 2026: income 2.450 €, spending 2.040 €" ("November 2026 (so far): ..." for the
+  partial month); tapping it opens Transactions for that month's first to last day (from the month key,
+  inclusive `from`/`to`, no category). A split transaction shows the grey `call-split` glyph.
+- **Average line.** "You kept on average 410,00 € a month" (`averageKept`, the mean over complete months),
+  "You spent on average X more than you earned" when negative; hidden when `averageKept` is null.
+- **Top categories.** The first five of `categories` (server order: `spent` descending), "Show all" expands
+  the rest inline ("Show less" collapses). Row: category icon (`useCategoryStyleById`), name (wraps), total
+  (own non-shrinking text, so the amount never splits from its currency sign at font scale 2), a 6 dp share
+  bar in the category colour (width = spent / largest spent of the list) and a small trend. Trend: whole
+  percent of `trendSpent` (complete months) against `previousSpent`, computed with bigint and rounded half away from zero,
+  "▲ 8 %" in the warning colour for a rise and "▼ 12 %" in the primary colour for a fall; none when
+  `previousSpent` is null (incomplete history) or 0 or the change rounds to 0 %. Tapping a row opens Transactions for that category (or
+  uncategorised) over the whole window (first month's first day to the current month's last day).
+- **Empty state.** "Statistics appear after your first full month." when `months` has no complete month
+  (a brand-new household: `months: []`, or only partial months: the current one and a first month that
+  started after the 1st); not an error.
+- **FX.** `fxMissing` shows "Some foreign amounts couldn't be converted." under the categories, as on Home.
+- **Pull-to-refresh, loading, error, offline** follow Home: refetch on pull; spinner while loading; cached data
+  stays under an "Offline — showing data from <time>" / "Couldn't refresh" banner with Retry; without a cache
+  an "You're offline" / "Something went wrong" state with Retry. A network failure is retried once.
+
+## Transactions
+
+- **List.** `GET /transactions` with the server's cursor (`limit` 50), loaded as an infinite list on
+  end-reached and refreshed by pull-to-refresh. Grouped by booking date; headers read "Today",
+  "Yesterday" or "Mon, 9 Nov 2026", with "today" taken in Europe/Berlin. Each row shows counterparty,
+  category name (from `GET /categories`; "Split" for split transactions, "Uncategorized" otherwise) with the
+  category's icon (`CategoryIcon`, see "Categories and rules"; uncategorised and split rows use the grey `help` glyph),
+  a "Pending" badge for pending ones and the amount (negative in the neutral text colour, positive green).
+  Offline, cached pages stay visible under a banner with Retry.
+- **Detail.** Counterparty, purpose, account, booking date, category. Tapping a category sends
+  `PATCH /transactions/:id {categoryId}`; the "Always use this for <counterparty>" switch (only shown
+  when there is a counterparty) adds `applyToCounterparty: true`. The change is **optimistic** in every
+  cached transaction list and **rolls back** on any error (422, network, 5xx) with a snackbar message.
+  On success the `home` and `transactions` queries are invalidated (a rule can touch many rows and
+  moves budgets). Split transactions are shown read-only. The detail reads the transaction from the
+  cached list (there is no single-transaction endpoint).
+- **Search and filters.** A search field sits above the list. Text is debounced by 300 ms and sent as
+  `q` (trimmed) only once it has at least 2 characters. Chips filter by category (including
+  "Uncategorised", sent as `uncategorized=true`), by account and by date range (`from`/`to`, inclusive
+  booking dates; labelled "1 Nov – 30 Nov"). Each active chip has a remove control. Filters and `q` are part of
+  the query key. The category picker hides archived categories. **Text searches are never persisted to the
+  offline cache** (search text and matches are payees and purposes): they live under the
+  `transactions/search` query prefix, which the cache's `shouldDehydrateQuery` excludes. The **members list**
+  (`GET /households/members`, names and, for admins, emails) is persisted in the encrypted offline cache and wiped on
+  sign-out; unlike searches and rules it is not excluded.
+- **Search scan cap.** The server scans at most 5,000 rows per request. A page with no matches but a
+  `nextCursor` shows "Searched back to <dd.mm.yyyy>" (from `scannedUntil`) with a "Search further" button that
+  fetches the next page, instead of "No results"; the list does not auto-continue an empty scan. An
+  empty final page (no cursor) reads "No results". Matches already shown keep paging on end-reached; if a later page is empty but has a cursor, the same "Searched back to" / "Search further" footer is shown below them. Previous results stay visible while a new search or filter loads. Chips wrap onto several lines.
+- **Home drill-down.** Tapping a Home breakdown row opens the Transactions tab with route params
+  `categoryId` (or `uncategorized=1` for the uncategorised row) plus `from`/`to`, the displayed period's
+  first and last day in Europe/Berlin. The screen applies them as chips (replacing earlier category and
+  date filters, keeping the account filter); a `n` param (timestamp) makes repeating the same drill-down re-apply it. The detail screen finds a transaction in any cached list (plain, filtered or search), so search hits open and recategorize.
+  The drill-down lists transactions whose **own** category matches (or is empty, for the uncategorised row) in the
+  period over the visible accounts. Split parts and the budget's rules (budget-counting accounts only, transfers and
+  uncategorised income excluded) are not applied, so the list can differ from the breakdown amount it was opened from.
+- **Accessibility.** Rows and fields wrap instead of truncating, so they stay usable at font scale 2.
+
+## Settings > Accounts
+
+Settings (More > Settings) lists "Accounts". `GET /accounts` shows every visible account (name, masked IBAN, balance).
+Only the user's own accounts (`isOwner`) have the switches "Private (only me)" (`visibility`
+`owner_only`/`household`) and "Counts toward budgets". Updates are not optimistic: the server derives
+`countsTowardBudgets` from visibility, so the screen shows the account the server returned. Accounts
+of other members only read "Shared by another member". A successful update invalidates `home` and
+`transactions`.
+
+## Connections and bank challenges
+
+- **List.** `GET /connectors`, shown as a Paper `List.Item` list with dividers (own connections first, then "Shared by
+  others"). Left: the bank avatar. Title: the connection's `displayName` (own connections only), else the bank name
+  (`bank` id: DKB, Comdirect, "Demo bank" for `fake`). Description: status and last sync (relative), plus the consent
+  expiry. Right: a status indicator (icon plus colour, with an accessibility label) and, for own connections, a 3-dot
+  `IconButton` that opens a Paper `Menu`. Other members' connections have no menu and read "Shared by another member".
+  Rows grow with the text (no truncation), so they stay usable at font scale 2. Pull-to-refresh is kept.
+- **Avatar fallback chain [call].** (1) The bank icon `GET /banks/:bank/icon`, loaded by an `Image` whose request carries the
+  session token as a header (read fresh from the store when the avatar mounts; the token is never put in the query
+  cache); (2) when that fails or the bank has no icon, a monogram `Avatar.Text` with the bank initials in the bank's brand
+  colours (unknown banks use the theme's primary container); (3) when there is no usable name, an `Avatar.Icon` `bank`.
+  Brand colours are used only for the monogram; everything else uses theme colours.
+- **Menu actions.** "Sync now" for status `ok` and `error` (`POST /connectors/:id/sync`; a user run may restore an errored
+  connector), "Reconnect" for `needs_attention` and `error` (`POST /connectors/:id/reconnect`), always "Rename" and
+  "Delete". `disabled` connections only offer Rename and Delete. Sync and reconnect are user-present: the server never
+  starts a bank dialog on its own.
+- **Add bank.** A Paper extended `FAB` "Add bank" at the bottom right, above the tab bar and the safe-area inset,
+  opens the add screen. There is no other add button.
+- **Rename.** A dialog with a text input (max 60 characters) prefilled with the current name; Save sends
+  `PATCH /connectors/:id {displayName}` (an empty input clears the name). The list is refetched.
+- **Delete.** A dialog with two full-width choices: "Remove connection, keep history" (`DELETE /connectors/:id?mode=keep`,
+  accounts and transactions stay and keep counting) and "Delete connection and all its data" (destructive styling; asks a
+  second confirmation before sending `mode=purge`). The keep choice says that connecting the bank again reuses the kept
+  accounts without duplicates. While a removal runs, dismissing the dialog (backdrop, back) is ignored. Both invalidate `connectors`, `home`, `transactions`, `accounts`
+  and `net-worth`.
+- **Add bank.** DKB or Comdirect (static list matching the server catalog), user id and PIN, and "Keep these
+  accounts private" (`accountDefaults.visibility: owner_only`), sent as `POST /connectors {type:'fints', config:{bank,userId,pin}}`.
+  "Demo bank" (`type:'fake'`) appears only if `GET /connectors/types` lists `fake`. The PIN field is secure text
+  entry with autofill, autocorrect and the context menu off. User id and PIN live only in component state: the
+  request is made directly (not through a mutation, so nothing is kept in React Query), and both fields are cleared
+  before the request is awaited, also when it fails. They are never logged or stored.
+- **Challenge hand-off.** The challenge payload (message, photoTAN image) is kept in an in-memory store, not the
+  query cache or MMKV. If it is missing (app restarted), `GET /challenges/:id` decides: a finished challenge shows its
+  outcome, an open one offers "Cancel request".
+- **decoupled.** Message, spinner and "I've confirmed in my banking app". Polls `POST /challenges/:id/answer
+{kind:'decoupled'}` every `pollAfterMs`, at least 2 s; a 429 waits `Retry-After` (also after returning from
+  the background). Polling stops while the app is backgrounded (the user is in the bank's app) and resumes on return
+  as soon as the schedule allows. A timer on `expiresAt` checks `GET /challenges/:id` and shows the expired state; it
+  also fires right after returning from the background if the challenge lapsed meanwhile.
+- **code / image.** Numeric input and submit (`{kind:'code'|'image', code}`); a 400/422 shows "Invalid input" and
+  keeps the screen; the entered code is cleared after each submit. The image is a `data:` URI from `mimeType` and
+  `imageBase64`, tap to enlarge. **redirect** is not used by FinTS and renders "Not supported yet" with Cancel.
+- **Outcome.** `completed` shows a success screen then Connections (connectors, home, accounts and transactions are
+  refetched). `expired`/`cancelled` show the reason (`declined`, `too_many_invalid_answers`) and "Try again", which
+  reconnects. Cancel calls `DELETE /challenges/:id`.
+- **Accessibility.** The screen scrolls and buttons wrap (Paper's Button truncates labels to one line, so the
+  challenge screen uses its own wrapping button), so it stays usable at font scale 2.
+
+## Budgets
+
+More has a "Budgets" entry (`piggy-bank-outline`, above Settings) that opens `more/budgets`. `GET /budgets`
+([budgets.md](budgets.md)). Editing is admin-only (as the routes are); members see a read-only list.
+
+- **List.** Each row shows the name, the period (Weekly/Monthly) and the budget amount. Admins get a "New budget"
+  FAB, tap a row to edit it and a delete icon with a confirm dialog (`DELETE /budgets/:id` archives). Members get no
+  FAB, no edit and no delete, plus the note "Only admins can change budgets". Load errors show a Retry.
+- **Admin check.** `useIsAdmin()` (`household/queries.ts`) reads the caller's row (`isSelf`) of
+  `GET /households/members`. It is `false` while unknown or when the lookup fails (e.g. 403), so the app falls back
+  to the read-only view and never surfaces a crash.
+- **Form** (`more/budgets/new`, `more/budgets/[id]`). Name (1-80), category chips (multi-select, at least one),
+  period (weekly/monthly) and amount. Only active spending categories are offered (no income, transfer or archived
+  ones); an archived category an existing budget still uses stays visible as an "(archived)" chip. `useCategories()`
+  (`budgets/queries.ts`) hides archived categories by default and is reused by other screens.
+- **Amount input.** German style, `.` thousands and `,` decimal (`1.234,56`, `12,5`, `500`). Only positive amounts
+  with at most the currency's decimals (`currencyExponent`) parse; anything else shows a field error and nothing is
+  sent. Parsing is string/bigint only (`parseMoneyInput`); the body carries `amount: { minor: '<digits>', currency }`.
+  The currency is that of the existing budgets, `EUR` when there are none.
+- **After a change** the `budgets` and `home` queries are invalidated; a 403 reads "Only admins can change budgets.".
+
+## Household and join link
+
+More has a "Household" entry (`account-group-outline`, after Budgets, above Settings) that opens `more/household`.
+
+- **Members.** `GET /households/members` lists every member with role and a "You" marker (plus "Disabled" and,
+  for admins, the email). If the lookup fails (network, 5xx) the screen shows an error with Retry instead of
+  silently falling back to the member view; `useIsAdmin()` (budgets) keeps its "false when unknown" behaviour.
+- **Members see** the list and the note "Only admins can invite people"; no invite action, no invites request.
+- **Admins** also get "Invite someone" and "Pending invites" (`GET /households/invites`: role and expiry, never a
+  token) with a revoke action per row (`DELETE /households/invites/:id`). A 409 shows "This invite was already
+  used" and, like every revoke outcome, refetches the list (and the members, since a used invite is a new member);
+  404 reads "This invite no longer exists".
+- **Invite sheet.** Role picker (member/admin), then `POST /households/invites`. The result is shown as a QR
+  code and shared via the system share sheet. Both carry the join link
+  `budgedino://register?server=<serverUrl>&invite=<token>` (`buildJoinLink`, both values URL-encoded; the server
+  is the app's configured server URL). The token lives only in the sheet's component state: the call bypasses
+  `useMutation` so it never enters the TanStack Query cache, it is never persisted (MMKV, SecureStore) or logged,
+  and it is dropped when the sheet closes (the sheet is unmounted). The sheet says the code is shown only once.
+- **Register via join link.** `register` reads `server` and `invite` from the route params. The invite prefills
+  the token field. The server goes through `validateServerUrl` (https only unless the development variant allows
+  cleartext) and is held in component state only: opening a link never changes the stored server. A valid server
+  shows "Joining a household on <host>" above the form, so a link with a foreign host is visible before a password
+  is typed. On Continue the app first runs the same `health()` check as the server screen against the link's
+  server and registers against it. Only after registration succeeded is the server stored as the session server
+  (before opening the TOTP step, which reads it); any failure (health, invite, network) stores nothing. While signed in, the link is refused ("Sign out first to join another household.") and the session is
+  untouched, since changing the server would send the session token elsewhere. A rejected server shows the usual
+  validation message, stores nothing and shows no banner. Without link params nothing changes.
+- **Invite sheet and revoke.** The sheet scrolls (font scale 2); revoking an invite asks for confirmation first.
+
+## Categories and rules
+
+More has a "Categories & rules" entry (`tag-multiple-outline`, after Household, above Settings; final order Net worth,
+Budgets, Household, Categories & rules, Settings, About) that opens `more/categories`. Routes: `POST /categories`,
+`PATCH /categories/:id`, `GET /rules`, `DELETE /rules/:id` ([categorization.md](categorization.md)).
+
+- **List.** Active categories grouped by `group` (ungrouped ones under "No group", last), sorted by name; income
+  categories are marked. Archived ones sit in a collapsed "Archived (n)" section (`useCategories({ includeArchived })`).
+  A "Rules" row opens `more/categories/rules`.
+- **Admins** get "Add category" (name 1-40, optional group, income switch), an edit action (rename / regroup; an empty
+  group is sent as `group: ''` to clear it) and archive / unarchive per row, in a scrollable dialog. A 409 reads
+  "A category with this name exists."; archived categories still reserve their name, so when the clash is an
+  archived one the dialog offers "Unarchive <name>". The Transfer category shows no actions (the server answers 422).
+- **Members** see the list read-only ("Only admins can change categories."). If the members lookup fails the screen
+  shows an error with Retry instead of a silent member view.
+- **Icons and colours.** Every category has a MaterialCommunityIcons glyph and a palette colour (`CATEGORY_ICONS`,
+  `CATEGORY_COLORS` in `@budgedino/shared`; the server stores keys only). `CategoryIcon` draws a circle (28 / 36 / 44 dp)
+  filled with the colour at 13 % opacity and the glyph in the colour at 55 % of the size; it is decorative and hidden
+  from screen readers (the name is always beside it). `useCategoryStyleById()` resolves an id from the cached
+  categories query (archived ones included): stored values, else the deterministic fallback (`tag` + a colour derived
+  from the id); `null` (uncategorised) is grey `help`. Colours follow the resolved theme (`useCategoryColor`).
+  Icons appear in the category list, transaction rows, the transaction detail category picker and the category filter
+  menu. Admins pick the icon (6-column grid of 44 dp targets, labelled with the glyph name) and colour (18 swatches
+  that wrap) in the add/edit dialog; the selected item has a 2 dp primary outline. New categories send `icon` and
+  `color` (default `tag` / slate); editing sends only what changed.
+- **After a change** the `categories`, `budgets`, `home` and `transactions` queries are invalidated.
+- **Rules.** `more/categories/rules` lists the caller's own rules as "<counterparty text or IBAN> → <category>"
+  (archived categories resolve too) with a delete action behind a confirm dialog that says past transactions keep
+  their category. Match values are sensitive: never logged, and the `rules` query is excluded from the offline cache
+  (`shouldDehydrateQuery`, like text searches).
+
+## Net worth
+
+More has a "Net worth" entry (`chart-line`) that opens `more/net-worth`. `GET /net-worth` ([net-worth.md](net-worth.md)).
+
+- **Layout.** A large total in the base currency, then the accounts grouped by kind (Checking, Savings, Credit cards,
+  Depots, Other) with the group total. Each account shows its name and balance; when its currency differs from the base
+  currency the converted value is shown too. An account without a balance reads "No balance yet"; one whose connection was
+  removed reads "Disconnected". A "some foreign amounts couldn't be converted" note appears when `fxMissing`.
+- **States.** Pull-to-refresh refetches. Offline, the cached data stays under an "Offline - showing data from <time>" banner
+  with Retry (other failures say "Couldn't refresh"); without a cache an offline empty state with Retry. No accounts: the
+  empty state "Connect a bank to see your net worth". A small "History graph coming soon" hint marks P5.
+- **Accessibility.** Text wraps and the screen scrolls, so it stays usable at font scale 2.
+
+## Notifications, app lock and screen protection
+
+- **Notifications are local only** (no FCM, no Expo push). One function, `pollNotifications`, serves both the
+  background task `budgedino-notifications` (expo-background-task, minimum interval 15 min) and the foreground
+  poll (on entering the signed-in app and on every return to the foreground). It fetches `GET /notifications`,
+  shows one local notification per item (title "BudgeDino", body = the server's body, Android channel "Budget &
+  connections", lock-screen visibility private; the server id is the notification identifier, so a re-delivery
+  replaces rather than duplicates), then `POST /notifications/ack` with exactly the ids that were shown. An
+  in-flight guard makes a second call join the running poll, so nothing is shown or acked twice. Signed out
+  (no server URL or token) it does nothing; a 401 signs the user out like everywhere else. Bodies are never
+  logged. The app asks for `POST_NOTIFICATIONS` once (Settings shows an "Allow" row while it is undecided).
+- **App lock** wraps the authenticated tree only. On a cold start (not right after a password sign-in in this
+  process) and after more than 60 s in the background it requires biometric authentication with the device
+  credential as fallback (`authenticateAsync`). Failure or cancel keeps the app locked with an "Unlock" button and a "Sign out" escape (wipes everything, so a broken biometric can never lock the user out for good). When the app goes to the background an opaque cover appears at once (no prompt) so the recents/resume frame never shows content; a return within 60 s removes it, later (or after the clock was set back) locks;
+  children are not mounted before the first unlock and are hidden while re-locked. If the device has neither a
+  biometric nor a screen lock enrolled (`getEnrolledLevelAsync` is `NONE`), a one-time notice explains that the
+  app lock needs a screen lock and the user is let in. The preference "App lock" (default on) is stored in MMKV
+  prefs; turning it off requires passing the lock once (authentication is skipped only when the device has no screen lock).
+  On a cold start the opaque lock screen shows at once (no content), but the system prompt is started only once
+  the animated splash is finished (signal above), so the BiometricPrompt never covers the animation; if the
+  splash was skipped the prompt starts immediately. The Unlock button works meanwhile, and the deferred prompt
+  then does not run again. Resume-from-background authentication is unchanged (the splash is cold start only).
+- **Screen protection.** Authenticated screens call `preventScreenCaptureAsync`, so screenshots and the recents
+  thumbnail are blocked; the login screens are not protected, except the TOTP setup screen (it shows the
+  provisioning secret), which is. The dev-only E2E build (development variant, `__DEV__`, started with `BUDGEDINO_E2E=1`;
+  the same switch that skips the app lock) skips screen protection, so its screenshots can be reviewed from the dev
+  machine; release builds and normal dev builds are always protected.
+- **Session-expired notice.** `expireSession` (also from the headless background task) persists an
+  `expiredNotice` flag in the MMKV prefs; the login screen shows "Session expired, please sign in again" once and
+  clears it. A user sign-out never sets it. Sign-out also clears the in-memory challenge and pending-registration
+  hand-overs.
+- **More and Settings.** The last tab, More, is a list with one entry, Settings (room for more later). Routes: `/more`, `/more/settings`, and under it `appearance`, `security`, `devices`, `accounts`, `server`; each has a back header and wraps at font scale 2. Settings lists Appearance, Security, Devices, Accounts, Server and, at the bottom, Sign out (with confirmation). **Security** holds the lock toggle and the notification permission row. **Devices** lists signed-in devices (`GET /auth/sessions`; "Sign out" on
+  another device calls `DELETE /auth/sessions/:id`). **Server** shows the server URL. On sign-out the periodic background task is unregistered and delivered notifications are dismissed (best effort). A signed-out start (hydrate finds no session) wipes the persisted cache and the query client before anything renders, so data left behind by an earlier session is never shown to the next user. Sign out first revokes this
+  device's session on the server (best effort; network errors are ignored), then wipes the token, the MMKV cache
+  and the query cache through the session store. A 401 sign-out stays local.
+
+**Demo bank config.** "Demo bank" sends `{ type: 'fake', config: { scenario: 'decoupled' } }`: connecting
+returns a `decoupled` challenge that the user confirms on the challenge screen (this also drives the Maestro
+flow `connect-demo-bank.yaml`). Dev loop and seed: [self-hosting.md](self-hosting.md#local-development-loop-implemented).
+
+## Appearance
+
+- Settings > Appearance offers System / Light / Dark (radio list, wraps at large font
+  scales). Default: System, which follows the OS colour scheme.
+- The choice is stored in the non-secret MMKV prefs (`budgedino-prefs`, key `themePreference`; absent
+  means System) and applies immediately, no restart. It survives sign-out.
+- One resolved theme drives everything: Paper, the React Navigation theme (screens, tab bar, headers,
+  derived from the Paper theme via `ThemeProvider`), the status bar (light icons on dark), pull-to-refresh
+  colours, the auth screens and the lock cover. Warning/success colours follow it too.
+- `Appearance.setColorScheme('light' | 'dark' | 'auto')` is called on every change and at start, so
+  native parts (keyboard, dialogs) match; System maps to `'auto'`.
+- Dark palette: near-black green-tinted background, slightly lighter surfaces and cards, one accent;
+  text/background contrast is at least 7:1.
+- Text colours are always explicit theme colours: never `color: undefined` in a style (it overrides
+  Paper's colour with the native default, black on Android).
+- The Android app theme opts out of OS force-dark (`android:forceDarkAllowed=false`, config plugin
+  `plugins/with-no-force-dark.js`, applied on every prebuild), so Samsung One UI cannot recolour the app.

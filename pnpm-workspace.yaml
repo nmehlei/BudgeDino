@@ -1,0 +1,13 @@
+packages:
+  - src/*
+
+# Explicit install-script decisions (pnpm 12) so installs are deterministic.
+allowBuilds:
+  esbuild: true
+  protobufjs: false
+  ssh2: false
+  cpu-features: false
+  '@parcel/watcher': false # Metro file watching uses prebuilt binaries; no node-gyp build
+
+patchedDependencies:
+  lib-fints@1.5.3: patches/lib-fints@1.5.3.patch

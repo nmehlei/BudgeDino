@@ -1,0 +1,1 @@
+ALTER TABLE "members" ADD COLUMN "totp_last_step" integer;

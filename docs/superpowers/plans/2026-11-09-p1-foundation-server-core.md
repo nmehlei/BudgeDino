@@ -40,17 +40,19 @@
 ### Task 1: Monorepo, tooling, CI and spec-driven documentation
 
 **Files:**
+
 - Create: `package.json`, `pnpm-workspace.yaml`, `tsconfig.base.json`, `eslint.config.js`, `.prettierrc`, `.editorconfig`, `.gitignore`, `.nvmrc`, `vitest.workspace.ts`, `GitVersion.yml`
 - Create: `src/shared/package.json`, `src/shared/tsconfig.json`, `src/shared/src/index.ts`
 - Create: `src/server/package.json`, `src/server/tsconfig.json`, `src/server/src/index.ts`
 - Create: `.github/workflows/ci.yml`, `ci/check.sh`
-- Create: `AGENTS.md`, `CLAUDE.md`, `README.md`, `LICENSE` (license per owner decision)
+- Create: `AGENTS.md`, `CLAUDE.md`, `README.md`, `LICENSE` (AGPL-3.0, full official text; `"license": "AGPL-3.0-only"` in every package.json — owner decision 2026-11-09; record in `docs/adr/0008-agpl-license.md`)
 - Create: `docs/specs/household-and-access.md`, `docs/specs/sync-and-connectors.md`, `docs/specs/categorization.md`, `docs/specs/budgets.md`, `docs/specs/net-worth.md`, `docs/specs/security.md`, `docs/specs/self-hosting.md`, `docs/specs/README.md`
 - Create: `docs/adr/0001-typescript-throughout.md`, `0002-enable-banking-byo-key.md`, `0003-unofficial-broker-connectors.md`, `0004-envelope-encryption.md`, `0005-server-fetch-app-challenges.md`, `0006-no-push-service-v1.md`, `0007-shared-nme-pgsql.md`
 - Create: `docs/architecture.md` (Mermaid diagram: app ↔ API ↔ Postgres; jobs; connectors; master key source)
 - Test: `tests/smoke.test.ts`
 
 **Interfaces:**
+
 - Produces: workspace packages `@budgedino/shared`, `@budgedino/server`; root scripts `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:integration`.
 
 - [ ] **Step 1:** Write `tests/smoke.test.ts` asserting `import { VERSION } from '@budgedino/shared'` is a non-empty string.
@@ -64,10 +66,12 @@
 ### Task 2: Money and budget periods (`@budgedino/shared`)
 
 **Files:**
+
 - Create: `src/shared/src/money.ts`, `src/shared/src/period.ts`
 - Test: `tests/shared/money.test.ts`, `tests/shared/period.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `type CurrencyCode = string` (validated ISO 4217, 3 uppercase letters)
   - `interface Money { minor: bigint; currency: CurrencyCode }`
@@ -98,10 +102,12 @@
 ### Task 3: Envelope encryption (`src/server/src/crypto`)
 
 **Files:**
+
 - Create: `src/server/src/crypto/master-key.ts`, `src/server/src/crypto/envelope.ts`, `src/server/src/crypto/index.ts`
 - Test: `tests/server/crypto/envelope.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `loadMasterKey(env: NodeJS.ProcessEnv): MasterKey` — reads `BUDGEDINO_MASTER_KEY` (base64, 32 bytes) or `BUDGEDINO_MASTER_KEY_FILE`; throws `MasterKeyError` with a message that never includes key material.
   - `interface MasterKey { id: string /* first 8 hex of SHA-256 */; }` (key bytes in a private field)
@@ -118,12 +124,14 @@
 ### Task 4: Database, migrations, encrypted repositories, test harness
 
 **Files:**
+
 - Create: `src/server/src/db/schema.ts`, `src/server/src/db/client.ts`, `src/server/src/db/migrate.ts`, `src/server/drizzle.config.ts`, `src/server/drizzle/` (generated)
 - Create: `src/server/src/households/keyring.ts`
 - Create: `tests/support/postgres.ts` (Testcontainers global setup, per-test schema reset), `tests/support/factories.ts`
 - Test: `tests/server/db/at-rest.int.test.ts`, `tests/server/households/keyring.int.test.ts`
 
 **Interfaces:**
+
 - Consumes: Task 3 crypto.
 - Produces tables (UUID v7 ids; `bytea` for encrypted columns, suffixed `_enc`; blind indexes suffixed `_bidx`):
   - `households(id, name, timezone, base_currency, created_at)`
@@ -154,10 +162,12 @@
 ### Task 5: Logging, telemetry and redaction
 
 **Files:**
+
 - Create: `src/server/src/observability/logger.ts`, `src/server/src/observability/otel.ts`, `src/server/src/observability/redact.ts`
 - Test: `tests/server/observability/redact.test.ts`
 
 **Interfaces:**
+
 - Produces: `createLogger(): Logger` (pino, JSON, includes `trace_id`/`span_id` from active span); `redact(value: unknown): unknown` (deep; drops keys matching `/amount|iban|counterparty|purpose|payee|password|pin|tan|token|secret|key|balance|email/i`, and any string matching an IBAN regex); `startTelemetry(env)` — no-op unless `OTEL_EXPORTER_OTLP_ENDPOINT` set.
 
 - [ ] **Step 1:** Tests: logger output for `{ amount: 5, nested: { iban: 'DE89370400440532013000' }, note: 'paid DE89370400440532013000' }` contains neither `5`-valued amount field nor the IBAN; log lines include `trace_id` inside an active span; Fastify request logs omit bodies and `authorization` header.
@@ -167,6 +177,7 @@
 ### Task 6: Household bootstrap, invites, authentication, sessions
 
 **Files:**
+
 - Create: `src/server/src/app.ts` (`buildApp(deps): FastifyInstance`), `src/server/src/cli.ts` (`budgedino` bin)
 - Create: `src/server/src/auth/{passwords.ts,totp.ts,sessions.ts,routes.ts,guard.ts,rate-limit.ts}`
 - Create: `src/server/src/households/{bootstrap.ts,invites.ts,routes.ts}`
@@ -174,6 +185,7 @@
 - Test: `tests/server/auth/auth.int.test.ts`, `tests/server/cli.int.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - CLI: `budgedino init-key` (prints a new master key once, asks the operator to type its last 6 chars to confirm a saved copy), `budgedino bootstrap --household <name> --timezone Europe/Berlin` (creates household + data key + seeds default categories from Task 11's list + prints one-time admin invite token), `budgedino invite --household <id> --role member`, `budgedino rotate-master-key`.
   - HTTP (all under `/api/v1`, zod schemas in `@budgedino/shared/api`):
@@ -192,10 +204,12 @@
 ### Task 7: Visibility enforcement and accounts API
 
 **Files:**
+
 - Create: `src/server/src/access/visibility.ts`, `src/server/src/accounts/{repository.ts,routes.ts}`
 - Test: `tests/server/access/visibility.int.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `visibleAccountIds(ctx: AuthContext): Promise<string[]>` — accounts where `visibility='household'` in the household, or `owner_member_id = ctx.memberId`. All reads of accounts, transactions, splits, balances and per-account notifications go through this.
   - `GET /accounts`, `PATCH /accounts/:id` `{ visibility?, countsTowardBudgets? }` (owner only; changing visibility to `owner_only` sets `countsTowardBudgets=false` unless explicitly passed).
@@ -208,11 +222,13 @@
 ### Task 8: Connector interface, challenge model, fake connector
 
 **Files:**
+
 - Create: `src/server/src/connectors/types.ts`, `src/server/src/connectors/registry.ts`, `src/server/src/connectors/fake/fake-connector.ts`
 - Create: `src/shared/src/api/challenges.ts` (zod schemas shared with the app)
 - Test: `tests/server/connectors/fake-connector.test.ts`, `tests/server/connectors/contract.ts` (reusable contract suite)
 
 **Interfaces:**
+
 - Produces:
   ```ts
   type ChallengeKind = 'redirect' | 'decoupled' | 'code' | 'image';
@@ -223,31 +239,65 @@
     | { kind: 'image'; message: string; imagePngBase64: string };
   type ChallengeAnswer =
     | { kind: 'redirect'; callbackUrl: string }
-    | { kind: 'decoupled' }            // "I confirmed", server polls
+    | { kind: 'decoupled' } // "I confirmed", server polls
     | { kind: 'code' | 'image'; code: string };
 
-  interface RateLimitPolicy { maxUnattendedPerDay: number | null; defaultSchedule: { cron: string } | { times: string[] } }
+  interface RateLimitPolicy {
+    maxUnattendedPerDay: number | null;
+    defaultSchedule: { cron: string } | { times: string[] };
+  }
 
-  interface ConnectorContext { now(): Date; userPresent: boolean; psuIp?: string; logger: Logger }
+  interface ConnectorContext {
+    now(): Date;
+    userPresent: boolean;
+    psuIp?: string;
+    logger: Logger;
+  }
 
   type AuthStep =
     | { done: true; state: ConnectorState; consentExpiresAt?: Date }
     | { done: false; challenge: Challenge; dialog: DialogState };
 
   interface Connector {
-    type: string;                         // 'fake', 'fints', 'enablebanking', ...
+    type: string; // 'fake', 'fints', 'enablebanking', ...
     experimental: boolean;
     challengeKinds: ChallengeKind[];
     rateLimit: RateLimitPolicy;
     startAuth(config: ConnectorConfig, ctx: ConnectorContext): Promise<AuthStep>;
-    continueAuth(dialog: DialogState, answer: ChallengeAnswer, ctx: ConnectorContext): Promise<AuthStep>;
+    continueAuth(
+      dialog: DialogState,
+      answer: ChallengeAnswer,
+      ctx: ConnectorContext,
+    ): Promise<AuthStep>;
     listAccounts(state: ConnectorState, ctx: ConnectorContext): Promise<ProviderAccount[]>;
-    fetchTransactions(state: ConnectorState, accountRef: string, since: Date | null, ctx: ConnectorContext): Promise<FetchResult>;
+    fetchTransactions(
+      state: ConnectorState,
+      accountRef: string,
+      since: Date | null,
+      ctx: ConnectorContext,
+    ): Promise<FetchResult>;
   }
-  type FetchResult = { ok: true; transactions: ProviderTransaction[]; balance?: Money; state: ConnectorState }
-                   | { ok: false; reason: 'needs_attention' | 'rate_limited' | 'temporary' ; retryAfter?: Date };
-  interface ProviderTransaction { providerId: string | null; status: 'pending'|'booked'; bookingDate: string; valueDate?: string; amount: Money; counterparty?: string; counterpartyIban?: string; purpose?: string; mcc?: string }
-  interface ProviderAccount { ref: string; name: string; iban?: string; kind: AccountKind; currency: CurrencyCode }
+  type FetchResult =
+    | { ok: true; transactions: ProviderTransaction[]; balance?: Money; state: ConnectorState }
+    | { ok: false; reason: 'needs_attention' | 'rate_limited' | 'temporary'; retryAfter?: Date };
+  interface ProviderTransaction {
+    providerId: string | null;
+    status: 'pending' | 'booked';
+    bookingDate: string;
+    valueDate?: string;
+    amount: Money;
+    counterparty?: string;
+    counterpartyIban?: string;
+    purpose?: string;
+    mcc?: string;
+  }
+  interface ProviderAccount {
+    ref: string;
+    name: string;
+    iban?: string;
+    kind: AccountKind;
+    currency: CurrencyCode;
+  }
   ```
   `ConnectorConfig`, `ConnectorState`, `DialogState` are opaque JSON stored encrypted. `registry.get(type): Connector`.
 - `FakeConnector`: scripted via its config (`{ scenario: 'happy' | 'decoupled' | 'code' | 'redirect' | 'expired-consent' | 'flaky', transactions: [...] }`), deterministic, used by all later tests.
@@ -259,10 +309,12 @@
 ### Task 9: Sync engine and scheduler
 
 **Files:**
+
 - Create: `src/server/src/sync/{jobs.ts,scheduler.ts,ingest.ts,rate-guard.ts,routes.ts}`
 - Test: `tests/server/sync/ingest.int.test.ts`, `tests/server/sync/scheduler.test.ts`, `tests/server/sync/rate-guard.int.test.ts`
 
 **Interfaces:**
+
 - Consumes: Task 8 `Connector`, Task 4 schema, Task 3 `blindIndex`, Task 11 `categorize` (call through an injected `onIngested(txIds)` hook so this task doesn't depend on Task 11).
 - Produces:
   - `ingest(accountId, txs: ProviderTransaction[]): Promise<{ inserted: string[]; updated: string[] }>` — dedup key = `blindIndex(dk,'tx', providerId ?? contentHash)`, where `contentHash = sha256(bookingDate|amount|currency|counterpartyIban|purpose)`. Pending→booked reconciliation: a booked tx without matching dedup key matches an existing pending tx on same account with same counterparty blind index, |Δamount| ≤ 25% and booking within 7 days of the pending date; it updates that row (keeps id, category).
@@ -276,10 +328,12 @@
 ### Task 10: Connector connect/reconnect and challenge API
 
 **Files:**
+
 - Create: `src/server/src/connectors/{routes.ts,challenge-service.ts}`
 - Test: `tests/server/connectors/challenge.int.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `POST /connectors` `{ type, config }` → `{ connectorId, challenge?: ChallengeView }` (creates in `needs_attention` until auth done)
   - `POST /connectors/:id/reconnect` → `{ challenge?: ChallengeView }` (only the owner; only user-initiated — no server-side caller exists)
@@ -295,10 +349,12 @@
 ### Task 11: Categorization and transfer detection
 
 **Files:**
+
 - Create: `src/server/src/categorization/{engine.ts,rules.ts,transfers.ts,routes.ts}` (`defaults.ts` exists from Task 6)
 - Test: `tests/server/categorization/engine.test.ts`, `tests/server/categorization/transfers.int.test.ts`, `tests/server/categorization/routes.int.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `DEFAULT_CATEGORIES`: Groceries, Eating out, Transport, Housing, Utilities, Insurance, Subscriptions, Shopping, Health, Kids, Leisure, Travel, Gifts & Donations, Fees, Cash, Savings & Investments, Income (is_income), Transfer (is_transfer), Uncategorized.
   - `interface RuleMatch { counterpartyContains?: string; counterpartyIban?: string; purposeContains?: string; amountMinMinor?: string; amountMaxMinor?: string; accountId?: string }` (case-insensitive, all present fields must match)
@@ -313,10 +369,12 @@
 ### Task 12: Budgets, FX, home summary, notifications polling
 
 **Files:**
+
 - Create: `src/server/src/budgets/{service.ts,routes.ts,alerts.ts}`, `src/server/src/fx/{ecb.ts,service.ts}`, `src/server/src/home/routes.ts`, `src/server/src/notifications/routes.ts`
 - Test: `tests/server/budgets/service.int.test.ts`, `tests/server/fx/ecb.test.ts` (fixture XML), `tests/server/home/home.int.test.ts`
 
 **Interfaces:**
+
 - Consumes: Task 2 `periodFor`, Task 7 `visibleAccountIds`, Task 11 categories.
 - Produces:
   - `spentFor(budget, period): Promise<Money>` — sum over booked + pending transactions (and splits) in `budget.category_ids`, accounts with `counts_toward_budgets=true` (all such household accounts, regardless of viewer), excluding `transfer_group_id` not null; spending is the negated sum, so refunds reduce it (may go below zero → clamp display at 0, keep raw value). Foreign currency converted to household base currency via `fx.convert(money, bookingDate)` (ECB rate of that date or the latest earlier).
@@ -332,11 +390,13 @@
 ### Task 13: End-to-end API scenario and docs sync
 
 **Files:**
+
 - Create: `tests/e2e/household-slice.e2e.test.ts`, `src/server/src/main.ts` (production entry: telemetry → migrate → app → pg-boss)
 - Modify: `docs/specs/*.md` (any deviation found during implementation), `README.md` (dev setup), `docs/architecture.md`
 - Modify: `.github/workflows/ci.yml` (add e2e project)
 
 **Interfaces:**
+
 - Consumes: everything above.
 
 - [ ] **Step 1:** Write the e2e test, running `main.ts` against a Testcontainers Postgres with only `FakeConnector` registered: CLI `init-key` + `bootstrap` → admin registers (TOTP via `otplib`) → invites Jess → Jess registers → admin creates Groceries €500 monthly budget → admin connects FakeConnector `decoupled` scenario (answer challenge) → Jess connects her own FakeConnector `code` scenario and marks it `owner_only` → `sync` → `GET /home` for admin shows Groceries `spent 340` and a breakdown without Jess's hidden transactions; admin `GET /notifications` contains a `budget_threshold` once ratio ≥ 0.8; raw DB dump contains no canary strings.

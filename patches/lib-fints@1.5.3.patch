@@ -1,0 +1,81 @@
+diff --git a/dist/camtParser.js b/dist/camtParser.js
+index 0dc004208e765f6ea5d017ab443df886020f6bc4..1304b2d76b053d41875900e4f6ab2f7a5ae057ef 100644
+--- a/dist/camtParser.js
++++ b/dist/camtParser.js
+@@ -310,6 +310,9 @@ export class CamtParser {
+             return {
+                 valueDate: parsedValueDate,
+                 entryDate,
++                // Patch: the bank's written dates, exact (no time zone guessing).
++                bookingDateRaw: bookingDate || undefined,
++                valueDateRaw: valueDate || bookingDate || undefined,
+                 fundsCode: bkTxCd.domainCode || creditDebitInd || '',
+                 amount,
+                 transactionType: bkTxCd.familyCode || '',
+diff --git a/dist/client.js b/dist/client.js
+index 180aef1b5543e186d3b15e1c8eda83471ca3336f..07b2d5f1e4bc91f08202ce8fb382d834ee689525 100644
+--- a/dist/client.js
++++ b/dist/client.js
+@@ -259,7 +259,8 @@ export class FinTSClient {
+         else {
+             const lastResponse = [...responses.values()].at(-1);
+             if (lastResponse) {
+-                return lastResponse;
++                // Patch: the order never ran (the dialog init was rejected); tell the caller.
++                return Object.assign(lastResponse, { initFailed: true });
+             }
+             else {
+                 throw new Error(`No response received for customer interaction with segment ID '${interaction.segId}'`);
+diff --git a/dist/httpClient.js b/dist/httpClient.js
+index 0d87f59aa8a0cec564a8d062d7c0327701e00192..b79fe8ed15f1632893d7a9549408e61f2242af23 100644
+--- a/dist/httpClient.js
++++ b/dist/httpClient.js
+@@ -45,8 +45,6 @@ export class HttpClient {
+                 return responseMessage;
+             }
+             catch (error) {
+-                console.error('Error decoding response message:', error);
+-                console.error('Response Message Content:\n', responseText.split("'").join('\n'));
+                 throw error;
+             }
+         }
+diff --git a/dist/interactions/portfolioInteraction.js b/dist/interactions/portfolioInteraction.js
+index ad209fd6853501c871e03ed9a3d9e3dc67ff27ca..8361a0694469678bdc0d0414aa436ba9288895aa 100644
+--- a/dist/interactions/portfolioInteraction.js
++++ b/dist/interactions/portfolioInteraction.js
+@@ -56,8 +56,8 @@ export class PortfolioInteraction extends CustomerOrderInteraction {
+                 clientResponse.portfolioStatement = parser.parse();
+             }
+             catch (error) {
+-                console.warn('Failed to parse MT535 portfolio statement:', error);
+                 // Fallback: provide raw data if parsing fails
++                clientResponse.parseFailed = true;
+                 clientResponse.rawMT535Data = portfolioStatement;
+             }
+         }
+diff --git a/dist/interactions/statementInteractionCAMT.js b/dist/interactions/statementInteractionCAMT.js
+index d6874b633ef0ba69c4bcd72491d8bbfb4aae2151..70fea22ea7ef6a7294bb4c0602ab92f7c32b1573 100644
+--- a/dist/interactions/statementInteractionCAMT.js
++++ b/dist/interactions/statementInteractionCAMT.js
+@@ -64,7 +64,7 @@ export class StatementInteractionCAMT extends CustomerOrderInteraction {
+                 clientResponse.statements = allStatements;
+             }
+             catch (error) {
+-                console.warn('CAMT parsing failed:', error);
++                clientResponse.parseFailed = true;
+                 clientResponse.statements = [];
+             }
+         }
+diff --git a/dist/interactions/statementInteractionMT940.js b/dist/interactions/statementInteractionMT940.js
+index a184982fcf5d13a256e65e7ddf0ef5b988a42965..cb3341e536197b0fe6b3cb1a09d0dccd1792e239 100644
+--- a/dist/interactions/statementInteractionMT940.js
++++ b/dist/interactions/statementInteractionMT940.js
+@@ -44,7 +44,7 @@ export class StatementInteractionMT940 extends CustomerOrderInteraction {
+                 clientResponse.statements = parser.parse();
+             }
+             catch (error) {
+-                console.warn('MT940 parsing failed:', error);
++                clientResponse.parseFailed = true;
+                 clientResponse.statements = [];
+             }
+         }
