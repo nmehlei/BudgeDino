@@ -26,6 +26,7 @@ import { budgetRoutes } from './budgets/routes.js';
 import { evaluateAlerts } from './budgets/alerts.js';
 import { healthRoutes } from './health/routes.js';
 import { homeRoutes } from './home/routes.js';
+import { statisticsRoutes } from './statistics/routes.js';
 import { notificationRoutes } from './notifications/routes.js';
 import { accountRoutes } from './accounts/routes.js';
 import { authRoutes } from './auth/routes.js';
@@ -217,6 +218,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       connectorRoutes(api);
       budgetRoutes(api);
       homeRoutes(api);
+      statisticsRoutes(api);
       netWorthRoutes(api);
       notificationRoutes(api);
     },

@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray, isNull, lt } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import {
   money,
   periodFor,
@@ -213,13 +213,13 @@ export function periodView(p: Period) {
 // ---------------------------------------------------------------------------------------------------
 // Spending
 
-interface SpendEntry {
+export interface SpendEntry {
   categoryId: string | null;
   amount: Money;
   bookingDate: string;
 }
 
-interface RowFilter {
+export interface RowFilter {
   householdId: string;
   from: string;
   to: string;
@@ -233,7 +233,11 @@ interface RowFilter {
  * Booked + pending transactions of a period, without transfer pairs, expanded to their category parts:
  * a transaction with splits contributes only its split parts (the parent category is ignored).
  */
-async function loadSpendEntries(db: Db, dk: DataKey, filter: RowFilter): Promise<SpendEntry[]> {
+export async function loadSpendEntries(
+  db: Db,
+  dk: DataKey,
+  filter: RowFilter,
+): Promise<SpendEntry[]> {
   if (filter.accountIds && filter.accountIds.length === 0) return [];
   const conds = [
     eq(accounts.householdId, filter.householdId),
@@ -292,7 +296,7 @@ async function loadSpendEntries(db: Db, dk: DataKey, filter: RowFilter): Promise
 }
 
 /** Sums entries in `base`, negated (spending positive); entries without an FX rate are left out and flagged. */
-async function spentOf(
+export async function spentOf(
   entries: readonly SpendEntry[],
   base: string,
   fx: FxConverter,
@@ -308,6 +312,45 @@ async function spentOf(
     }
   }
   return { total, fxMissing };
+}
+
+type CategoryRow = typeof categories.$inferSelect;
+
+export interface ClassifiedSpend {
+  /** Spending entries by category id (null: uncategorized); transfers and income are not in here. */
+  spending: Map<string | null, SpendEntry[]>;
+  incomeEntries: SpendEntry[];
+  /** Positive amounts without a category (deposits not yet classified). */
+  uncategorizedIncomeEntries: SpendEntry[];
+}
+
+/**
+ * The one rule set that sorts entries into spending, income and uncategorized income: transfer categories
+ * are skipped, income categories and uncategorized positive amounts are income, everything else is spending.
+ */
+export function classifySpend(
+  entries: readonly SpendEntry[],
+  cats: readonly CategoryRow[],
+): ClassifiedSpend {
+  const byId = new Map(cats.map((c) => [c.id, c]));
+  const spending = new Map<string | null, SpendEntry[]>();
+  const incomeEntries: SpendEntry[] = [];
+  const uncategorizedIncomeEntries: SpendEntry[] = [];
+  for (const e of entries) {
+    const cat = e.categoryId === null ? undefined : byId.get(e.categoryId);
+    if (cat?.isTransfer) continue;
+    if (cat?.isIncome) {
+      incomeEntries.push(e);
+      continue;
+    }
+    if (!cat && e.amount.minor > 0n) {
+      uncategorizedIncomeEntries.push(e);
+      continue;
+    }
+    const key = cat ? cat.id : null;
+    spending.set(key, [...(spending.get(key) ?? []), e]);
+  }
+  return { spending, incomeEntries, uncategorizedIncomeEntries };
 }
 
 export interface SpentResult {
@@ -454,23 +497,7 @@ export async function breakdownFor(
   const fx = createFxConverter(db);
   const base = settings.baseCurrency;
 
-  const spending = new Map<string | null, SpendEntry[]>();
-  const incomeEntries: SpendEntry[] = [];
-  const uncategorizedIncomeEntries: SpendEntry[] = [];
-  for (const e of entries) {
-    const cat = e.categoryId === null ? undefined : byId.get(e.categoryId);
-    if (cat?.isTransfer) continue;
-    if (cat?.isIncome) {
-      incomeEntries.push(e);
-      continue;
-    }
-    if (!cat && e.amount.minor > 0n) {
-      uncategorizedIncomeEntries.push(e);
-      continue;
-    }
-    const key = cat ? cat.id : null;
-    spending.set(key, [...(spending.get(key) ?? []), e]);
-  }
+  const { spending, incomeEntries, uncategorizedIncomeEntries } = classifySpend(entries, cats);
 
   let fxMissing = false;
   const breakdown: Breakdown['breakdown'] = [];
@@ -518,5 +545,182 @@ export async function breakdownFor(
     income: money(-inc.total, base),
     uncategorizedIncome: money(-unc.total, base),
     fxMissing,
+  };
+}
+
+export interface StatisticsMonth {
+  key: string;
+  start: string;
+  end: string;
+  partial: boolean;
+  income: Money;
+  spending: Money;
+}
+
+export interface Statistics {
+  months: StatisticsMonth[];
+  averageKept: Money | null;
+  categories: {
+    categoryId: string | null;
+    name: string;
+    icon: string | null;
+    color: string | null;
+    spent: Money;
+    previousSpent: Money;
+  }[];
+  fxMissing: boolean;
+}
+
+/** Net spend per category (spending categories only), unclamped. */
+async function netByCategory(
+  spending: Map<string | null, SpendEntry[]>,
+  base: string,
+  fx: FxConverter,
+  flag: { fxMissing: boolean },
+): Promise<Map<string | null, bigint>> {
+  const out = new Map<string | null, bigint>();
+  for (const [id, list] of spending) {
+    const r = await spentOf(list, base, fx);
+    flag.fxMissing ||= r.fxMissing;
+    out.set(id, r.total);
+  }
+  return out;
+}
+
+/** Rounds `sum / n` half away from zero (integer minor units). */
+function divRound(sum: bigint, n: bigint): bigint {
+  const abs = sum < 0n ? -sum : sum;
+  const q = (abs * 2n + n) / (2n * n);
+  return sum < 0n ? -q : q;
+}
+
+/**
+ * Month-by-month income/spending over the viewer's visible accounts for the current month plus the
+ * `monthCount - 1` before it, and per-category spend of the window versus the `monthCount` months before.
+ * Uses the same classification and per-category net > 0 rule as the home breakdown. Months before the
+ * month of the first visible transaction are omitted.
+ */
+export async function statisticsFor(
+  db: Db,
+  dk: DataKey,
+  visible: VisibleAccountIds,
+  householdId: string,
+  monthCount: number,
+  settings: HouseholdSettings,
+  now: Date,
+): Promise<Statistics> {
+  const tz = settings.timezone;
+  const base = settings.baseCurrency;
+  const periods: Period[] = [];
+  let p = periodFor(now, 'monthly', tz);
+  const currentKey = p.key;
+  for (let i = 0; i < monthCount * 2; i++) {
+    periods.unshift(p);
+    p = previousPeriod(p, tz);
+  }
+  const window = periods.slice(monthCount);
+  const lastEnd = window[window.length - 1];
+  const firstStart = periods[0];
+  if (!lastEnd || !firstStart) throw new Error('unreachable: at least one month');
+
+  const empty: Statistics = { months: [], averageKept: null, categories: [], fxMissing: false };
+  if (visible.length === 0) return empty;
+  const [first] = await db
+    .select({ min: sql<string | null>`min(${transactions.bookingDate})` })
+    .from(transactions)
+    .where(inArray(transactions.accountId, [...visible]));
+  if (!first?.min) return empty;
+  const firstKey = first.min.slice(0, 7);
+
+  const entries = await loadSpendEntries(db, dk, {
+    householdId,
+    from: localDate(firstStart.start, tz),
+    to: localDate(lastEnd.end, tz),
+    countingOnly: false,
+    accountIds: visible,
+  });
+  const cats = await db.select().from(categories).where(eq(categories.householdId, householdId));
+  const byId = new Map(cats.map((c) => [c.id, c]));
+  const fx = createFxConverter(db);
+  const flag = { fxMissing: false };
+
+  const byMonth = new Map<string, SpendEntry[]>();
+  for (const e of entries) {
+    const key = e.bookingDate.slice(0, 7);
+    byMonth.set(key, [...(byMonth.get(key) ?? []), e]);
+  }
+
+  const months: StatisticsMonth[] = [];
+  let keptSum = 0n;
+  let complete = 0n;
+  for (const period of window) {
+    if (period.key < firstKey) continue;
+    const c = classifySpend(byMonth.get(period.key) ?? [], cats);
+    let spending = 0n;
+    for (const total of (await netByCategory(c.spending, base, fx, flag)).values()) {
+      if (total > 0n) spending += total;
+    }
+    const inc = await spentOf([...c.incomeEntries, ...c.uncategorizedIncomeEntries], base, fx);
+    flag.fxMissing ||= inc.fxMissing;
+    const income = -inc.total;
+    const partial = period.key === currentKey;
+    if (!partial) {
+      keptSum += income - spending;
+      complete += 1n;
+    }
+    months.push({
+      ...periodView(period),
+      partial,
+      income: money(income, base),
+      spending: money(spending, base),
+    });
+  }
+
+  const windowStartKey = window[0]?.key ?? currentKey;
+  const inWindow = (e: SpendEntry) => e.bookingDate.slice(0, 7) >= windowStartKey;
+  const current = await netByCategory(
+    classifySpend(entries.filter(inWindow), cats).spending,
+    base,
+    fx,
+    flag,
+  );
+  const previous = await netByCategory(
+    classifySpend(
+      entries.filter((e) => !inWindow(e)),
+      cats,
+    ).spending,
+    base,
+    fx,
+    flag,
+  );
+  const clamp = (v: bigint | undefined) => (v !== undefined && v > 0n ? v : 0n);
+  const categoryRows: Statistics['categories'] = [];
+  for (const id of new Set([...current.keys(), ...previous.keys()])) {
+    const spent = clamp(current.get(id));
+    const previousSpent = clamp(previous.get(id));
+    if (spent === 0n && previousSpent === 0n) continue;
+    const cat = id === null ? undefined : byId.get(id);
+    categoryRows.push({
+      categoryId: id,
+      name: cat?.name ?? 'Uncategorized',
+      icon: cat?.icon ?? null,
+      color: cat?.color ?? null,
+      spent: money(spent, base),
+      previousSpent: money(previousSpent, base),
+    });
+  }
+  categoryRows.sort((a, b) =>
+    a.spent.minor === b.spent.minor
+      ? a.name.localeCompare(b.name)
+      : a.spent.minor > b.spent.minor
+        ? -1
+        : 1,
+  );
+
+  return {
+    months,
+    averageKept: complete > 0n ? money(divRound(keptSum, complete), base) : null,
+    categories: categoryRows,
+    fxMissing: flag.fxMissing,
   };
 }

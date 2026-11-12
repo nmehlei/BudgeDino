@@ -51,6 +51,28 @@
   `owner_only` account that counts toward budgets moves everyone's budget totals but never appears in
   another member's breakdown.
 
+## Statistics
+
+`GET /statistics?months=6|12` (member, default 6; anything else is 400). Over the viewer's _visible_
+accounts only, in the household timezone and base currency, classified by the same rules as the home
+breakdown (`classifySpend`: transfers skipped; income categories and uncategorized positive amounts are
+income; the rest is spending; transfer-grouped transactions excluded; splits expand to their parts).
+
+- `months`: the current month plus the N−1 before it, oldest first, each `{key, start, end, partial,
+income, spending}` (`start`/`end` as in `period`: ISO instants, start inclusive, end exclusive).
+  Only the current month is `partial`. Months before the month of the viewer's first visible transaction
+  (earliest booking date on visible accounts, any category) are omitted; no visible transaction means
+  `months: []`.
+- `spending` of a month = sum of the net spend of its spending categories whose net is > 0 (the home
+  breakdown rule per month, so it equals the breakdown total of `/home?period=YYYY-MM`). `income` =
+  income categories + uncategorized positive amounts (home `income + uncategorizedIncome`).
+- `averageKept` = mean of `income − spending` over the complete (non-partial) months in `months`, integer
+  minor units rounded half away from zero; `null` when there is none.
+- `categories`: net spend per category over the whole window (`spent`) and over the N months before it
+  (`previousSpent`), negative nets reported as 0; entries with both 0 are dropped; sorted by `spent`
+  descending, then name. Carries the raw `icon`/`color` like the breakdown.
+- Entries without an FX rate are left out and set `fxMissing`. Nothing is logged from the result.
+
 ## Alerts and notification polling
 
 - After each ingest (after categorization and transfer detection) the household's budgets are evaluated
