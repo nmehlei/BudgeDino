@@ -94,12 +94,13 @@ export function TransactionsScreen({ params }: { params?: TransactionsParams }) 
   const closeMenu = useCallback(() => setMenu(null), []);
 
   const open = useCallback((id: string) => router.push(`/transaction/${id}`), [router]);
-  const { hasNextPage, isFetchingNextPage, fetchNextPage } = list;
+  const { hasNextPage, isFetchingNextPage, fetchNextPage, isPlaceholderData } = list;
   const empty = transactions.length === 0;
   const loadMore = useCallback(() => {
     // With nothing to show, continuing a long scan is the user's call ("Search further").
-    if (!empty && hasNextPage && !isFetchingNextPage) void fetchNextPage();
-  }, [empty, hasNextPage, isFetchingNextPage, fetchNextPage]);
+    // Never page the previous query's kept (placeholder) data while a new search or filter loads.
+    if (!empty && hasNextPage && !isFetchingNextPage && !isPlaceholderData) void fetchNextPage();
+  }, [empty, hasNextPage, isFetchingNextPage, isPlaceholderData, fetchNextPage]);
 
   const offline = isApiClientError(list.error) && list.error.error.kind === 'network';
   const lastEmpty = (list.data?.pages.at(-1)?.transactions.length ?? 0) === 0;
@@ -145,6 +146,7 @@ export function TransactionsScreen({ params }: { params?: TransactionsParams }) 
         onChangeText={setText}
         autoCorrect={false}
         autoCapitalize="none"
+        maxLength={64}
         style={styles.search}
       />
       <View style={styles.chips}>

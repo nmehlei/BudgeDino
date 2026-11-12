@@ -135,15 +135,13 @@ export function CategoriesScreen() {
       if (isApiClientError(error) && error.error.kind === 'server' && error.error.status === 409) {
         setFormError('A category with this name exists.');
         // Archived categories still reserve their name: point at the one to unarchive.
-        const lower = trimmed.toLocaleLowerCase();
+        const lower = trimmed.toLocaleLowerCase('de-DE');
         setArchivedClash(
-          categories.data?.find((c) => c.archived && c.name.toLocaleLowerCase() === lower) ?? null,
+          categories.data?.find((c) => c.archived && c.name.toLocaleLowerCase('de-DE') === lower) ??
+            null,
         );
-      } else if (
-        isApiClientError(error) &&
-        error.error.kind === 'server' &&
-        error.error.status === 422
-      ) {
+      } else if (isApiClientError(error) && error.error.kind === 'validation') {
+        // The client maps 400 and 422 to `validation`; the immutable Transfer category answers 422.
         setFormError('This category cannot be changed.');
       } else {
         setFormError(describeCategoryError(error, "Couldn't save the category."));

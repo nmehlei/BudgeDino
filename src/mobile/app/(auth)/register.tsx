@@ -33,8 +33,8 @@ export default function RegisterScreen() {
   const [error, setError] = useState<string | null>(null);
 
   // A join link (D5) names the server. It is only validated and held here (never stored on open): a link must
-  // not be able to switch the server of a configured or signed-in app. It is persisted in submit(), after the
-  // user commits and the server answered its health check. The host is shown so a foreign host is visible.
+  // not be able to switch the server of a configured or signed-in app. It is persisted in submit() only after
+  // register() succeeded (the health check alone does not store it). The host is shown so a foreign host is visible.
   const signedIn = session.status === 'signed_in';
   const link = useMemo(() => {
     if (!linkServer) return null;

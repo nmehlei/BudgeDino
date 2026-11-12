@@ -130,6 +130,18 @@ describe('CategoriesScreen', () => {
     expect(screen.queryByTestId('unarchive-existing')).toBeNull();
   });
 
+  it('says the category cannot be changed on a validation (422) answer', async () => {
+    mockApi.createCategory.mockRejectedValue(
+      new ApiClientError({ kind: 'validation', issues: [] }),
+    );
+    await renderUi(<CategoriesScreen />);
+    await screen.findByText('Groceries');
+    await fireEvent.press(await screen.findByTestId('add-category'));
+    await fireEvent.changeText(screen.getByTestId('category-name'), 'Rent');
+    await fireEvent.press(screen.getByTestId('category-save'));
+    expect(await screen.findByText('This category cannot be changed.')).toBeTruthy();
+  });
+
   it('offers to unarchive when the clashing name is an archived category', async () => {
     mockApi.createCategory.mockRejectedValue(new ApiClientError({ kind: 'server', status: 409 }));
     mockApi.patchCategory.mockResolvedValue({ category: cat('c6', 'Old Gym') });
@@ -266,7 +278,7 @@ describe('RulesScreen', () => {
     expect(mockApi.deleteRule).not.toHaveBeenCalled();
   });
 
-  it('shows an empty state and a retryable error', async () => {
+  it('shows an empty state when there are no rules', async () => {
     mockApi.listRules.mockResolvedValueOnce({ rules: [] });
     await renderUi(<RulesScreen />);
     expect(await screen.findByText(/No rules yet/)).toBeTruthy();

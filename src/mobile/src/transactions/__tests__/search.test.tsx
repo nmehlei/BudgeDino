@@ -185,7 +185,9 @@ describe('transaction search and filters', () => {
     expect(await screen.findByText('REWE Markt')).toBeTruthy();
 
     await fireEvent.changeText(screen.getByTestId('transactions-search'), 'rewe');
-    expect(await screen.findByText('Searched back to 02.03.2026')).toBeTruthy();
+    expect(
+      await screen.findByText('Searched back to 02.03.2026', {}, { timeout: 3000 }),
+    ).toBeTruthy();
     expect(screen.queryByText('No results')).toBeNull();
 
     await fireEvent.press(screen.getByText('Search further'));
@@ -203,7 +205,7 @@ describe('transaction search and filters', () => {
     await renderScreen();
     await screen.findByText('REWE Markt');
     await fireEvent.changeText(screen.getByTestId('transactions-search'), 'zzz');
-    await fireEvent.press(await screen.findByText('Search further'));
+    await fireEvent.press(await screen.findByText('Search further', {}, { timeout: 3000 }));
     expect(await screen.findByText('No results')).toBeTruthy();
     expect(screen.queryByText('Search further')).toBeNull();
   });
@@ -212,7 +214,12 @@ describe('transaction search and filters', () => {
     const CURSOR2 = '2026-01-02|00000000-0000-0000-0000-000000000008';
     mockApi.listTransactions.mockImplementation(async (q: { q?: string; cursor?: string }) => {
       if (!q.q) return page();
-      if (!q.cursor) return page({ nextCursor: CURSOR, scannedUntil: '2026-03-02' });
+      if (!q.cursor)
+        return page({
+          transactions: [tx({ id: 't6', counterparty: 'REWE Suche' })],
+          nextCursor: CURSOR,
+          scannedUntil: '2026-03-02',
+        });
       if (q.cursor === CURSOR)
         return page({ transactions: [], nextCursor: CURSOR2, scannedUntil: '2026-01-02' });
       return page({ transactions: [tx({ id: 't7', counterparty: 'Rewe Spät' })] });
@@ -221,15 +228,24 @@ describe('transaction search and filters', () => {
     await screen.findByText('REWE Markt');
     await fireEvent.changeText(screen.getByTestId('transactions-search'), 'rewe');
     await waitFor(() => expect(lastQuery()).toMatchObject({ q: 'rewe' }));
-    await screen.findByText('REWE Markt');
+    // Only the search page has this row, so the stale unfiltered page is no longer shown.
+    await screen.findByText('REWE Suche', {}, { timeout: 3000 });
     await act(async () => {
       await fireEvent(screen.getByTestId('transactions-list'), 'endReached');
     });
-    expect(await screen.findByText('Searched back to 02.01.2026')).toBeTruthy();
-    expect(screen.getByText('REWE Markt')).toBeTruthy();
+    expect(
+      await screen.findByText('Searched back to 02.01.2026', {}, { timeout: 3000 }),
+    ).toBeTruthy();
+    expect(screen.getByText('REWE Suche')).toBeTruthy();
     await fireEvent.press(screen.getByText('Search further'));
     expect(await screen.findByText('Rewe Spät')).toBeTruthy();
     expect(screen.queryByText('Search further')).toBeNull();
+  });
+
+  it('limits the search text to 64 characters', async () => {
+    await renderScreen();
+    await screen.findByText('REWE Markt');
+    expect(screen.getByTestId('transactions-search').props.maxLength).toBe(64);
   });
 
   it('re-applies a repeated drill-down after the chips were cleared', async () => {

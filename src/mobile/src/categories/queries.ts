@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 
+import { isApiClientError } from '../api/errors';
 import { useApi } from '../api/useApi';
 import { describeBudgetError } from '../budgets/queries';
 import { rulesKey } from './keys';
@@ -15,8 +16,9 @@ export function useRules() {
 
 /** User-facing text for a failed category or rule action. Never includes request or response data. */
 export function describeCategoryError(error: unknown, fallback: string): string {
-  const text = describeBudgetError(error, '');
-  if (text === 'Only admins can change budgets.') return 'Only admins can change categories.';
-  if (text === 'This budget no longer exists.') return 'This item no longer exists.';
-  return text || fallback;
+  if (isApiClientError(error) && error.error.kind === 'server') {
+    if (error.error.status === 403) return 'Only admins can change categories.';
+    if (error.error.status === 404) return 'This item no longer exists.';
+  }
+  return describeBudgetError(error, '') || fallback;
 }
