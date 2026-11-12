@@ -1,12 +1,8 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
-import { isApiClientError } from '../api/errors';
+import { isNetworkError } from '../api/errors';
 import { useApi } from '../api/useApi';
 import { shouldRetryQuery } from '../providers';
-
-function isNetworkError(error: unknown): boolean {
-  return isApiClientError(error) && error.error.kind === 'network';
-}
 
 /** `GET /statistics?months=`; each window is cached separately and the previous one stays while the next loads. */
 export function useStatistics(months: 6 | 12) {

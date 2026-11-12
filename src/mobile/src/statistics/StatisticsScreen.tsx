@@ -12,22 +12,19 @@ import {
 } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { isApiClientError } from '../api/errors';
+import { isNetworkError } from '../api/errors';
 import { CategoryIcon } from '../categories/CategoryIcon';
 import { useCategoryStyleById } from '../categories/useCategoryStyle';
 import { MonthBars, type BarMonth } from '../charts/MonthBars';
 import { formatMoney } from '../format/money';
-import { formatDateTime, HOUSEHOLD_TZ_FALLBACK, zonedYmd } from '../format/time';
+import { monthDayRange } from '../format/month';
+import { formatDateTime } from '../format/time';
 import { useAppTheme, useWarningColor } from '../theme';
 import { useStatistics } from './queries';
 
 const TOP_COUNT = 5;
 
 type Category = StatisticsResponse['categories'][number];
-
-function isNetworkError(error: unknown): boolean {
-  return isApiClientError(error) && error.error.kind === 'network';
-}
 
 /**
  * Change of `trendSpent` (complete months of the window) against `previousSpent` in whole percent, rounded
@@ -48,15 +45,11 @@ export function trendOf(
   return { up: diff > 0n, percent };
 }
 
-/** Inclusive first and last booking day of `[start, end)` in the household time zone. */
-function dayRange(start: string, end: string): { from?: string; to?: string } {
-  const s = Date.parse(start);
-  const e = Date.parse(end);
-  if (Number.isNaN(s) || Number.isNaN(e)) return {};
-  return {
-    from: zonedYmd(s, HOUSEHOLD_TZ_FALLBACK).iso,
-    to: zonedYmd(Math.max(s, e - 1), HOUSEHOLD_TZ_FALLBACK).iso,
-  };
+/** Inclusive first and last booking day from the first month key through the last (`YYYY-MM`). */
+function dayRange(firstKey: string, lastKey: string): { from?: string; to?: string } {
+  const from = monthDayRange(firstKey).from;
+  const to = monthDayRange(lastKey).to;
+  return from && to ? { from, to } : {};
 }
 
 function CategoryRow({
@@ -151,19 +144,23 @@ export function StatisticsScreen() {
   );
 
   const openMonth = useCallback(
-    (m: BarMonth) => drill(dayRange(m.start, m.end) as Record<string, string>),
+    (m: BarMonth) => drill(dayRange(m.key, m.key) as Record<string, string>),
     [drill],
   );
 
   const failed = stats.isError;
   const offline = isNetworkError(stats.error);
+  // While the other window loads, the data on screen belongs to it: name its months, not the selected ones.
+  const shownMonths = stats.isPlaceholderData ? (months === 6 ? 12 : 6) : months;
+  // A failed first load of a window has no timestamp (0); never render it as 1970.
+  const since = stats.dataUpdatedAt > 0 ? ` from ${formatDateTime(stats.dataUpdatedAt)}` : '';
   const hasCompleteMonth = data ? data.months.some((m) => !m.partial) : false;
 
   let body;
   if (data) {
     const first = data.months[0];
     const last = data.months[data.months.length - 1];
-    const window = first && last ? dayRange(first.start, last.end) : {};
+    const window = first && last ? dayRange(first.key, last.key) : {};
     const visible = showAll ? data.categories : data.categories.slice(0, TOP_COUNT);
     const largest = data.categories.reduce((acc, c) => {
       const v = BigInt(c.spent.minor);
@@ -180,9 +177,7 @@ export function StatisticsScreen() {
             actions={[{ label: 'Retry', onPress: () => void refetch(), loading: stats.isFetching }]}
             testID="offline-banner"
           >
-            {offline
-              ? `Offline — showing data from ${formatDateTime(stats.dataUpdatedAt)}`
-              : `Couldn't refresh — showing data from ${formatDateTime(stats.dataUpdatedAt)}`}
+            {offline ? `Offline — showing data${since}` : `Couldn't refresh — showing data${since}`}
           </Banner>
         ) : null}
         {hasCompleteMonth ? (
@@ -213,7 +208,7 @@ export function StatisticsScreen() {
             </View>
             <View style={styles.section}>
               <Text variant="titleMedium" accessibilityRole="header">
-                {`Top categories, ${months} months`}
+                {`Top categories, ${shownMonths} months`}
               </Text>
               {data.categories.length === 0 ? (
                 <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>

@@ -83,6 +83,14 @@ export function StylePicker({ value, onChange }: Props) {
 const styles = StyleSheet.create({
   root: { gap: 8 },
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
-  cell: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  // Exactly six columns (a sixth of the row each, square), never below the 40 dp touch minimum.
+  cell: {
+    width: '16.66%',
+    aspectRatio: 1,
+    minWidth: 40,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   swatch: { width: 28, height: 28, borderRadius: 14 },
 });

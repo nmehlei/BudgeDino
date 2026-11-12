@@ -18,7 +18,7 @@ import {
   type TransactionFilters,
 } from './queries';
 import { CategoryIcon } from '../categories/CategoryIcon';
-import { useCategoryStyleById } from '../categories/useCategoryStyle';
+import { useCategoryStyleById, useTransactionStyleOf } from '../categories/useCategoryStyle';
 import { TransactionRow } from './TransactionRow';
 
 export const SEARCH_DEBOUNCE_MS = 300;
@@ -89,6 +89,7 @@ export function TransactionsScreen({ params }: { params?: TransactionsParams }) 
   const pickable = usePickableCategories();
   const accounts = useAccounts();
   const styleOf = useCategoryStyleById();
+  const txStyleOf = useTransactionStyleOf();
   const names = useMemo(() => categoryNameMap(categories.data), [categories.data]);
   const transactions = useMemo(() => flattenPages(list.data), [list.data]);
   const sections = useMemo(() => groupByBookingDate(transactions), [transactions]);
@@ -173,6 +174,10 @@ export function TransactionsScreen({ params }: { params?: TransactionsParams }) 
           <Menu.Item
             testID="category-option-uncategorized"
             title="Uncategorised"
+            leadingIcon={() => {
+              const s = styleOf(null);
+              return <CategoryIcon icon={s.icon} color={s.color} size="sm" />;
+            }}
             onPress={() => setCategory({ uncategorized: true })}
           />
           {(pickable.data ?? []).map((c) => (
@@ -308,6 +313,7 @@ export function TransactionsScreen({ params }: { params?: TransactionsParams }) 
           <TransactionRow
             transaction={item}
             categoryName={item.categoryId ? (names.get(item.categoryId) ?? null) : null}
+            style={txStyleOf(item)}
             onPress={open}
           />
         )}

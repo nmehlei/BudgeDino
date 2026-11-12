@@ -19,6 +19,9 @@ export const lightTheme: MD3Theme = {
     primaryContainer: '#BFEBDD',
     onPrimaryContainer: '#00201A',
     secondary: '#4A635C',
+    // The selected segmented button / chip is the green family, not Paper's purple-grey default.
+    secondaryContainer: '#CDE9DF',
+    onSecondaryContainer: '#07201A',
   },
 };
 
@@ -31,6 +34,8 @@ export const darkTheme: MD3Theme = {
     primaryContainer: '#1F5F50',
     onPrimaryContainer: '#BFEBDD',
     secondary: '#B1CCC3',
+    secondaryContainer: '#1F5F50',
+    onSecondaryContainer: '#BFEBDD',
     // Calm near-black surface hierarchy with a faint green tint: background < surface < cards.
     background: '#0E1311',
     onBackground: '#E1E8E4',

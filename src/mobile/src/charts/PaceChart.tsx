@@ -1,4 +1,3 @@
-import { currencyExponent } from '@budgedino/shared';
 import { useId, useState } from 'react';
 import { Animated, type LayoutChangeEvent, StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';
@@ -12,7 +11,7 @@ import Svg, {
   Text as SvgText,
 } from 'react-native-svg';
 
-import { formatMoney } from '../format/money';
+import { formatWholeMoney } from '../format/whole-money';
 import { useAppTheme } from '../theme';
 import { comparisonAt, cumulative, linePath, niceMax } from './geometry';
 import { useDrawIn } from './useDrawIn';
@@ -66,12 +65,7 @@ export function PaceChart({
   const peak = [...cur, ...prev].reduce((a, b) => (b > a ? b : a), 0n);
   const max = niceMax(peak);
   const plotH = HEIGHT - TOP - BOTTOM;
-  /** Whole currency units: drops the decimals the formatter adds. */
-  const exponent = currencyExponent(currency);
-  const fmt = (minor: bigint) => {
-    const text = formatMoney({ minor, currency });
-    return exponent === 0 ? text : text.replace(new RegExp(`,\\d{${exponent}}(?=\\D*$)`), '');
-  };
+  const fmt = (minor: bigint) => formatWholeMoney(minor, currency);
 
   const plotW = Math.max(width - 2 * PAD, 0);
   const curPath = linePath(cur, dayCount, max, plotW, plotH);
@@ -86,9 +80,14 @@ export function PaceChart({
   const firstDate = current[0]?.date;
   const todayX = Math.min(Math.max(endX + PAD, 18), Math.max(width - 18, 18));
 
-  const a11y = comparison
-    ? `Spent ${fmt(comparison.current)} so far ${labels.current}; ${fmt(comparison.previous)} by this day last month.`
-    : `Spent ${fmt(cur[last] ?? 0n)} so far ${labels.current}.`;
+  const total = fmt(cur[last] ?? 0n);
+  const a11y = !showToday
+    ? prevVisible
+      ? `Spent ${total} in ${labels.current}; ${fmt(prevAll[prevAll.length - 1] as bigint)} in ${labels.previous}.`
+      : `Spent ${total} in ${labels.current}.`
+    : comparison
+      ? `Spent ${fmt(comparison.current)} so far ${labels.current}; ${fmt(comparison.previous)} by this day last month.`
+      : `Spent ${total} so far ${labels.current}.`;
   const grid = theme.colors.outlineVariant;
   const muted = theme.colors.onSurfaceVariant;
   const accent = theme.colors.primary;
@@ -202,7 +201,11 @@ export function PaceChart({
         </Text>
         {prevPath ? (
           <>
-            <View style={[styles.swatch, styles.dashed, { borderColor: muted }]} />
+            <View style={styles.dashedSwatch} testID="pace-previous-swatch">
+              {[0, 1, 2].map((i) => (
+                <View key={i} style={[styles.dash, { backgroundColor: muted }]} />
+              ))}
+            </View>
             <Text variant="labelSmall" style={{ color: muted }}>
               {labels.previous}
             </Text>
@@ -219,5 +222,7 @@ const styles = StyleSheet.create({
   today: { position: 'absolute' },
   legend: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
   swatch: { width: 16, height: 3, borderRadius: 2, marginLeft: 6 },
-  dashed: { height: 0, borderTopWidth: 2, borderStyle: 'dashed', backgroundColor: 'transparent' },
+  // Three short bars: a dashed border is drawn solid on Android once a radius is involved.
+  dashedSwatch: { flexDirection: 'row', gap: 2, marginLeft: 6 },
+  dash: { width: 4, height: 3, borderRadius: 1 },
 });

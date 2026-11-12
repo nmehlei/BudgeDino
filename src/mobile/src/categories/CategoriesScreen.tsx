@@ -134,7 +134,7 @@ export function CategoriesScreen() {
         });
       } else {
         const { category } = editing;
-        const body: { name?: string; group?: string; icon?: string; color?: string } = {};
+        const body: PatchCategoryRequest = {};
         const stored = resolveCategoryStyle(category);
         if (style.icon !== stored.icon) body.icon = style.icon;
         if (style.color !== stored.color) body.color = style.color;
@@ -142,7 +142,7 @@ export function CategoriesScreen() {
         // An empty string clears the group (`null` is rejected by the server).
         if (trimmedGroup !== (category.group ?? '')) body.group = trimmedGroup;
         if (Object.keys(body).length > 0) {
-          await api.patchCategory(category.id, body as PatchCategoryRequest);
+          await api.patchCategory(category.id, body);
         }
       }
       setEditing(null);

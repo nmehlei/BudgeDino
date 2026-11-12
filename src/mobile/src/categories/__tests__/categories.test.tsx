@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 
 import { ApiClientError } from '../../api/errors';
@@ -119,6 +120,19 @@ describe('CategoriesScreen', () => {
     await waitFor(() => {
       expect(mockApi.listCategories).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it('the picker grid cells are a sixth of the row, square, at least 40 dp', async () => {
+    await renderUi(<CategoriesScreen />);
+    await screen.findByText('Groceries');
+    await fireEvent.press(await screen.findByTestId('add-category'));
+    const cell = StyleSheet.flatten(screen.getByTestId('icon-option-dog').props.style) as Record<
+      string,
+      unknown
+    >;
+    expect(cell.width).toBe('16.66%');
+    expect(cell.aspectRatio).toBe(1);
+    expect(cell.minWidth).toBe(40);
   });
 
   it('creating a category sends icon and color', async () => {

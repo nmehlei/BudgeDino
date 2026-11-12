@@ -109,6 +109,12 @@ Bottom tabs: Home, Transactions, Statistics, Connections, More. The `(app)` layo
     the displayed month.
   - **Rest rows**: icon, name, amount, chevron; tapping drills down (Transactions > Home drill-down).
   - Icons and colours are resolved per category id from the cached categories (`useCategoryStyleById`).
+  - **Scope.** Budget numbers (`spent / amount`, bar) are household-wide and count counting accounts only
+    (bar label "household budget"); the headline and chart are the viewer's visible accounts. A single-category
+    budget whose category amount in the viewer's breakdown differs from `budget.spent` shows a second line
+    "You: <visible amount>" under its name. Weekly multi-category sub-rows drill into the budget's week.
+  - Periods are derived from the `YYYY-MM` key (day count, previous month, month names, drill-down days), never
+    from a fixed time zone.
   - Budget editing is no longer a Home tap target (More > Budgets). "No spending in this period." when the list
     is empty; a "some foreign amounts couldn't be converted" note when `fxMissing`.
 - **Money.** Displayed from `{minor, currency}` with `Intl.NumberFormat('de-DE')` and the currency
@@ -146,8 +152,8 @@ Tab "Statistics" (icon `chart-box-outline`) between Transactions and Connections
   labelled, counting back from the newest, so the current month is always labelled. The partial month reads
   "Nov so far" when its group is at least 50 dp wide, otherwise "Nov". Each group is a `Pressable` with
   `accessibilityLabel` "October 2026: income 2.450 €, spending 2.040 €" ("November 2026 (so far): ..." for the
-  partial month); tapping it opens Transactions for that month's first to last day (household time zone,
-  inclusive `from`/`to`, no category).
+  partial month); tapping it opens Transactions for that month's first to last day (from the month key,
+  inclusive `from`/`to`, no category). A split transaction shows the grey `call-split` glyph.
 - **Average line.** "You kept on average 410,00 € a month" (`averageKept`, the mean over complete months),
   "You spent on average X more than you earned" when negative; hidden when `averageKept` is null.
 - **Top categories.** The first five of `categories` (server order: `spent` descending), "Show all" expands

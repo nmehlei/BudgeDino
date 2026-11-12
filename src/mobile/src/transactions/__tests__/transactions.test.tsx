@@ -6,6 +6,9 @@ import { PaperProvider } from 'react-native-paper';
 
 import { lightTheme } from '../../theme';
 
+import glyphMap from '@expo/vector-icons/build/vendor/react-native-vector-icons/glyphmaps/MaterialCommunityIcons.json';
+
+import { CATEGORY_COLORS } from '@budgedino/shared';
 import { ApiClientError } from '../../api/errors';
 import { AccountsScreen } from '../AccountsScreen';
 import { TransactionDetailScreen } from '../TransactionDetailScreen';
@@ -131,6 +134,47 @@ describe('TransactionsScreen', () => {
     await renderWithProviders(<TransactionsScreen />);
     const row = await screen.findByTestId('tx-row-t1');
     expect(within(row).getByTestId('category-icon', { includeHiddenElements: true })).toBeTruthy();
+  });
+
+  it('a split transaction shows the grey call-split glyph in the list and in the detail', async () => {
+    const split = tx({
+      id: 'tsplit',
+      categoryId: null,
+      splits: [
+        { categoryId: FOOD, amountMinor: '-1000' },
+        { categoryId: FUN, amountMinor: '-250' },
+      ],
+    } as Partial<TransactionInfo>);
+    mockApi.listTransactions.mockResolvedValueOnce({
+      transactions: [split],
+      nextCursor: null,
+      scannedUntil: null,
+    });
+    await renderWithProviders(<TransactionsScreen />);
+    const row = await screen.findByTestId('tx-row-tsplit');
+    const icon = within(row).getByTestId('category-icon', { includeHiddenElements: true });
+    const glyph = within(icon).getByText(/./, { includeHiddenElements: true });
+    expect(StyleSheet.flatten(glyph.props.style)).toEqual(
+      expect.objectContaining({ color: CATEGORY_COLORS.grey.light }),
+    );
+    expect((glyph.props.children as unknown[])[0]).toBe(
+      String.fromCodePoint(glyphMap['call-split']),
+    );
+  });
+
+  it('the Uncategorised filter option shows the grey help icon', async () => {
+    mockApi.listTransactions.mockResolvedValueOnce({
+      transactions: [tx()],
+      nextCursor: null,
+      scannedUntil: null,
+    });
+    await renderWithProviders(<TransactionsScreen />);
+    await screen.findByTestId('tx-row-t1');
+    await fireEvent.press(screen.getByText('Category'));
+    const option = await screen.findByTestId('category-option-uncategorized');
+    const icon = within(option).getByTestId('category-icon', { includeHiddenElements: true });
+    const glyph = within(icon).getByText(/./, { includeHiddenElements: true });
+    expect((glyph.props.children as unknown[])[0]).toBe(String.fromCodePoint(glyphMap['help']));
   });
 
   it('groups by booking date, shows a pending badge and paginates with the cursor', async () => {

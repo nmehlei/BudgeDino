@@ -8,6 +8,7 @@ import {
 import { useCallback } from 'react';
 
 import { useAppTheme } from '../theme';
+import { SPLIT_ICON } from './split-icon';
 import { useCategories } from '../transactions/queries';
 
 /** The theme-aware hex for a palette key. */
@@ -36,5 +37,26 @@ export function useCategoryStyleById(): (categoryId: string | null) => {
       return { icon: style.icon, color: CATEGORY_COLORS[style.color][mode] };
     },
     [data, dark],
+  );
+}
+
+/**
+ * The icon and colour a transaction shows: its category's, the uncategorised `help` when it has none, or
+ * the grey `call-split` glyph when it is split across several categories.
+ */
+export function useTransactionStyleOf(): (tx: {
+  categoryId: string | null;
+  splits: readonly unknown[];
+}) => {
+  icon: string;
+  color: string;
+} {
+  const styleOf = useCategoryStyleById();
+  return useCallback(
+    (tx) =>
+      tx.splits.length > 0
+        ? { icon: SPLIT_ICON, color: styleOf(null).color }
+        : styleOf(tx.categoryId),
+    [styleOf],
   );
 }

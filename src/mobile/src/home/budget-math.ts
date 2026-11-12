@@ -81,16 +81,6 @@ export function sumMoney(
   return { minor: total.toString(), currency };
 }
 
-/**
- * Share of each amount in the total of all positive amounts, as a 0 to 100 bar width (two decimals,
- * computed in bigint basis points). Zero and negative amounts (net refunds) get an empty bar.
- */
-export function shareWidths(items: readonly { minor: string }[]): number[] {
-  const values = items.map((i) => toBigInt(i.minor));
-  const total = values.reduce((sum, v) => (v > 0n ? sum + v : sum), 0n);
-  return values.map((v) => (total > 0n && v > 0n ? Number((v * 10000n) / total) / 100 : 0));
-}
-
 /** Fraction of a period (`start` inclusive, `end` exclusive) elapsed at `now`, clamped to 0..1. */
 export function elapsedFraction(period: { start: string; end: string }, now: Date): number {
   const start = Date.parse(period.start);

@@ -11,6 +11,8 @@ type Style = { icon: CategoryIconName; color: string };
 
 /** The drill-down period: a budget's own span (weekly budgets); the displayed one when omitted. */
 export interface DrillPeriod {
+  /** `YYYY-MM` or `YYYY-Www`; the drill-down days derive from it. */
+  key: string;
   start: string;
   end: string;
 }
@@ -35,7 +37,7 @@ function BudgetBar({ budget, now }: { budget: BudgetView; now: Date }) {
     <View
       testID="budget-bar-track"
       accessibilityRole="progressbar"
-      accessibilityLabel={`${budget.name}: ${bar.usedPercent} percent used`}
+      accessibilityLabel={`${budget.name}, household budget: ${bar.usedPercent} percent used`}
       accessibilityValue={{ min: 0, max: 100, now: bar.fillPercent }}
       style={[styles.track, { backgroundColor: theme.colors.surfaceVariant }]}
     >
@@ -54,12 +56,15 @@ function BudgetBar({ budget, now }: { budget: BudgetView; now: Date }) {
 function BudgetRowView({
   budget,
   icon,
+  viewerSpent,
   tappable,
   onPress,
   now,
 }: {
   budget: BudgetView;
   icon: Style;
+  /** Set when the viewer's own visible spending differs from the household-wide budget figure. */
+  viewerSpent: { minor: string; currency: string } | null;
   tappable: boolean;
   onPress: () => void;
   now: Date;
@@ -83,6 +88,15 @@ function BudgetRowView({
             {budget.periodKind === 'weekly' ? (
               <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                 week
+              </Text>
+            ) : null}
+            {viewerSpent ? (
+              <Text
+                variant="bodySmall"
+                testID="budget-viewer-spent"
+                style={{ color: theme.colors.onSurfaceVariant }}
+              >
+                {`You: ${formatMoney(viewerSpent)}`}
               </Text>
             ) : null}
           </View>
@@ -115,7 +129,7 @@ function BudgetRowView({
       testID={`budget-${budget.id}`}
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${budget.name}, ${spent} of ${amount}${bar.overBudget ? `, ${overText.toLowerCase()}` : ''}. Show transactions`}
+      accessibilityLabel={`${budget.name}, household budget, ${spent} of ${amount}${bar.overBudget ? `, ${overText.toLowerCase()}` : ''}. Show transactions`}
     >
       {content}
     </TouchableRipple>
@@ -215,12 +229,18 @@ export function CategoryList({
           }
           const first = g.categories[0];
           const single = g.categories.length === 1 && first ? first : null;
-          const icon: Style = first ? styleOf(first.categoryId) : { icon: 'tag', color: 'grey' };
+          const icon: Style = styleOf(first ? first.categoryId : g.budget.id);
+          // Budget numbers are household-wide; say what the viewer sees when that can differ.
+          const viewerSpent =
+            single && (single.spent?.minor ?? '0') !== g.budget.spent.minor
+              ? (single.spent ?? { minor: '0', currency: g.budget.spent.currency })
+              : null;
           return (
             <View key={`b-${g.budget.id}`}>
               <BudgetRowView
                 budget={g.budget}
                 icon={icon}
+                viewerSpent={viewerSpent}
                 tappable={single !== null}
                 onPress={() => single && onOpenCategory(single.categoryId, g.budget.period)}
                 now={now}
@@ -237,7 +257,7 @@ export function CategoryList({
                       icon={styleOf(c.categoryId)}
                       size="sm"
                       indent
-                      onPress={() => onOpenCategory(c.categoryId)}
+                      onPress={() => onOpenCategory(c.categoryId, g.budget.period)}
                     />
                   ))}
             </View>
@@ -255,14 +275,20 @@ export function CategoryList({
 
 const styles = StyleSheet.create({
   budgetRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 10 },
-  categoryRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
+  categoryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 12,
+    paddingVertical: 8,
+  },
   indent: { paddingLeft: 16 },
   grow: { flex: 1, gap: 6 },
-  nameFlex: { flex: 1 },
+  nameFlex: { flex: 1, minWidth: 120 },
   line: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', columnGap: 8, rowGap: 2 },
   name: { flexShrink: 1, flexGrow: 1 },
   amounts: { flexShrink: 1, textAlign: 'right', fontVariant: ['tabular-nums'] },
-  value: { flexShrink: 1, textAlign: 'right', fontVariant: ['tabular-nums'] },
+  value: { flexShrink: 0, textAlign: 'right', fontVariant: ['tabular-nums'] },
   track: { height: 6, borderRadius: 3 },
   fill: { height: '100%', borderRadius: 3 },
   // Marks the fraction of the budget's own period that has elapsed (a 12 dp tick across a 6 dp bar).

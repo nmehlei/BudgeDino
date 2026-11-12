@@ -25,17 +25,34 @@ import {
 } from './queries';
 import { ScreenHeader } from './ScreenHeader';
 import { CategoryIcon } from '../categories/CategoryIcon';
-import { useCategoryStyleById } from '../categories/useCategoryStyle';
+import { useCategoryStyleById, useTransactionStyleOf } from '../categories/useCategoryStyle';
 import { useAmountColor } from './TransactionRow';
 
-function Field({ label, value }: { label: string; value: string }) {
+function Field({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: string;
+  icon?: { icon: string; color: string };
+}) {
   const theme = useAppTheme();
   return (
     <View style={styles.field}>
       <Text variant="labelMedium" style={{ color: theme.colors.onSurfaceVariant }}>
         {label}
       </Text>
-      <Text variant="bodyLarge">{value}</Text>
+      {icon ? (
+        <View style={styles.fieldWithIcon}>
+          <CategoryIcon icon={icon.icon} color={icon.color} size="sm" />
+          <Text variant="bodyLarge" style={styles.fieldValue}>
+            {value}
+          </Text>
+        </View>
+      ) : (
+        <Text variant="bodyLarge">{value}</Text>
+      )}
     </View>
   );
 }
@@ -51,6 +68,7 @@ export function TransactionDetailScreen({ id }: { id: string }) {
 
   const tx = useCachedTransaction(id);
   const styleOf = useCategoryStyleById();
+  const txStyleOf = useTransactionStyleOf();
   const names = useMemo(() => categoryNameMap(categories.data), [categories.data]);
   const amountColor = useAmountColor(tx?.amountMinor ?? '0');
 
@@ -104,6 +122,7 @@ export function TransactionDetailScreen({ id }: { id: string }) {
         <Field label="Booking date" value={formatDateHeader(tx.bookingDate)} />
         <Field
           label="Category"
+          icon={txStyleOf(tx)}
           value={
             tx.splits.length > 0
               ? 'Split across several categories'
@@ -185,6 +204,8 @@ const styles = StyleSheet.create({
   pickIcon: { justifyContent: 'center', paddingLeft: 8 },
   badgeRow: { flexDirection: 'row' },
   field: { gap: 2 },
+  fieldWithIcon: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  fieldValue: { flexShrink: 1 },
   toggle: { paddingVertical: 8 },
   toggleInner: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   toggleLabel: { flex: 1 },

@@ -225,6 +225,11 @@ describe('budget rows', () => {
     expect(screen.getByText("Some foreign amounts couldn't be converted.")).toBeTruthy();
   });
 
+  it('shows no "You:" line when the visible spending equals the budget figure', async () => {
+    await renderRow(budget());
+    expect(screen.queryByTestId('budget-viewer-spent')).toBeNull();
+  });
+
   it('labels weekly budgets "week" and monthly ones not', async () => {
     await renderRow(budget({ periodKind: 'weekly' }));
     expect(screen.getByText('week')).toBeTruthy();
@@ -630,7 +635,7 @@ describe('HomeScreen redesign', () => {
       expect((StyleSheet.flatten(line.props.style) as { color: string }).color).toBe(WARNING_LIGHT);
     });
 
-    it('is hidden when the previous period is empty or equal', async () => {
+    it('is hidden when the previous period is empty', async () => {
       serve([10000, 10000, 15138], null);
       await renderHome();
       await screen.findByTestId('summary-spent');
@@ -760,6 +765,38 @@ describe('HomeScreen redesign', () => {
       // Sub-rows are not repeated in the rest.
       expect(screen.queryByTestId('category-row-c3')).toBeNull();
       expect(screen.getByTestId('category-row-c2')).toBeTruthy();
+    });
+
+    it('a weekly multi-category budget drills into its own week from a sub-row', async () => {
+      const weekly = budget({
+        id: 'b3',
+        name: 'Weekly fun',
+        categoryIds: ['c3', 'c4'],
+        periodKind: 'weekly',
+        period: {
+          key: '2026-W46',
+          start: '2026-11-08T23:00:00.000Z',
+          end: '2026-11-15T23:00:00.000Z',
+        },
+      });
+      mockApi.getHome.mockResolvedValue(home({ budgets: [weekly] }));
+      await renderHome();
+      await fireEvent.press(await screen.findByTestId('budget-b3-category-c3'));
+      expect(mockRouter.push).toHaveBeenLastCalledWith({
+        pathname: '/transactions',
+        params: { categoryId: 'c3', from: '2026-11-09', to: '2026-11-15', n: expect.any(String) },
+      });
+    });
+
+    it('a single-category budget shows "You: x" only when your visible spending differs', async () => {
+      // Household budget spent 100,00; the viewer sees 123,45 for the category.
+      mockApi.getHome.mockResolvedValue(home());
+      await renderHome();
+      await screen.findByTestId('budget-b1');
+      expect(screen.getByTestId('budget-viewer-spent')).toHaveTextContent(/^You: 123,45\s€$/);
+      expect(screen.getByTestId('budget-bar-track').props.accessibilityLabel).toMatch(
+        /household budget/,
+      );
     });
 
     it('rest rows are tappable', async () => {

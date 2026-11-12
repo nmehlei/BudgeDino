@@ -31,3 +31,8 @@ export class ApiClientError extends Error {
 export function isApiClientError(value: unknown): value is ApiClientError {
   return value instanceof ApiClientError;
 }
+
+/** True for a failed request that never reached the server (offline, unreachable). */
+export function isNetworkError(error: unknown): boolean {
+  return isApiClientError(error) && error.error.kind === 'network';
+}

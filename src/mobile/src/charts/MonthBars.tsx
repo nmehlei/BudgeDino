@@ -1,11 +1,10 @@
 import type { StatisticsResponse } from '@budgedino/shared';
-import { currencyExponent } from '@budgedino/shared';
 import { useState } from 'react';
 import { Animated, type LayoutChangeEvent, Pressable, StyleSheet, View } from 'react-native';
 import { Text } from 'react-native-paper';
 
 import { useCategoryColor } from '../categories/useCategoryStyle';
-import { formatMoney } from '../format/money';
+import { formatWholeMoney as formatWhole } from '../format/whole-money';
 import { useAppTheme } from '../theme';
 import { niceMax } from './geometry';
 import { useDrawIn } from './useDrawIn';
@@ -50,13 +49,6 @@ const SO_FAR_MIN_SLOT = 50;
 function parseKey(key: string): { year: string; month: number } {
   const [y, m] = key.split('-');
   return { year: y ?? '', month: Math.max(0, Math.min(11, Number(m) - 1)) };
-}
-
-/** Whole currency units: drops the decimals the formatter adds. */
-function formatWhole(minor: bigint, currency: string): string {
-  const text = formatMoney({ minor, currency });
-  const exponent = currencyExponent(currency);
-  return exponent === 0 ? text : text.replace(new RegExp(`,\\d{${exponent}}(?=\\D*$)`), '');
 }
 
 function height(minor: string, max: bigint): number {

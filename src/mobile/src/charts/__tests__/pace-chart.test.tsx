@@ -68,6 +68,18 @@ describe('PaceChart', () => {
     expect(label).toMatch(/^Spent 351\s€ so far this month; 409\s€ by this day last month\.$/);
   });
 
+  it('describes a closed period without "so far" and names the month before', async () => {
+    await renderChart({ showToday: false, labels: { current: 'October', previous: 'September' } });
+    const label = screen.getByTestId('pace-chart').props.accessibilityLabel as string;
+    expect(label).toMatch(/^Spent 351\s€ in October; 409\s€ in September\.$/);
+  });
+
+  it('draws the previous-period legend swatch as dashes, not a solid bar', async () => {
+    await renderChart();
+    const swatch = screen.getByTestId('pace-previous-swatch');
+    expect(swatch.children).toHaveLength(3);
+  });
+
   it('draws a flat start without NaN on the 1st of the month', async () => {
     await renderChart({ current: range('2026-11', [0]), previous: undefined });
     const d = screen.getByTestId('pace-current-path').props.d as string;

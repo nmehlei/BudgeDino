@@ -5,15 +5,10 @@ import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { ActivityIndicator, Banner, Button, Snackbar, Text } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { isApiClientError } from '../api/errors';
+import { isApiClientError, isNetworkError } from '../api/errors';
 import { useApi } from '../api/useApi';
-import {
-  daysLeftInPeriod,
-  formatDateTime,
-  formatPeriodLabel,
-  HOUSEHOLD_TZ_FALLBACK,
-  zonedYmd,
-} from '../format/time';
+import { daysInMonth, monthLongName, periodDayRange, previousMonthKey } from '../format/month';
+import { daysLeftInPeriod, formatDateTime, formatPeriodLabel } from '../format/time';
 import { shouldRetryQuery } from '../providers';
 import { useCategoryStyleById } from '../categories/useCategoryStyle';
 import { comparisonAt, cumulative } from '../charts/geometry';
@@ -26,47 +21,10 @@ import { HomeSummary, type Comparison } from './HomeSummary';
 import { PeriodHeader, type HomePeriod } from './PeriodHeader';
 import { compactSyncText, SyncStatusBar } from './SyncStatusBar';
 
-function isNetworkError(error: unknown): boolean {
-  return isApiClientError(error) && error.error.kind === 'network';
-}
-
 function daysLeftText(endIso: string): string | undefined {
   if (Number.isNaN(Date.parse(endIso))) return undefined;
   const n = daysLeftInPeriod(endIso);
   return n === 1 ? '1 day left' : `${n} days left`;
-}
-
-/** Days of a period (`end` exclusive) in the household time zone. */
-function periodDayCount(start: string, end: string): number {
-  const s = Date.parse(start);
-  const e = Date.parse(end);
-  if (Number.isNaN(s) || Number.isNaN(e) || e <= s) return 0;
-  const a = zonedYmd(s, HOUSEHOLD_TZ_FALLBACK);
-  const b = zonedYmd(e - 1, HOUSEHOLD_TZ_FALLBACK);
-  return Math.round((Date.UTC(b.y, b.m, b.d) - Date.UTC(a.y, a.m, a.d)) / 86_400_000) + 1;
-}
-
-function longMonth(date: Date): string {
-  return new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: 'UTC' }).format(date);
-}
-
-/** The month before the one `start` falls in (household time zone): its `YYYY-MM` key and name. */
-function monthBefore(start: string): { key: string; name: string } | null {
-  const s = Date.parse(start);
-  if (Number.isNaN(s)) return null;
-  const { y, m } = zonedYmd(s, HOUSEHOLD_TZ_FALLBACK);
-  const date = new Date(Date.UTC(y, m - 1, 1));
-  return {
-    key: `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`,
-    name: longMonth(date),
-  };
-}
-
-function monthName(start: string): string {
-  const s = Date.parse(start);
-  if (Number.isNaN(s)) return 'this month';
-  const { y, m } = zonedYmd(s, HOUSEHOLD_TZ_FALLBACK);
-  return longMonth(new Date(Date.UTC(y, m, 1)));
 }
 
 export function HomeScreen() {
@@ -90,12 +48,16 @@ export function HomeScreen() {
   const { data, refetch } = home;
 
   // The comparison series: `previous` for the current period, the explicit month before otherwise.
-  const before = data ? monthBefore(data.period.start) : null;
+  const beforeKey = data ? previousMonthKey(data.period.key) : null;
+  const before = beforeKey
+    ? { key: beforeKey, name: monthLongName(beforeKey) ?? 'last month' }
+    : null;
   const previousSpec = period === 'current' ? 'previous' : (before?.key ?? null);
   const previousHome = useQuery({
     queryKey: ['home', previousSpec],
     queryFn: () => api.getHome(previousSpec ?? 'previous'),
-    enabled: previousSpec !== null && data !== undefined,
+    // The previous series does not wait for the current one when its key is already known.
+    enabled: period === 'current' || previousSpec !== null,
     retry: false,
     networkMode: 'always',
   });
@@ -138,15 +100,8 @@ export function HomeScreen() {
     (categoryId: string | null, span?: DrillPeriod) => {
       if (!data) return;
       // The period's end is exclusive; the transactions filter takes inclusive booking dates.
-      const start = Date.parse((span ?? data.period).start);
-      const end = Date.parse((span ?? data.period).end);
-      const period =
-        Number.isNaN(start) || Number.isNaN(end)
-          ? {}
-          : {
-              from: zonedYmd(start, HOUSEHOLD_TZ_FALLBACK).iso,
-              to: zonedYmd(Math.max(start, end - 1), HOUSEHOLD_TZ_FALLBACK).iso,
-            };
+      // The days come from the period key (the server resolved the household time zone into it).
+      const period = periodDayRange((span ?? data.period).key);
       router.push({
         pathname: '/transactions',
         params: {
@@ -183,7 +138,7 @@ export function HomeScreen() {
 
   let body;
   if (data) {
-    const dayCount = periodDayCount(data.period.start, data.period.end);
+    const dayCount = daysInMonth(data.period.key);
     body = (
       <>
         {failed ? (
@@ -209,7 +164,10 @@ export function HomeScreen() {
               showToday={period === 'current'}
               currency={data.income.currency}
               labels={{
-                current: period === 'current' ? 'this month' : monthName(data.period.start),
+                current:
+                  period === 'current'
+                    ? 'this month'
+                    : (monthLongName(data.period.key) ?? 'this month'),
                 previous: before?.name ?? 'last month',
               }}
             />

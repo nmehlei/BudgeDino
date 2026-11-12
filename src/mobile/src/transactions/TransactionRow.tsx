@@ -3,7 +3,6 @@ import { StyleSheet, View } from 'react-native';
 import { Text, TouchableRipple } from 'react-native-paper';
 
 import { CategoryIcon } from '../categories/CategoryIcon';
-import { useCategoryStyleById } from '../categories/useCategoryStyle';
 import { formatMoney } from '../format/money';
 import { useAppTheme, useSuccessColor } from '../theme';
 import { PendingBadge } from './PendingBadge';
@@ -11,6 +10,8 @@ import { PendingBadge } from './PendingBadge';
 interface Props {
   transaction: TransactionInfo;
   categoryName: string | null;
+  /** The resolved icon and colour (the list resolves it once, not one hook per row). */
+  style: { icon: string; color: string };
   onPress: (id: string) => void;
 }
 
@@ -22,11 +23,10 @@ export function useAmountColor(amountMinor: string): string {
   return /^[1-9]/.test(amountMinor) ? success : theme.colors.onSurface;
 }
 
-export function TransactionRow({ transaction: tx, categoryName, onPress }: Props) {
+export function TransactionRow({ transaction: tx, categoryName, style, onPress }: Props) {
   const theme = useAppTheme();
   const amountColor = useAmountColor(tx.amountMinor);
   const split = tx.splits.length > 0;
-  const style = useCategoryStyleById()(split ? null : tx.categoryId);
   return (
     <TouchableRipple
       onPress={() => onPress(tx.id)}
