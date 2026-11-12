@@ -59,6 +59,24 @@ is created (`counterpartyIban` if the transaction has an IBAN, else `counterpart
 counterparty name; 422 when it has neither) and the household's non-manual history of that counterparty
 is recategorized. The category must belong to the household (422); a transaction the caller cannot see is 404.
 
+### Category management: `POST /categories`, `PATCH /categories/:id` (admin)
+
+`POST { name, group?, isIncome? }` -> 201 `{ category }`. `name` is trimmed, 1-40 characters, unique per
+household case-insensitively (`de-DE` lower-casing), else 409; `group` is trimmed, at most 40
+characters, and an empty string stores `null`. `PATCH { name?, group?, archived? }` (at least one field)
+renames, regroups or (un)archives; a rename colliding with another category is 409, another household's
+category is 404. The Transfer category (`isTransfer`) is immutable: any PATCH of it is 422. Archived
+categories stay on old transactions and in existing budgets and keep being returned by `GET /categories`
+with `archived: true`; the app hides them from every picker. Members get 403.
+
+### Rules: `GET /rules`, `DELETE /rules/:id` (member)
+
+`GET /rules` lists only the rules the caller created: `id`, `categoryId`, `match` (`{ kind: 'iban' |
+'counterpartyContains', value }`, decrypted for the creator only; the value is sensitive and never logged)
+and `createdAt`. Other members' rules are never listed (they can name a counterparty from an owner-only
+account). `DELETE /rules/:id` removes one of the caller's own rules (204); anything else (another member's,
+another household's, unknown) is 404. Deleting a rule does not recategorize past transactions.
+
 ### Splits: `POST /transactions/:id/splits`
 
 `{ parts: [{ categoryId, amount: { minor, currency } }] }` replaces existing splits. Each part must be

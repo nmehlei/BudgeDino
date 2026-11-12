@@ -49,6 +49,37 @@ export async function loadRules(db: Db, dk: DataKey, householdId: string): Promi
   }));
 }
 
+/**
+ * The rules one member created, with their match decrypted. Rules of other members are never returned
+ * (they can name a counterparty from an owner-only account). Only the two shapes the app creates
+ * (IBAN, counterparty text) are listed.
+ */
+export async function loadOwnRules(db: Db, dk: DataKey, householdId: string, memberId: string) {
+  const rows = await db
+    .select()
+    .from(rules)
+    .where(and(eq(rules.householdId, householdId), eq(rules.createdBy, memberId)))
+    .orderBy(desc(rules.priority), desc(rules.id));
+  const out: {
+    id: string;
+    categoryId: string;
+    match: { kind: 'iban' | 'counterpartyContains'; value: string };
+    createdAt: string;
+  }[] = [];
+  for (const r of rows) {
+    const m = JSON.parse(decryptString(dk, r.matchEnc, ruleAad(r.id))) as RuleMatch;
+    const match = m.counterpartyIban
+      ? ({ kind: 'iban', value: m.counterpartyIban } as const)
+      : m.counterpartyContains
+        ? ({ kind: 'counterpartyContains', value: m.counterpartyContains } as const)
+        : null;
+    if (match) {
+      out.push({ id: r.id, categoryId: r.categoryId, match, createdAt: r.createdAt.toISOString() });
+    }
+  }
+  return out;
+}
+
 /** Creates a household rule with a priority above every existing one. */
 export async function createRule(
   db: Db,
