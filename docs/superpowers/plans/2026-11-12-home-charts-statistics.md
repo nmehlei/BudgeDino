@@ -5,6 +5,7 @@
 **Goal:** Every category gets an icon and colour. Home becomes "am I on track?": a pace chart plus one combined budget-and-category list. A new Statistics tab shows monthly income vs spending and top categories.
 
 **Architecture:**
+
 - **Server (3 tasks):** category `key`/`icon`/`color` (migration 0013 plus shared allowlists); `daily` on `GET /home`; a new `GET /statistics`.
 - **Mobile (4 tasks):** `CategoryIcon` with icon and colour pickers; chart geometry plus `PaceChart`/`MonthBars` on `react-native-svg` (already installed, so no native rebuild); the Home rework; the Statistics tab.
 
