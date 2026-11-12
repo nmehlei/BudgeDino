@@ -15,7 +15,11 @@ import {
   Text,
   TextInput,
 } from 'react-native-paper';
-import type { CategoryInfo } from '@budgedino/shared';
+import {
+  resolveCategoryStyle,
+  type CategoryInfo,
+  type PatchCategoryRequest,
+} from '@budgedino/shared';
 
 import { isApiClientError } from '../api/errors';
 import { useApi } from '../api/useApi';
@@ -24,9 +28,13 @@ import { useMembers } from '../household/queries';
 import { SettingsPage } from '../settings/SettingsPage';
 import { useAppTheme } from '../theme';
 import { txKeys } from '../transactions/keys';
+import { CategoryIcon } from './CategoryIcon';
 import { describeCategoryError } from './queries';
+import { StylePicker, type CategoryStyleValue } from './StylePicker';
+import { useCategoryStyleById } from './useCategoryStyle';
 
 const NO_GROUP = 'No group';
+const DEFAULT_STYLE: CategoryStyleValue = { icon: 'tag', color: 'slate' };
 
 type Editing = { mode: 'create' } | { mode: 'edit'; category: CategoryInfo };
 
@@ -61,6 +69,8 @@ export function CategoriesScreen() {
   const [name, setName] = useState('');
   const [group, setGroup] = useState('');
   const [isIncome, setIsIncome] = useState(false);
+  const [style, setStyle] = useState<CategoryStyleValue>(DEFAULT_STYLE);
+  const styleOf = useCategoryStyleById();
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [archivedClash, setArchivedClash] = useState<CategoryInfo | null>(null);
@@ -80,6 +90,7 @@ export function CategoriesScreen() {
     setName(next.mode === 'edit' ? next.category.name : '');
     setGroup(next.mode === 'edit' ? (next.category.group ?? '') : '');
     setIsIncome(false);
+    setStyle(next.mode === 'edit' ? resolveCategoryStyle(next.category) : DEFAULT_STYLE);
     setFormError(null);
     setArchivedClash(null);
   };
@@ -118,15 +129,20 @@ export function CategoriesScreen() {
           name: trimmed,
           ...(trimmedGroup ? { group: trimmedGroup } : {}),
           isIncome,
+          icon: style.icon,
+          color: style.color,
         });
       } else {
         const { category } = editing;
-        const body: { name?: string; group?: string } = {};
+        const body: { name?: string; group?: string; icon?: string; color?: string } = {};
+        const stored = resolveCategoryStyle(category);
+        if (style.icon !== stored.icon) body.icon = style.icon;
+        if (style.color !== stored.color) body.color = style.color;
         if (trimmed !== category.name) body.name = trimmed;
         // An empty string clears the group (`null` is rejected by the server).
         if (trimmedGroup !== (category.group ?? '')) body.group = trimmedGroup;
-        if (body.name !== undefined || body.group !== undefined) {
-          await api.patchCategory(category.id, body);
+        if (Object.keys(body).length > 0) {
+          await api.patchCategory(category.id, body as PatchCategoryRequest);
         }
       }
       setEditing(null);
@@ -169,6 +185,14 @@ export function CategoriesScreen() {
           titleNumberOfLines={0}
           description={description || undefined}
           descriptionNumberOfLines={0}
+          left={() => {
+            const s = styleOf(c.id);
+            return (
+              <View style={styles.leftIcon}>
+                <CategoryIcon icon={s.icon} color={s.color} size="md" />
+              </View>
+            );
+          }}
           descriptionStyle={{ color: theme.colors.onSurfaceVariant }}
           right={
             actions
@@ -318,6 +342,7 @@ export function CategoriesScreen() {
                           />
                         </View>
                       ) : null}
+                      <StylePicker value={style} onChange={setStyle} />
                       {formError ? (
                         <Text
                           variant="bodyMedium"
@@ -377,6 +402,7 @@ const styles = StyleSheet.create({
   top: { marginTop: 16 },
   addButton: { margin: 16, alignSelf: 'flex-start' },
   message: { gap: 12, alignItems: 'flex-start' },
+  leftIcon: { justifyContent: 'center', paddingLeft: 8 },
   actions: { flexDirection: 'row', alignItems: 'center' },
   dialogScroll: { maxHeight: 360, paddingHorizontal: 0 },
   form: { gap: 12, paddingHorizontal: 24, paddingVertical: 8 },

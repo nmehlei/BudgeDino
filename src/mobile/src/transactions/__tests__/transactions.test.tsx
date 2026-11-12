@@ -1,6 +1,6 @@
 import type { AccountInfo, CategoryInfo, TransactionInfo } from '@budgedino/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { PixelRatio, StyleSheet } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 
@@ -122,6 +122,17 @@ beforeEach(() => {
 });
 
 describe('TransactionsScreen', () => {
+  it('transaction rows show the category icon', async () => {
+    mockApi.listTransactions.mockResolvedValueOnce({
+      transactions: [tx({ id: 't1' })],
+      nextCursor: null,
+      scannedUntil: null,
+    });
+    await renderWithProviders(<TransactionsScreen />);
+    const row = await screen.findByTestId('tx-row-t1');
+    expect(within(row).getByTestId('category-icon', { includeHiddenElements: true })).toBeTruthy();
+  });
+
   it('groups by booking date, shows a pending badge and paginates with the cursor', async () => {
     mockApi.listTransactions
       .mockResolvedValueOnce({

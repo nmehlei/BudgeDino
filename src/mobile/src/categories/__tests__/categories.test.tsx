@@ -112,10 +112,45 @@ describe('CategoriesScreen', () => {
         name: 'Pets',
         group: 'Living',
         isIncome: false,
+        icon: 'tag',
+        color: 'slate',
       });
     });
     await waitFor(() => {
       expect(mockApi.listCategories).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('creating a category sends icon and color', async () => {
+    mockApi.createCategory.mockResolvedValue({ category: cat('c9', 'Pets') });
+    await renderUi(<CategoriesScreen />);
+    await screen.findByText('Groceries');
+    await fireEvent.press(await screen.findByTestId('add-category'));
+    await fireEvent.changeText(screen.getByTestId('category-name'), 'Pets');
+    await fireEvent.press(screen.getByTestId('icon-option-dog'));
+    await fireEvent.press(screen.getByTestId('color-option-teal'));
+    expect(screen.getByTestId('icon-option-dog').props.accessibilityState.selected).toBe(true);
+    expect(screen.getByLabelText('dog')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('category-save'));
+    await waitFor(() => {
+      expect(mockApi.createCategory).toHaveBeenCalledWith({
+        name: 'Pets',
+        isIncome: false,
+        icon: 'dog',
+        color: 'teal',
+      });
+    });
+  });
+
+  it("editing a category's colour sends PATCH { color }", async () => {
+    mockApi.patchCategory.mockResolvedValue({ category: cat('c1', 'Groceries') });
+    await renderUi(<CategoriesScreen />);
+    await screen.findByText('Groceries');
+    await fireEvent.press(await screen.findByTestId('edit-category-c1'));
+    await fireEvent.press(screen.getByTestId('color-option-red'));
+    await fireEvent.press(screen.getByTestId('category-save'));
+    await waitFor(() => {
+      expect(mockApi.patchCategory).toHaveBeenCalledWith('c1', { color: 'red' });
     });
   });
 

@@ -24,6 +24,8 @@ import {
   useTransactionsList,
 } from './queries';
 import { ScreenHeader } from './ScreenHeader';
+import { CategoryIcon } from '../categories/CategoryIcon';
+import { useCategoryStyleById } from '../categories/useCategoryStyle';
 import { useAmountColor } from './TransactionRow';
 
 function Field({ label, value }: { label: string; value: string }) {
@@ -48,6 +50,7 @@ export function TransactionDetailScreen({ id }: { id: string }) {
   const [toast, setToast] = useState<string | null>(null);
 
   const tx = useCachedTransaction(id);
+  const styleOf = useCategoryStyleById();
   const names = useMemo(() => categoryNameMap(categories.data), [categories.data]);
   const amountColor = useAmountColor(tx?.amountMinor ?? '0');
 
@@ -150,6 +153,14 @@ export function TransactionDetailScreen({ id }: { id: string }) {
                   titleNumberOfLines={0}
                   description={c.group ?? undefined}
                   descriptionNumberOfLines={0}
+                  left={() => {
+                    const s = styleOf(c.id);
+                    return (
+                      <View style={styles.pickIcon}>
+                        <CategoryIcon icon={s.icon} color={s.color} size="sm" />
+                      </View>
+                    );
+                  }}
                   onPress={() => pick(c.id)}
                   testID={`category-${c.id}`}
                   accessibilityState={{ selected: c.id === tx.categoryId }}
@@ -171,6 +182,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   content: { padding: 16, gap: 14, paddingBottom: 48 },
+  pickIcon: { justifyContent: 'center', paddingLeft: 8 },
   badgeRow: { flexDirection: 'row' },
   field: { gap: 2 },
   toggle: { paddingVertical: 8 },

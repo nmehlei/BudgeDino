@@ -2,6 +2,8 @@ import type { TransactionInfo } from '@budgedino/shared';
 import { StyleSheet, View } from 'react-native';
 import { Text, TouchableRipple } from 'react-native-paper';
 
+import { CategoryIcon } from '../categories/CategoryIcon';
+import { useCategoryStyleById } from '../categories/useCategoryStyle';
 import { formatMoney } from '../format/money';
 import { useAppTheme, useSuccessColor } from '../theme';
 import { PendingBadge } from './PendingBadge';
@@ -24,6 +26,7 @@ export function TransactionRow({ transaction: tx, categoryName, onPress }: Props
   const theme = useAppTheme();
   const amountColor = useAmountColor(tx.amountMinor);
   const split = tx.splits.length > 0;
+  const style = useCategoryStyleById()(split ? null : tx.categoryId);
   return (
     <TouchableRipple
       onPress={() => onPress(tx.id)}
@@ -32,6 +35,7 @@ export function TransactionRow({ transaction: tx, categoryName, onPress }: Props
       style={styles.row}
     >
       <View style={styles.inner}>
+        <CategoryIcon icon={style.icon} color={style.color} size="md" />
         <View style={styles.main}>
           <Text variant="bodyLarge">{tx.counterparty ?? 'Unknown'}</Text>
           <View style={styles.meta}>

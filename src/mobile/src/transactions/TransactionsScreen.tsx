@@ -17,6 +17,8 @@ import {
   useTransactionsList,
   type TransactionFilters,
 } from './queries';
+import { CategoryIcon } from '../categories/CategoryIcon';
+import { useCategoryStyleById } from '../categories/useCategoryStyle';
 import { TransactionRow } from './TransactionRow';
 
 export const SEARCH_DEBOUNCE_MS = 300;
@@ -86,6 +88,7 @@ export function TransactionsScreen({ params }: { params?: TransactionsParams }) 
   const categories = useCategories();
   const pickable = usePickableCategories();
   const accounts = useAccounts();
+  const styleOf = useCategoryStyleById();
   const names = useMemo(() => categoryNameMap(categories.data), [categories.data]);
   const transactions = useMemo(() => flattenPages(list.data), [list.data]);
   const sections = useMemo(() => groupByBookingDate(transactions), [transactions]);
@@ -177,6 +180,10 @@ export function TransactionsScreen({ params }: { params?: TransactionsParams }) 
               key={c.id}
               testID={`category-option-${c.id}`}
               title={c.name}
+              leadingIcon={() => {
+                const s = styleOf(c.id);
+                return <CategoryIcon icon={s.icon} color={s.color} size="sm" />;
+              }}
               onPress={() => setCategory({ categoryId: c.id })}
             />
           ))}

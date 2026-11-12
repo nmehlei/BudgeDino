@@ -120,7 +120,8 @@ Bottom tabs: Home, Transactions, Connections, More. The `(app)` layout is also t
 - **List.** `GET /transactions` with the server's cursor (`limit` 50), loaded as an infinite list on
   end-reached and refreshed by pull-to-refresh. Grouped by booking date; headers read "Today",
   "Yesterday" or "Mon, 9 Nov 2026", with "today" taken in Europe/Berlin. Each row shows counterparty,
-  category name (from `GET /categories`; "Split" for split transactions, "Uncategorized" otherwise),
+  category name (from `GET /categories`; "Split" for split transactions, "Uncategorized" otherwise) with the
+  category's icon (`CategoryIcon`, see "Categories and rules"; uncategorised and split rows use the grey `help` glyph),
   a "Pending" badge for pending ones and the amount (negative in the neutral text colour, positive green).
   Offline, cached pages stay visible under a banner with Retry.
 - **Detail.** Counterparty, purpose, account, booking date, category. Tapping a category sends
@@ -275,6 +276,16 @@ Budgets, Household, Categories & rules, Settings, About) that opens `more/catego
   archived one the dialog offers "Unarchive <name>". The Transfer category shows no actions (the server answers 422).
 - **Members** see the list read-only ("Only admins can change categories."). If the members lookup fails the screen
   shows an error with Retry instead of a silent member view.
+- **Icons and colours.** Every category has a MaterialCommunityIcons glyph and a palette colour (`CATEGORY_ICONS`,
+  `CATEGORY_COLORS` in `@budgedino/shared`; the server stores keys only). `CategoryIcon` draws a circle (28 / 36 / 44 dp)
+  filled with the colour at 13 % opacity and the glyph in the colour at 55 % of the size; it is decorative and hidden
+  from screen readers (the name is always beside it). `useCategoryStyleById()` resolves an id from the cached
+  categories query (archived ones included): stored values, else the deterministic fallback (`tag` + a colour derived
+  from the id); `null` (uncategorised) is grey `help`. Colours follow the resolved theme (`useCategoryColor`).
+  Icons appear in the category list, transaction rows, the transaction detail category picker and the category filter
+  menu. Admins pick the icon (6-column grid of 44 dp targets, labelled with the glyph name) and colour (18 swatches
+  that wrap) in the add/edit dialog; the selected item has a 2 dp primary outline. New categories send `icon` and
+  `color` (default `tag` / slate); editing sends only what changed.
 - **After a change** the `categories`, `budgets`, `home` and `transactions` queries are invalidated.
 - **Rules.** `more/categories/rules` lists the caller's own rules as "<counterparty text or IBAN> → <category>"
   (archived categories resolve too) with a delete action behind a confirm dialog that says past transactions keep
