@@ -71,7 +71,6 @@ export default function RegisterScreen() {
           setError(healthErrorMessage(e));
           return;
         }
-        session.setServerUrl(linkTarget);
       }
       const res = await createAuthApi(target).register({
         inviteToken: inviteToken.trim(),
@@ -80,6 +79,8 @@ export default function RegisterScreen() {
         password,
         deviceName: deviceName.trim(),
       });
+      // The link's server is persisted only now that registration succeeded (register-totp reads it).
+      if (linkTarget) session.setServerUrl(linkTarget);
       session.setDeviceName(deviceName.trim());
       pendingRegistration.set(res);
       setPassword('');

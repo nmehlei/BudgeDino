@@ -193,8 +193,8 @@ More has a "Household" entry (`account-group-outline`, after Budgets, above Sett
   cleartext) and is held in component state only: opening a link never changes the stored server. A valid server
   shows "Joining a household on <host>" above the form, so a link with a foreign host is visible before a password
   is typed. On Continue the app first runs the same `health()` check as the server screen against the link's
-  server, and only if it answers stores it as the session server and registers against it; otherwise nothing is
-  stored. While signed in, the link is refused ("Sign out first to join another household.") and the session is
+  server and registers against it. Only after registration succeeded is the server stored as the session server
+  (before opening the TOTP step, which reads it); any failure (health, invite, network) stores nothing. While signed in, the link is refused ("Sign out first to join another household.") and the session is
   untouched, since changing the server would send the session token elsewhere. A rejected server shows the usual
   validation message, stores nothing and shows no banner. Without link params nothing changes.
 - **Invite sheet and revoke.** The sheet scrolls (font scale 2); revoking an invite asks for confirmation first.

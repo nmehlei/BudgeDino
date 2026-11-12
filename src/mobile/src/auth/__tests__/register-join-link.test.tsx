@@ -68,7 +68,7 @@ describe('register via join link', () => {
     expect(mockSession.setServerUrl).not.toHaveBeenCalled();
   });
 
-  it('persists the link server only on a successful submit, after the health check', async () => {
+  it('persists the link server only after health and registration succeeded, before navigating', async () => {
     mockParams = { server: 'https://budget.example.com/', invite: 'abc' };
     await renderScreen();
     await fillAndSubmit();
@@ -78,9 +78,24 @@ describe('register via join link', () => {
     expect(mockCreateAuthApi).toHaveBeenCalledWith('https://budget.example.com');
     expect(mockCreateAuthApi).not.toHaveBeenCalledWith('https://mine.example.org');
     expect(mockSession.setServerUrl).toHaveBeenCalledWith('https://budget.example.com');
-    expect(mockApi.health.mock.invocationCallOrder[0]).toBeLessThan(
-      mockSession.setServerUrl.mock.invocationCallOrder[0] ?? 0,
-    );
+    const stored = mockSession.setServerUrl.mock.invocationCallOrder[0] ?? 0;
+    expect(mockApi.health.mock.invocationCallOrder[0]).toBeLessThan(stored);
+    expect(mockApi.register.mock.invocationCallOrder[0]).toBeLessThan(stored);
+    expect(stored).toBeLessThan(mockRouter.push.mock.invocationCallOrder[0] ?? 0);
+  });
+
+  it('stores nothing and keeps the previous server when registration fails', async () => {
+    mockParams = { server: 'https://budget.example.com', invite: 'abc' };
+    mockSession.serverUrl = 'https://mine.example.org';
+    mockApi.register.mockRejectedValue(new ApiClientError({ kind: 'server', status: 500 }));
+    await renderScreen();
+    await fillAndSubmit();
+    await waitFor(() => {
+      expect(mockApi.register).toHaveBeenCalled();
+    });
+    expect(mockSession.setServerUrl).not.toHaveBeenCalled();
+    expect(mockSession.serverUrl).toBe('https://mine.example.org');
+    expect(mockRouter.push).not.toHaveBeenCalled();
   });
 
   it('stores nothing when the link server fails its health check', async () => {
