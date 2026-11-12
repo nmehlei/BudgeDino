@@ -1,12 +1,12 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Device from 'expo-device';
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Button, HelperText, Text, TextInput } from 'react-native-paper';
 
 import { createAuthApi } from '../../src/auth/api';
 import { AuthScreen } from '../../src/auth/AuthScreen';
 import { allowCleartext } from '../../src/auth/config';
-import { registerErrorMessage } from '../../src/auth/messages';
+import { healthErrorMessage, registerErrorMessage } from '../../src/auth/messages';
 import { pendingRegistration } from '../../src/auth/pending-registration';
 import { passwordHint, validateServerUrl } from '../../src/auth/validation';
 import { useSession } from '../../src/session/useSession';
@@ -22,8 +22,6 @@ export default function RegisterScreen() {
   const params = useLocalSearchParams<{ server?: string | string[]; invite?: string | string[] }>();
   const linkServer = firstParam(params.server);
   const [inviteToken, setInviteToken] = useState(firstParam(params.invite) ?? '');
-  // Set only when opened through a join link whose server passed validation.
-  const [joinHost, setJoinHost] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
@@ -34,21 +32,18 @@ export default function RegisterScreen() {
 
   const [error, setError] = useState<string | null>(null);
 
-  // A join link (D5) names the server. Validate it like the server screen does, store it, and show the host
-  // prominently so a link pointing at a foreign host is visible before a password is typed.
-  const { setServerUrl } = session;
-  useEffect(() => {
-    if (!linkServer) return;
-    const parsed = validateServerUrl(linkServer, allowCleartext());
-    if (parsed.ok) {
-      setServerUrl(parsed.url);
-      setJoinHost(hostOf(parsed.url));
-      setError(null);
-    } else {
-      setJoinHost(null);
-      setError(parsed.message);
-    }
-  }, [linkServer, setServerUrl]);
+  // A join link (D5) names the server. It is only validated and held here (never stored on open): a link must
+  // not be able to switch the server of a configured or signed-in app. It is persisted in submit(), after the
+  // user commits and the server answered its health check. The host is shown so a foreign host is visible.
+  const signedIn = session.status === 'signed_in';
+  const link = useMemo(() => {
+    if (!linkServer) return null;
+    return validateServerUrl(linkServer, allowCleartext());
+  }, [linkServer]);
+  const linkRefusal = linkServer && signedIn ? 'Sign out first to join another household.' : null;
+  const linkTarget = link?.ok && !signedIn ? link.url : null;
+  const joinHost = linkTarget ? hostOf(linkTarget) : null;
+  const shownError = error ?? linkRefusal ?? (link && !link.ok ? link.message : null);
 
   const hint = passwordHint(password);
   const ready =
@@ -56,17 +51,29 @@ export default function RegisterScreen() {
     email.trim() !== '' &&
     displayName.trim() !== '' &&
     deviceName.trim() !== '' &&
-    hint.level !== 'short';
+    hint.level !== 'short' &&
+    !linkRefusal &&
+    !(link && !link.ok);
 
   async function submit() {
-    if (!session.serverUrl) {
+    const target = linkTarget ?? session.serverUrl;
+    if (!target) {
       router.replace('/(auth)/server');
       return;
     }
     setError(null);
     setBusy(true);
     try {
-      const res = await createAuthApi(session.serverUrl).register({
+      if (linkTarget) {
+        try {
+          await createAuthApi(linkTarget).health();
+        } catch (e) {
+          setError(healthErrorMessage(e));
+          return;
+        }
+        session.setServerUrl(linkTarget);
+      }
+      const res = await createAuthApi(target).register({
         inviteToken: inviteToken.trim(),
         email: email.trim(),
         displayName: displayName.trim(),
@@ -141,9 +148,9 @@ export default function RegisterScreen() {
         value={deviceName}
         onChangeText={setDeviceName}
       />
-      {error ? (
+      {shownError ? (
         <HelperText type="error" visible>
-          {error}
+          {shownError}
         </HelperText>
       ) : null}
       <Button

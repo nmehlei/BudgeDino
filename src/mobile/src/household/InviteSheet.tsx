@@ -1,6 +1,6 @@
 import type { Role } from '@budgedino/shared';
 import { useState } from 'react';
-import { Share, StyleSheet, View } from 'react-native';
+import { ScrollView, Share, StyleSheet, View } from 'react-native';
 import { Button, HelperText, Modal, Portal, SegmentedButtons, Text } from 'react-native-paper';
 import QRCode from 'react-native-qrcode-svg';
 
@@ -65,66 +65,69 @@ export function InviteSheet({
         onDismiss={() => !busy && onClose(created !== null)}
         contentContainerStyle={[styles.sheet, { backgroundColor: theme.colors.surface }]}
       >
-        <Text variant="titleLarge">Invite someone</Text>
-        {created ? (
-          <View style={styles.body}>
-            <View style={styles.qr} accessibilityLabel="Invite QR code">
-              <QRCode value={created.link} size={200} backgroundColor="white" color="black" />
+        <ScrollView contentContainerStyle={styles.scroll}>
+          <Text variant="titleLarge">Invite someone</Text>
+          {created ? (
+            <View style={styles.body}>
+              <View style={styles.qr} accessibilityLabel="Invite QR code">
+                <QRCode value={created.link} size={200} backgroundColor="white" color="black" />
+              </View>
+              <Text variant="bodyMedium">
+                {`Scan this code on the new member's phone or share the link. It works once and expires ${formatDateTime(Date.parse(created.expiresAt))}.`}
+              </Text>
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                This code is shown only now. Anyone with it can join, so share it privately.
+              </Text>
+              {error ? <HelperText type="error">{error}</HelperText> : null}
+              <View style={styles.actions}>
+                <Button mode="contained" icon="share-variant" onPress={share} testID="invite-share">
+                  Share link
+                </Button>
+                <Button onPress={() => onClose(true)} testID="invite-done">
+                  Done
+                </Button>
+              </View>
             </View>
-            <Text variant="bodyMedium">
-              {`Scan this code on the new member's phone or share the link. It works once and expires ${formatDateTime(Date.parse(created.expiresAt))}.`}
-            </Text>
-            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-              This code is shown only now. Anyone with it can join, so share it privately.
-            </Text>
-            {error ? <HelperText type="error">{error}</HelperText> : null}
-            <View style={styles.actions}>
-              <Button mode="contained" icon="share-variant" onPress={share} testID="invite-share">
-                Share link
-              </Button>
-              <Button onPress={() => onClose(true)} testID="invite-done">
-                Done
-              </Button>
+          ) : (
+            <View style={styles.body}>
+              <Text variant="bodyMedium">What role should the new member get?</Text>
+              <SegmentedButtons
+                value={role}
+                onValueChange={(v) => setRole(v as Role)}
+                buttons={[
+                  { value: 'member', label: 'Member', testID: 'invite-role-member' },
+                  { value: 'admin', label: 'Admin', testID: 'invite-role-admin' },
+                ]}
+              />
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                Admins can also manage budgets and invite others.
+              </Text>
+              {error ? <HelperText type="error">{error}</HelperText> : null}
+              <View style={styles.actions}>
+                <Button
+                  mode="contained"
+                  onPress={() => void create()}
+                  loading={busy}
+                  disabled={busy}
+                  testID="invite-create"
+                >
+                  Create invite
+                </Button>
+                <Button onPress={() => onClose(false)} disabled={busy} testID="invite-cancel">
+                  Cancel
+                </Button>
+              </View>
             </View>
-          </View>
-        ) : (
-          <View style={styles.body}>
-            <Text variant="bodyMedium">What role should the new member get?</Text>
-            <SegmentedButtons
-              value={role}
-              onValueChange={(v) => setRole(v as Role)}
-              buttons={[
-                { value: 'member', label: 'Member', testID: 'invite-role-member' },
-                { value: 'admin', label: 'Admin', testID: 'invite-role-admin' },
-              ]}
-            />
-            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-              Admins can also manage budgets and invite others.
-            </Text>
-            {error ? <HelperText type="error">{error}</HelperText> : null}
-            <View style={styles.actions}>
-              <Button
-                mode="contained"
-                onPress={() => void create()}
-                loading={busy}
-                disabled={busy}
-                testID="invite-create"
-              >
-                Create invite
-              </Button>
-              <Button onPress={() => onClose(false)} disabled={busy} testID="invite-cancel">
-                Cancel
-              </Button>
-            </View>
-          </View>
-        )}
+          )}
+        </ScrollView>
       </Modal>
     </Portal>
   );
 }
 
 const styles = StyleSheet.create({
-  sheet: { margin: 16, padding: 20, borderRadius: 16, gap: 12 },
+  sheet: { margin: 16, padding: 20, borderRadius: 16, maxHeight: '90%' },
+  scroll: { gap: 12 },
   body: { gap: 12 },
   qr: { alignSelf: 'center', padding: 12, backgroundColor: 'white', borderRadius: 8 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end' },

@@ -4,9 +4,11 @@ import { StyleSheet, View } from 'react-native';
 import {
   ActivityIndicator,
   Button,
+  Dialog,
   Divider,
   IconButton,
   List,
+  Portal,
   Snackbar,
   Text,
 } from 'react-native-paper';
@@ -18,7 +20,7 @@ import { useSession } from '../session/useSession';
 import { SettingsPage } from '../settings/SettingsPage';
 import { useAppTheme } from '../theme';
 import { InviteSheet } from './InviteSheet';
-import { invitesKey, useInvites, useMembers } from './queries';
+import { invitesKey, membersKey, useInvites, useMembers } from './queries';
 
 const ROLE_LABEL = { admin: 'Admin', member: 'Member' } as const;
 
@@ -32,6 +34,7 @@ export function HouseholdScreen() {
   const invites = useInvites(isAdmin);
   const [inviting, setInviting] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
+  const [confirmRevoke, setConfirmRevoke] = useState<{ id: string; label: string } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const revoke = async (id: string) => {
@@ -54,7 +57,7 @@ export function HouseholdScreen() {
       setRevoking(null);
       void client.invalidateQueries({ queryKey: invitesKey });
       // A used invite means a new member.
-      void client.invalidateQueries({ queryKey: ['household', 'members'] });
+      void client.invalidateQueries({ queryKey: membersKey });
     }
   };
 
@@ -127,7 +130,12 @@ export function HouseholdScreen() {
                           icon="close-circle-outline"
                           accessibilityLabel={`Revoke ${ROLE_LABEL[inv.role]} invite`}
                           disabled={revoking === inv.id}
-                          onPress={() => void revoke(inv.id)}
+                          onPress={() =>
+                            setConfirmRevoke({
+                              id: inv.id,
+                              label: `${ROLE_LABEL[inv.role]} invite`,
+                            })
+                          }
                           testID={`revoke-invite-${inv.id}`}
                         />
                       )}
@@ -175,6 +183,34 @@ export function HouseholdScreen() {
       overlay={
         <>
           {inviting ? <InviteSheet serverUrl={session.serverUrl} onClose={closeSheet} /> : null}
+          <Portal>
+            {confirmRevoke ? (
+              <Dialog visible onDismiss={() => setConfirmRevoke(null)} testID="revoke-dialog">
+                <Dialog.Title>Revoke invite?</Dialog.Title>
+                <Dialog.Content>
+                  <Text variant="bodyMedium">
+                    {`The ${confirmRevoke.label} can no longer be used to join.`}
+                  </Text>
+                </Dialog.Content>
+                <Dialog.Actions>
+                  <Button onPress={() => setConfirmRevoke(null)} testID="revoke-cancel">
+                    Cancel
+                  </Button>
+                  <Button
+                    textColor={theme.colors.error}
+                    onPress={() => {
+                      const { id } = confirmRevoke;
+                      setConfirmRevoke(null);
+                      void revoke(id);
+                    }}
+                    testID="revoke-confirm"
+                  >
+                    Revoke
+                  </Button>
+                </Dialog.Actions>
+              </Dialog>
+            ) : null}
+          </Portal>
           <Snackbar visible={toast !== null} onDismiss={() => setToast(null)} duration={5000}>
             {toast ?? ''}
           </Snackbar>

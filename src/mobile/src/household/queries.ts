@@ -14,7 +14,7 @@ export function useMembers() {
 
 export const invitesKey = ['household', 'invites'] as const;
 
-/** Pending invites (admin only: pass `enabled` from `useIsAdmin`). Holds ids, roles and expiry, never tokens. */
+/** Pending invites (admin only: the caller passes `enabled` once the members lookup shows an admin). Holds ids, roles and expiry, never tokens. */
 export function useInvites(enabled: boolean) {
   const api = useApi();
   return useQuery({

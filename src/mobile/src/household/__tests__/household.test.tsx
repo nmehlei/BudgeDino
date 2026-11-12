@@ -186,6 +186,8 @@ describe('HouseholdScreen', () => {
 
     mockApi.listInvites.mockResolvedValue({ invites: [] });
     await fireEvent.press(screen.getByTestId('revoke-invite-i1'));
+    expect(mockApi.revokeInvite).not.toHaveBeenCalled();
+    await fireEvent.press(await screen.findByTestId('revoke-confirm'));
     await waitFor(() => {
       expect(mockApi.revokeInvite).toHaveBeenCalledWith('i1');
     });
@@ -198,7 +200,26 @@ describe('HouseholdScreen', () => {
     mockApi.revokeInvite.mockRejectedValue(new ApiClientError({ kind: 'server', status: 409 }));
     await renderScreen();
     await fireEvent.press(await screen.findByTestId('revoke-invite-i1'));
+    await fireEvent.press(await screen.findByTestId('revoke-confirm'));
     expect(await screen.findByText('This invite was already used')).toBeTruthy();
+    await waitFor(() => {
+      expect(mockApi.listInvites).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('does not revoke when the confirm dialog is cancelled', async () => {
+    await renderScreen();
+    await fireEvent.press(await screen.findByTestId('revoke-invite-i1'));
+    await fireEvent.press(await screen.findByTestId('revoke-cancel'));
+    expect(mockApi.revokeInvite).not.toHaveBeenCalled();
+  });
+
+  it('says so and refetches when the invite no longer exists (404)', async () => {
+    mockApi.revokeInvite.mockRejectedValue(new ApiClientError({ kind: 'server', status: 404 }));
+    await renderScreen();
+    await fireEvent.press(await screen.findByTestId('revoke-invite-i1'));
+    await fireEvent.press(await screen.findByTestId('revoke-confirm'));
+    expect(await screen.findByText('This invite no longer exists')).toBeTruthy();
     await waitFor(() => {
       expect(mockApi.listInvites).toHaveBeenCalledTimes(2);
     });
