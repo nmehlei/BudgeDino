@@ -1,8 +1,11 @@
+import { defaultShouldDehydrateQuery, type Query } from '@tanstack/react-query';
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
 import Constants from 'expo-constants';
 import { getRandomBytes } from 'expo-crypto';
 import { getItemAsync, setItemAsync, WHEN_UNLOCKED_THIS_DEVICE_ONLY } from 'expo-secure-store';
 import { createMMKV, deleteMMKV, type MMKV } from 'react-native-mmkv';
+
+import { isSearchQueryKey } from '../transactions/keys';
 
 export const CACHE_STORE_ID = 'budgedino-cache';
 export const CACHE_KEY_SECURE_STORE_KEY = 'budgedino.cache-key';
@@ -104,7 +107,12 @@ export async function openSecureCache(deps: SecureCacheDeps = defaultSecureCache
      * Only successful queries are persisted. Mutations never are: a paused login or register
      * mutation would otherwise write the password or TOTP code into MMKV.
      */
-    dehydrateOptions: { shouldDehydrateMutation: () => false },
+    dehydrateOptions: {
+      shouldDehydrateMutation: () => false,
+      // Search text and its results (payees, purposes) stay in memory only.
+      shouldDehydrateQuery: (query: Query) =>
+        defaultShouldDehydrateQuery(query) && !isSearchQueryKey(query.queryKey),
+    },
     /** Wipes every persisted query. Used by sign-out. */
     clear: () => {
       persister.removeClient();

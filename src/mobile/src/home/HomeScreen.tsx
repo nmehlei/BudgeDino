@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { isApiClientError } from '../api/errors';
 import { useApi } from '../api/useApi';
-import { formatDateTime, formatPeriodLabel } from '../format/time';
+import { formatDateTime, formatPeriodLabel, HOUSEHOLD_TZ_FALLBACK, zonedYmd } from '../format/time';
 import { shouldRetryQuery } from '../providers';
 import { useAppTheme } from '../theme';
 import { BreakdownList } from './BreakdownList';
@@ -70,6 +70,27 @@ export function HomeScreen() {
     router.push('/connections');
   }, [router]);
 
+  const openCategory = useCallback(
+    (categoryId: string | null) => {
+      if (!data) return;
+      // The period's end is exclusive; the transactions filter takes inclusive booking dates.
+      const start = Date.parse(data.period.start);
+      const end = Date.parse(data.period.end);
+      const period =
+        Number.isNaN(start) || Number.isNaN(end)
+          ? {}
+          : {
+              from: zonedYmd(start, HOUSEHOLD_TZ_FALLBACK).iso,
+              to: zonedYmd(Math.max(start, end - 1), HOUSEHOLD_TZ_FALLBACK).iso,
+            };
+      router.push({
+        pathname: '/transactions',
+        params: categoryId === null ? { uncategorized: '1', ...period } : { categoryId, ...period },
+      });
+    },
+    [data, router],
+  );
+
   const failed = home.isError;
   const offline = isNetworkError(home.error);
 
@@ -104,6 +125,7 @@ export function HomeScreen() {
             income={data.income}
             uncategorizedIncome={data.uncategorizedIncome}
             fxMissing={data.fxMissing}
+            onSelectCategory={openCategory}
           />
         </View>
       </>

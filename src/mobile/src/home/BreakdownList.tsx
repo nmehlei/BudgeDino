@@ -1,6 +1,6 @@
 import type { HomeResponse } from '@budgedino/shared';
 import { StyleSheet, View } from 'react-native';
-import { Divider, Text } from 'react-native-paper';
+import { Divider, Text, TouchableRipple } from 'react-native-paper';
 
 import { formatMoney } from '../format/money';
 import { useAppTheme } from '../theme';
@@ -24,9 +24,19 @@ export function sortBreakdown(items: Breakdown): Breakdown {
   });
 }
 
-function Row({ label, value, testID }: { label: string; value: string; testID?: string }) {
-  return (
-    <View style={styles.row} testID={testID}>
+function Row({
+  label,
+  value,
+  testID,
+  onPress,
+}: {
+  label: string;
+  value: string;
+  testID?: string;
+  onPress?: () => void;
+}) {
+  const content = (
+    <View style={styles.row} testID={onPress ? undefined : testID}>
       <Text variant="bodyLarge" style={styles.label}>
         {label}
       </Text>
@@ -35,6 +45,17 @@ function Row({ label, value, testID }: { label: string; value: string; testID?: 
       </Text>
     </View>
   );
+  if (!onPress) return content;
+  return (
+    <TouchableRipple
+      onPress={onPress}
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={`${label}, ${value}. Show transactions`}
+    >
+      {content}
+    </TouchableRipple>
+  );
 }
 
 export function BreakdownList({
@@ -42,7 +63,11 @@ export function BreakdownList({
   income,
   uncategorizedIncome,
   fxMissing,
-}: Pick<HomeResponse, 'breakdown' | 'income' | 'uncategorizedIncome' | 'fxMissing'>) {
+  onSelectCategory,
+}: Pick<HomeResponse, 'breakdown' | 'income' | 'uncategorizedIncome' | 'fxMissing'> & {
+  /** Called with the category id, or null for the uncategorised row. */
+  onSelectCategory?: (categoryId: string | null) => void;
+}) {
   const theme = useAppTheme();
   const sorted = sortBreakdown(breakdown);
   return (
@@ -59,6 +84,7 @@ export function BreakdownList({
             testID="breakdown-row"
             label={item.name}
             value={formatMoney(item.spent)}
+            onPress={onSelectCategory ? () => onSelectCategory(item.categoryId) : undefined}
           />
         ))
       )}

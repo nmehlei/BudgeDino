@@ -1,3 +1,4 @@
+import { QueryClient } from '@tanstack/react-query';
 import type { PersistedClient } from '@tanstack/react-query-persist-client';
 
 import {
@@ -136,5 +137,19 @@ describe('secure cache', () => {
     const cache = await openSecureCache(deps);
     expect(cache.buster).toBe(`${String(CACHE_SCHEMA_VERSION)}:1.2.3`);
     expect(cache.dehydrateOptions.shouldDehydrateMutation()).toBe(false);
+  });
+
+  it('persists transaction lists but never text-search results', async () => {
+    const { deps } = makeDeps();
+    const cache = await openSecureCache(deps);
+    const client = new QueryClient();
+    const keyed = (queryKey: readonly unknown[]) => {
+      const query = client.getQueryCache().build(client, { queryKey });
+      query.setData({});
+      return query;
+    };
+    const { shouldDehydrateQuery } = cache.dehydrateOptions;
+    expect(shouldDehydrateQuery(keyed(['transactions', 'list', {}]))).toBe(true);
+    expect(shouldDehydrateQuery(keyed(['transactions', 'search', { q: 'rewe' }]))).toBe(false);
   });
 });

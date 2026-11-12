@@ -89,6 +89,21 @@ Bottom tabs: Home, Transactions, Connections, More. The `(app)` layout is also t
   On success the `home` and `transactions` queries are invalidated (a rule can touch many rows and
   moves budgets). Split transactions are shown read-only. The detail reads the transaction from the
   cached list (there is no single-transaction endpoint).
+- **Search and filters.** A search field sits above the list. Text is debounced by 300 ms and sent as
+  `q` (trimmed) only once it has at least 2 characters. Chips filter by category (including
+  "Uncategorised", sent as `uncategorized=true`), by account and by date range (`from`/`to`, inclusive
+  booking dates; labelled "1 Nov – 30 Nov"). Each active chip has a remove control. Filters and `q` are part of
+  the query key. The category picker hides archived categories. **Text searches are never persisted to the
+  offline cache** (search text and matches are payees and purposes): they live under the
+  `transactions/search` query prefix, which the cache's `shouldDehydrateQuery` excludes.
+- **Search scan cap.** The server scans at most 5,000 rows per request. A page with no matches but a
+  `nextCursor` shows "Searched back to <dd.mm.yyyy>" (from `scannedUntil`) with a "Search further" button that
+  fetches the next page, instead of "No results"; the list does not auto-continue an empty scan. An
+  empty final page (no cursor) reads "No results". Matches already shown keep paging on end-reached.
+- **Home drill-down.** Tapping a Home breakdown row opens the Transactions tab with route params
+  `categoryId` (or `uncategorized=1` for the uncategorised row) plus `from`/`to`, the displayed period's
+  first and last day in Europe/Berlin. The screen applies them as chips (replacing earlier category and
+  date filters, keeping the account filter).
 - **Accessibility.** Rows and fields wrap instead of truncating, so they stay usable at font scale 2.
 
 ## Settings > Accounts

@@ -103,12 +103,14 @@ describe('TransactionsScreen', () => {
           tx({ id: 't2', bookingDate: '2026-11-05', status: 'pending', counterparty: 'Cafe' }),
         ],
         nextCursor: '2026-11-05|00000000-0000-0000-0000-000000000002',
+        scannedUntil: null,
       })
       .mockResolvedValueOnce({
         transactions: [
           tx({ id: 't3', bookingDate: '2026-11-04', counterparty: 'Kino', amountMinor: '2500' }),
         ],
         nextCursor: null,
+        scannedUntil: null,
       });
     await renderWithProviders(<TransactionsScreen />);
 
@@ -137,7 +139,11 @@ describe('TransactionsScreen', () => {
   });
 
   it('opens the detail screen on press', async () => {
-    mockApi.listTransactions.mockResolvedValue({ transactions: [tx()], nextCursor: null });
+    mockApi.listTransactions.mockResolvedValue({
+      transactions: [tx()],
+      nextCursor: null,
+      scannedUntil: null,
+    });
     await renderWithProviders(<TransactionsScreen />);
     await fireEvent.press(await screen.findByTestId('tx-row-t1'));
     expect(mockRouter.push).toHaveBeenCalledWith('/transaction/t1');
@@ -152,7 +158,11 @@ describe('TransactionsScreen', () => {
 
 describe('TransactionDetailScreen', () => {
   async function renderDetail() {
-    mockApi.listTransactions.mockResolvedValue({ transactions: [tx()], nextCursor: null });
+    mockApi.listTransactions.mockResolvedValue({
+      transactions: [tx()],
+      nextCursor: null,
+      scannedUntil: null,
+    });
     await renderWithProviders(<TransactionDetailScreen id="t1" />);
     await screen.findByText('Girokonto');
   }
@@ -228,6 +238,7 @@ describe('TransactionDetailScreen', () => {
     mockApi.listTransactions.mockResolvedValue({
       transactions: [tx({ counterparty: null })],
       nextCursor: null,
+      scannedUntil: null,
     });
     await renderWithProviders(<TransactionDetailScreen id="t1" />);
     await screen.findByText('Girokonto');
@@ -242,7 +253,11 @@ describe('recategorize ordering and detail polish', () => {
       .mockReturnValueOnce(new Promise((_r, rej) => (rejectFirst = rej)))
       .mockResolvedValueOnce({ transaction: tx({ categoryId: FOOD }), recategorized: 0 });
     // After the settle the server is the truth: the second change (back to FOOD) was stored.
-    mockApi.listTransactions.mockResolvedValue({ transactions: [tx()], nextCursor: null });
+    mockApi.listTransactions.mockResolvedValue({
+      transactions: [tx()],
+      nextCursor: null,
+      scannedUntil: null,
+    });
     await renderWithProviders(<TransactionDetailScreen id="t1" />);
     await screen.findByText('Girokonto');
     const selected = (id: string) =>
@@ -265,7 +280,11 @@ describe('recategorize ordering and detail polish', () => {
 
   it('shows a retry message instead of an empty list when categories fail to load', async () => {
     mockApi.listCategories.mockRejectedValue(new ApiClientError({ kind: 'server', status: 500 }));
-    mockApi.listTransactions.mockResolvedValue({ transactions: [tx()], nextCursor: null });
+    mockApi.listTransactions.mockResolvedValue({
+      transactions: [tx()],
+      nextCursor: null,
+      scannedUntil: null,
+    });
     await renderWithProviders(<TransactionDetailScreen id="t1" />);
     expect(await screen.findByTestId('categories-error')).toBeTruthy();
     expect(screen.queryByText('No categories available.')).toBeNull();
@@ -276,7 +295,11 @@ describe('recategorize ordering and detail polish', () => {
       transaction: tx({ categoryId: FUN }),
       recategorized: 1,
     });
-    mockApi.listTransactions.mockResolvedValue({ transactions: [tx()], nextCursor: null });
+    mockApi.listTransactions.mockResolvedValue({
+      transactions: [tx()],
+      nextCursor: null,
+      scannedUntil: null,
+    });
     await renderWithProviders(<TransactionDetailScreen id="t1" />);
     await screen.findByText('Girokonto');
     await fireEvent(screen.getByTestId('apply-to-counterparty'), 'valueChange', true);
@@ -293,6 +316,7 @@ describe('recategorize ordering and detail polish', () => {
     mockApi.listTransactions.mockResolvedValue({
       transactions: [tx({ counterparty: longName, purpose: longPurpose })],
       nextCursor: null,
+      scannedUntil: null,
     });
     await renderWithProviders(<TransactionDetailScreen id="t1" />);
     const name = (await screen.findAllByText(longName))[0];
@@ -306,6 +330,7 @@ describe('recategorize ordering and detail polish', () => {
     mockApi.listTransactions.mockResolvedValue({
       transactions: [tx({ amountMinor: '0' })],
       nextCursor: null,
+      scannedUntil: null,
     });
     await renderWithProviders(<TransactionDetailScreen id="t1" />);
     await screen.findByText('Girokonto');

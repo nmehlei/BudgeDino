@@ -16,29 +16,48 @@ import {
 
 import { isApiClientError } from '../api/errors';
 import { useApi } from '../api/useApi';
+import { txKeys } from './keys';
 
 export const PAGE_SIZE = 50;
 
-export const txKeys = {
-  all: ['transactions'] as const,
-  list: ['transactions', 'list'] as const,
-};
+export { txKeys };
+
+/** Server-side filters of the transaction list. All optional; `{}` is the plain list. */
+export interface TransactionFilters {
+  /** Already trimmed, at least 2 characters. Sensitive: never logged, never persisted. */
+  q?: string;
+  categoryId?: string;
+  accountId?: string;
+  uncategorized?: true;
+  /** Inclusive `YYYY-MM-DD` booking dates. */
+  from?: string;
+  to?: string;
+}
+
 export const categoriesKey = ['categories'] as const;
 export const accountsKey = ['accounts'] as const;
 
 export type TransactionPages = InfiniteData<ListTransactionsResponse, string | undefined>;
 
-export function useTransactionsList() {
+export function useTransactionsList(filters: TransactionFilters = {}) {
   const api = useApi();
+  const clean: TransactionFilters = {};
+  if (filters.q) clean.q = filters.q;
+  if (filters.categoryId) clean.categoryId = filters.categoryId;
+  if (filters.accountId) clean.accountId = filters.accountId;
+  if (filters.uncategorized) clean.uncategorized = true;
+  if (filters.from) clean.from = filters.from;
+  if (filters.to) clean.to = filters.to;
   return useInfiniteQuery<
     ListTransactionsResponse,
     Error,
     TransactionPages,
-    readonly string[],
+    readonly unknown[],
     string | undefined
   >({
-    queryKey: txKeys.list,
-    queryFn: ({ pageParam }) => api.listTransactions({ cursor: pageParam, limit: PAGE_SIZE }),
+    queryKey: [...(clean.q ? txKeys.search : txKeys.list), clean],
+    queryFn: ({ pageParam }) =>
+      api.listTransactions({ ...clean, cursor: pageParam, limit: PAGE_SIZE }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
   });

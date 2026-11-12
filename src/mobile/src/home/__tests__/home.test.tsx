@@ -180,6 +180,40 @@ describe('HomeScreen', () => {
     expect(screen.getByText('never synced')).toBeTruthy();
   });
 
+  it('drills down from a breakdown row to that category in the displayed period', async () => {
+    mockApi.getHome.mockResolvedValue(
+      home({
+        // Berlin midnights, as the server sends them.
+        period: {
+          kind: 'monthly',
+          key: '2026-11',
+          start: '2026-10-31T23:00:00.000Z',
+          end: '2026-11-30T23:00:00.000Z',
+        },
+        breakdown: [
+          { categoryId: 'c2', name: 'Rent', spent: eur('90000') },
+          { categoryId: null, name: 'Uncategorised', spent: eur('500') },
+        ],
+      }),
+    );
+    await renderHome();
+    await screen.findByText('Groceries');
+    const [rent, uncategorised] = screen.getAllByTestId('breakdown-row');
+    if (!rent || !uncategorised) throw new Error('missing breakdown rows');
+
+    await fireEvent.press(rent);
+    expect(mockRouter.push).toHaveBeenLastCalledWith({
+      pathname: '/transactions',
+      params: { categoryId: 'c2', from: '2026-11-01', to: '2026-11-30' },
+    });
+
+    await fireEvent.press(uncategorised);
+    expect(mockRouter.push).toHaveBeenLastCalledWith({
+      pathname: '/transactions',
+      params: { uncategorized: '1', from: '2026-11-01', to: '2026-11-30' },
+    });
+  });
+
   it('labels chips with the display name or the bank name, never the raw type', async () => {
     mockApi.getHome.mockResolvedValue(
       home({

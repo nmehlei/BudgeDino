@@ -1,5 +1,13 @@
+import { useLocalSearchParams } from 'expo-router';
+
 import { TransactionsScreen } from '../../src/transactions/TransactionsScreen';
 
 export default function Transactions() {
-  return <TransactionsScreen />;
+  const params = useLocalSearchParams<{
+    categoryId?: string;
+    uncategorized?: string;
+    from?: string;
+    to?: string;
+  }>();
+  return <TransactionsScreen params={params} />;
 }
