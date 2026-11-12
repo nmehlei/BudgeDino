@@ -1,4 +1,4 @@
-import type { BudgetView } from '@budgedino/shared';
+import type { BudgetView, HomeResponse } from '@budgedino/shared';
 
 export type BarLevel = 'ok' | 'warn' | 'over';
 
@@ -89,4 +89,75 @@ export function shareWidths(items: readonly { minor: string }[]): number[] {
   const values = items.map((i) => toBigInt(i.minor));
   const total = values.reduce((sum, v) => (v > 0n ? sum + v : sum), 0n);
   return values.map((v) => (total > 0n && v > 0n ? Number((v * 10000n) / total) / 100 : 0));
+}
+
+/** Fraction of a period (`start` inclusive, `end` exclusive) elapsed at `now`, clamped to 0..1. */
+export function elapsedFraction(period: { start: string; end: string }, now: Date): number {
+  const start = Date.parse(period.start);
+  const end = Date.parse(period.end);
+  if (Number.isNaN(start) || Number.isNaN(end) || end <= start) return 0;
+  return Math.min(1, Math.max(0, (now.getTime() - start) / (end - start)));
+}
+
+export type HomeGroup =
+  | {
+      kind: 'budget';
+      budget: BudgetView;
+      categories: Array<{
+        categoryId: string;
+        name: string;
+        spent: HomeResponse['budgets'][number]['spent'] | null;
+      }>;
+    }
+  | {
+      kind: 'category';
+      categoryId: string | null;
+      name: string;
+      spent: HomeResponse['breakdown'][number]['spent'];
+    };
+
+/**
+ * The Home list: budget groups first (by budget name), each with its categories and their spending
+ * (null when the category has none in the period), then the categories no budget covers, largest
+ * spend first. A category in two budgets appears under both. `categoryNames` names covered categories
+ * that have no spending (the breakdown only lists spent ones).
+ */
+export function groupForHome(
+  budgets: readonly BudgetView[],
+  breakdown: HomeResponse['breakdown'],
+  categoryNames: ReadonlyMap<string, string> = new Map(),
+): HomeGroup[] {
+  const byId = new Map(
+    breakdown.flatMap((b) => (b.categoryId === null ? [] : [[b.categoryId, b] as const])),
+  );
+  const covered = new Set(budgets.flatMap((b) => b.categoryIds));
+  const budgetGroups: HomeGroup[] = [...budgets]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((budget) => ({
+      kind: 'budget',
+      budget,
+      categories: budget.categoryIds.map((categoryId) => {
+        const hit = byId.get(categoryId);
+        return {
+          categoryId,
+          name: hit?.name ?? categoryNames.get(categoryId) ?? 'Category',
+          spent: hit?.spent ?? null,
+        };
+      }),
+    }));
+  const rest: HomeGroup[] = breakdown
+    .filter((b) => b.categoryId === null || !covered.has(b.categoryId))
+    .map((b) => ({
+      kind: 'category' as const,
+      categoryId: b.categoryId,
+      name: b.name,
+      spent: b.spent,
+    }))
+    .sort((a, b) => {
+      if (a.kind !== 'category' || b.kind !== 'category') return 0;
+      const x = toBigInt(a.spent.minor);
+      const y = toBigInt(b.spent.minor);
+      return x === y ? 0 : x < y ? 1 : -1;
+    });
+  return [...budgetGroups, ...rest];
 }

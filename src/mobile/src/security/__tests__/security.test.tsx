@@ -8,7 +8,7 @@ import {
   type PrefsStorage,
   type SessionStore,
 } from '../../session/session-store';
-import { markSplashFinished } from '../../splash';
+import { markSplashFinished, resetSplashFinishedForTests } from '../../splash';
 import { AppLock } from '../AppLock';
 import type { DeviceAuthResult } from '../device-auth';
 import { useScreenProtection } from '../useScreenProtection';
@@ -69,6 +69,8 @@ const auth = (...results: DeviceAuthResult[]) => {
 };
 
 beforeEach(() => {
+  // The splash "finished" flag is module state: every test starts from the unfinished default.
+  resetSplashFinishedForTests();
   jest.useFakeTimers();
   jest.clearAllMocks();
   appStateHandler = null;
@@ -211,7 +213,8 @@ describe('AppLock and the animated splash', () => {
   });
 
   it('prompts at once when the splash was skipped or is already over', async () => {
-    // markSplashFinished has fired in the test above (module state), as after a skipped splash.
+    // Set the module flag here, as after a skipped splash; the file does not rely on an earlier test.
+    await act(async () => markSplashFinished());
     const authenticate = auth('failed');
     await renderLock(makeStore().store, authenticate, undefined, 'signal');
     expect(authenticate).toHaveBeenCalledTimes(1);

@@ -70,41 +70,58 @@ The Expo Android app (development build, never Expo Go) talks to one self-hosted
 
 Bottom tabs: Home, Transactions, Connections, More. The `(app)` layout is also the root gate (splash, onboarding redirect, tabs).
 
-- **Layout.** Quiet, typography first: no elevated cards, 16 dp side padding, 24 dp between sections, colours
-  only from the MD3 theme. Top to bottom: period header, sync chips, summary, Budgets, Spending.
+- **Layout.** Quiet, typography first: no elevated cards, 16 dp side padding, 24 dp between blocks, colours
+  only from the MD3 theme. Top to bottom: period header, status bar (problems only), headline, pace chart,
+  one category list.
 - **Period header.** `GET /home?period=current|previous`. A row with a `‹` icon button ("Previous period"),
   the period title (`headlineSmall`) and a `›` icon button ("Current period"); `‹` loads the previous period,
   `›` returns to the current one, and the arrow that leads nowhere is disabled (the API offers only these two).
-  Under the title (`bodyMedium`, onSurfaceVariant): on the current period "N days left" (calendar days in
-  Europe/Berlin, today and the last day included; "1 day left" on the last day), on the previous period
-  "Previous period". Both periods are cached separately.
-- **Summary** (no card). Total spending of the period = the exact bigint sum of `breakdown[].spent`, large
-  (`displaySmall`); below it "of <amount> budgeted" = the sum of the amounts of the budgets of the headline
-  period's kind (a weekly budget on a monthly Home covers a different span and is not added; no line without
-  such budgets); then "Income <amount>" and, when non-zero, "Uncategorised income <amount>". Amounts are in the
-  Home currency (`income.currency`); if any amount is in another currency, no total is shown ("Spending is in
-  several currencies, so no total is shown.") rather than adding different currencies.
-- **Budgets** (section title `titleSmall`, thin dividers between rows). One compact row per budget: name
-  (`bodyLarge`) on the left, "spent / amount" (`bodyMedium`, tabular digits) on the right, a 6 dp rounded bar
-  below, and only when over budget "Over by <spent − amount>" in the error colour. The period kind (Weekly /
-  Monthly) appears under the name only when it differs from the Home period. A "some foreign amounts couldn't
-  be converted" note when the budget has `fxMissing`. "No budgets yet." when there are none. Admins can tap a row
-  to open the budget's edit screen (`/more/budgets/:id`); for members (whose edit screen would be read-only)
-  rows are not tappable.
-- **Spending** (section title `titleSmall`). The breakdown, largest first; each row has the category name,
-  the amount, a chevron and a thin 4 dp bar underneath showing its share of the period's spending
-  (proportional width of the sum of positive amounts, theme `primary` at reduced opacity on a `surfaceVariant`
-  track; computed in bigint basis points). Tapping a row drills down (Transactions > Home drill-down). A "some foreign amounts
-  couldn't be converted" note when `fxMissing`.
+  Under the title (`bodyMedium`, onSurfaceVariant) one line: on the current period "N days left" (calendar
+  days in Europe/Berlin, today and the last day included; "1 day left" on the last day), on the previous period
+  "Previous period", followed by " · ✓ synced 5 min ago" when every connector is ok and has synced (the age
+  is the stalest one's). Both periods are cached separately.
+- **Headline** (no card). Total spending of the period = the exact bigint sum of `breakdown[].spent`, large
+  (`displaySmall`) with a small "spent so far" ("spent" on the previous period). If any amount is in another
+  currency than `income.currency`, no total is shown ("Spending is in several currencies, so no total is
+  shown."). Below it one comparison line against the previous month at the same day of the period
+  (`comparisonAt`, day index clamped to the shorter month): "↓ 58,00 € less than by this day last month" in the
+  primary colour, "↑ … more than …" in the warning colour; hidden when equal, when the previous period has no
+  spending, while it is still loading, and on the previous period. Then a quiet "Income <amount>" and, when
+  non-zero, "Uncategorised income <amount>".
+- **Pace chart** (`PaceChart`). Cumulative spending from `daily` against the previous period's
+  `daily`: for `current` the app fetches `period=previous`, for `previous` the explicit key of the month before
+  (`period=YYYY-MM`, formatted from `period.start` in Europe/Berlin). `dayCount` is the displayed period's day
+  count; the "today" dot only on the current period. Legend: "this month" (the month name on the previous
+  period) and the name of the month before.
+- **Category list** (one list, no section titles). `groupForHome` orders it: budget groups by budget name, then
+  the categories no budget covers, largest spend first (uncategorised included). A category covered by two
+  budgets appears under both; the headline is not double-counted because it sums `breakdown`.
+  - **Budget row**: `CategoryIcon` of the budget's first category, name, "spent / amount" (`bodyMedium`, tabular
+    digits), a 6 dp rounded bar in the level colour (primary; amber from ratio 0.8; red from 1) and a 2 x 12 dp
+    pace tick (`onSurface` at 55 % opacity) at the fraction of the budget's own period that has elapsed
+    (`elapsedFraction`; weekly budgets use the week). Weekly budgets carry a small "week" label under the name.
+    "Over by <spent - amount>" in the error colour only when over. A "some foreign amounts couldn't be converted"
+    note when the budget has `fxMissing`.
+  - **Single-category budget**: one row with a chevron; tapping drills down to that category for the budget's own
+    period (weekly: the week's `from`/`to`).
+  - **Multi-category budget**: the row is not tappable; each category is an indented (16 dp) sub-row with a `sm`
+    icon, its spending from `breakdown` ("0,00 €" muted when it has none) and a chevron, tapping drills down for
+    the displayed month.
+  - **Rest rows**: icon, name, amount, chevron; tapping drills down (Transactions > Home drill-down).
+  - Icons and colours are resolved per category id from the cached categories (`useCategoryStyleById`).
+  - Budget editing is no longer a Home tap target (More > Budgets). "No spending in this period." when the list
+    is empty; a "some foreign amounts couldn't be converted" note when `fxMissing`.
 - **Money.** Displayed from `{minor, currency}` with `Intl.NumberFormat('de-DE')` and the currency
   exponent from `@budgedino/shared`; minor units are split by string arithmetic, never floats.
 - **Progress bar.** Fill is clamped to 0 to 100 %. Amber from ratio 0.8, red from 1. A ratio above 1
   shows a full red bar and "Over by <amount>". Refunds (negative `spent`) show the negative amount and an
   empty bar. A zero budget never divides: no spending shows an empty bar, any positive spending a full red
   bar and "Over by <spent>".
-- **Sync status.** One chip per connector in `home.sync` (status and last successful sync, relative), labelled with the
-  connection's `displayName` (own connections) or the bank name ("Demo bank" for `fake`), never the raw type.
-  A needs-attention chip of the user's own connector opens Connections; other members' chips are inert.
+- **Sync status.** When every connector is ok and has synced, only the header's "✓ synced <age>" shows and the
+  status bar is not rendered. Otherwise (needs attention, error, disabled, never synced) the full bar shows: one
+  chip per connector in `home.sync` (status and last successful sync, relative), labelled with the connection's
+  `displayName` (own connections) or the bank name ("Demo bank" for `fake`), never the raw type. A needs-attention
+  chip of the user's own connector opens Connections; other members' chips are inert.
 - **Pull-to-refresh.** Calls `POST /connectors/:id/sync` for the user's own connectors with status `ok`
   (`isOwner`), then refetches home. A 429 shows "Already syncing, try again in N s".
 - **Offline.** If the server is unreachable the cached data stays visible under an "Offline — showing

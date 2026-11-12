@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
-import { ActivityIndicator, Banner, Button, Divider, Snackbar, Text } from 'react-native-paper';
+import { ActivityIndicator, Banner, Button, Snackbar, Text } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { isApiClientError } from '../api/errors';
@@ -14,14 +14,17 @@ import {
   HOUSEHOLD_TZ_FALLBACK,
   zonedYmd,
 } from '../format/time';
-import { useIsAdmin } from '../household/queries';
 import { shouldRetryQuery } from '../providers';
+import { useCategoryStyleById } from '../categories/useCategoryStyle';
+import { comparisonAt, cumulative } from '../charts/geometry';
+import { PaceChart } from '../charts/PaceChart';
 import { useAppTheme } from '../theme';
-import { BudgetRow } from './BudgetRow';
-import { HomeSummary } from './HomeSummary';
+import { useCategories } from '../transactions/queries';
+import { groupForHome } from './budget-math';
+import { CategoryList, type DrillPeriod } from './CategoryList';
+import { HomeSummary, type Comparison } from './HomeSummary';
 import { PeriodHeader, type HomePeriod } from './PeriodHeader';
-import { SpendingList } from './SpendingList';
-import { SyncStatusBar } from './SyncStatusBar';
+import { compactSyncText, SyncStatusBar } from './SyncStatusBar';
 
 function isNetworkError(error: unknown): boolean {
   return isApiClientError(error) && error.error.kind === 'network';
@@ -33,13 +36,46 @@ function daysLeftText(endIso: string): string | undefined {
   return n === 1 ? '1 day left' : `${n} days left`;
 }
 
+/** Days of a period (`end` exclusive) in the household time zone. */
+function periodDayCount(start: string, end: string): number {
+  const s = Date.parse(start);
+  const e = Date.parse(end);
+  if (Number.isNaN(s) || Number.isNaN(e) || e <= s) return 0;
+  const a = zonedYmd(s, HOUSEHOLD_TZ_FALLBACK);
+  const b = zonedYmd(e - 1, HOUSEHOLD_TZ_FALLBACK);
+  return Math.round((Date.UTC(b.y, b.m, b.d) - Date.UTC(a.y, a.m, a.d)) / 86_400_000) + 1;
+}
+
+function longMonth(date: Date): string {
+  return new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: 'UTC' }).format(date);
+}
+
+/** The month before the one `start` falls in (household time zone): its `YYYY-MM` key and name. */
+function monthBefore(start: string): { key: string; name: string } | null {
+  const s = Date.parse(start);
+  if (Number.isNaN(s)) return null;
+  const { y, m } = zonedYmd(s, HOUSEHOLD_TZ_FALLBACK);
+  const date = new Date(Date.UTC(y, m - 1, 1));
+  return {
+    key: `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`,
+    name: longMonth(date),
+  };
+}
+
+function monthName(start: string): string {
+  const s = Date.parse(start);
+  if (Number.isNaN(s)) return 'this month';
+  const { y, m } = zonedYmd(s, HOUSEHOLD_TZ_FALLBACK);
+  return longMonth(new Date(Date.UTC(y, m, 1)));
+}
+
 export function HomeScreen() {
   const theme = useAppTheme();
   const api = useApi();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  // Only admins can edit budgets (the edit screen is read-only otherwise), so only they get a tap target.
-  const isAdmin = useIsAdmin();
+  const styleOf = useCategoryStyleById();
+  const categories = useCategories();
   const [period, setPeriod] = useState<HomePeriod>('current');
   const [refreshing, setRefreshing] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -52,6 +88,18 @@ export function HomeScreen() {
     networkMode: 'always',
   });
   const { data, refetch } = home;
+
+  // The comparison series: `previous` for the current period, the explicit month before otherwise.
+  const before = data ? monthBefore(data.period.start) : null;
+  const previousSpec = period === 'current' ? 'previous' : (before?.key ?? null);
+  const previousHome = useQuery({
+    queryKey: ['home', previousSpec],
+    queryFn: () => api.getHome(previousSpec ?? 'previous'),
+    enabled: previousSpec !== null && data !== undefined,
+    retry: false,
+    networkMode: 'always',
+  });
+  const previousDaily = previousHome.data?.daily;
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -87,11 +135,11 @@ export function HomeScreen() {
   }, [router]);
 
   const openCategory = useCallback(
-    (categoryId: string | null) => {
+    (categoryId: string | null, span?: DrillPeriod) => {
       if (!data) return;
       // The period's end is exclusive; the transactions filter takes inclusive booking dates.
-      const start = Date.parse(data.period.start);
-      const end = Date.parse(data.period.end);
+      const start = Date.parse((span ?? data.period).start);
+      const end = Date.parse((span ?? data.period).end);
       const period =
         Number.isNaN(start) || Number.isNaN(end)
           ? {}
@@ -111,18 +159,31 @@ export function HomeScreen() {
     [data, router],
   );
 
-  const openBudget = useCallback(
-    (id: string) => {
-      router.push(`/more/budgets/${id}`);
-    },
-    [router],
-  );
-
   const failed = home.isError;
   const offline = isNetworkError(home.error);
 
+  const syncText = data && !failed ? compactSyncText(data.sync) : null;
+  const currentCumulative = data ? cumulative(data.daily) : [];
+  const pace =
+    data && period === 'current' && previousDaily
+      ? comparisonAt(currentCumulative, cumulative(previousDaily))
+      : null;
+  const diff = pace ? pace.current - pace.previous : 0n;
+  const comparison: Comparison | null =
+    data && pace && diff !== 0n
+      ? {
+          less: diff < 0n,
+          amount: {
+            minor: (diff < 0n ? -diff : diff).toString(),
+            currency: data.income.currency,
+          },
+        }
+      : null;
+  const names = new Map((categories.data ?? []).map((c) => [c.id, c.name]));
+
   let body;
   if (data) {
+    const dayCount = periodDayCount(data.period.start, data.period.end);
     body = (
       <>
         {failed ? (
@@ -139,32 +200,25 @@ export function HomeScreen() {
         ) : null}
         <View style={styles.content}>
           <SyncStatusBar connectors={data.sync} onNeedsAttention={goToConnections} />
-          <HomeSummary data={data} />
-          <View>
-            <Text variant="titleSmall" style={styles.sectionTitle} accessibilityRole="header">
-              Budgets
-            </Text>
-            {data.budgets.length === 0 ? (
-              <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
-                No budgets yet.
-              </Text>
-            ) : (
-              data.budgets.map((b, i) => (
-                <View key={b.id}>
-                  {i > 0 ? <Divider /> : null}
-                  <BudgetRow
-                    budget={b}
-                    homePeriodKind={data.period.kind}
-                    onPress={isAdmin ? () => openBudget(b.id) : undefined}
-                  />
-                </View>
-              ))
-            )}
-          </View>
-          <SpendingList
-            breakdown={data.breakdown}
+          <HomeSummary data={data} comparison={comparison} current={period === 'current'} />
+          {data.daily.length > 0 && dayCount > 0 ? (
+            <PaceChart
+              current={data.daily}
+              previous={previousDaily}
+              dayCount={dayCount}
+              showToday={period === 'current'}
+              currency={data.income.currency}
+              labels={{
+                current: period === 'current' ? 'this month' : monthName(data.period.start),
+                previous: before?.name ?? 'last month',
+              }}
+            />
+          ) : null}
+          <CategoryList
+            groups={groupForHome(data.budgets, data.breakdown, names)}
             fxMissing={data.fxMissing}
-            onSelectCategory={openCategory}
+            styleOf={styleOf}
+            onOpenCategory={openCategory}
           />
         </View>
       </>
@@ -220,9 +274,12 @@ export function HomeScreen() {
             subtitle={
               !data
                 ? undefined
-                : period === 'previous'
-                  ? 'Previous period'
-                  : daysLeftText(data.period.end)
+                : [
+                    period === 'previous' ? 'Previous period' : daysLeftText(data.period.end),
+                    syncText,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')
             }
           />
         </View>
@@ -240,6 +297,5 @@ const styles = StyleSheet.create({
   // The arrow buttons carry their own touch padding, so the header row sits a little wider.
   header: { paddingHorizontal: 4, paddingBottom: 8 },
   content: { paddingHorizontal: 16, gap: 24 },
-  sectionTitle: { marginBottom: 4 },
   empty: { padding: 24, gap: 16, alignItems: 'center' },
 });

@@ -57,6 +57,11 @@ export function markSplashFinished(): void {
   finishedListeners.forEach((l) => l());
 }
 
+/** Test seam: puts the "finished" flag back to its initial state so tests do not leak it. */
+export function resetSplashFinishedForTests(): void {
+  finished = false;
+}
+
 /** Called once at module load of the root layout: the native splash stays until the app is ready. */
 export function keepSplashUntilReady(): void {
   try {

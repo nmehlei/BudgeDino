@@ -4,7 +4,7 @@ import { useTheme } from 'expo-router';
 import { Appearance, StyleSheet, Text as RNText } from 'react-native';
 
 import AppLayout from '../../app/(app)/_layout';
-import { BudgetRow } from '../home/BudgetRow';
+import { CategoryList } from '../home/CategoryList';
 import type { toNavigationTheme } from '../navigation-theme';
 import { AppProviders } from '../providers';
 import { createSessionStore } from '../session/session-store';
@@ -133,29 +133,37 @@ describe('dark mode wiring', () => {
     expect(options.sceneStyle.backgroundColor).toBe(darkTheme.colors.background);
   });
 
-  it('renders every BudgetRow text in a light dark-theme colour, never an unset (black) one', async () => {
+  it('renders every budget row text in a light dark-theme colour, never an unset (black) one', async () => {
     const store = createThemeStore();
     store.setPreference('dark');
     setThemeStore(store);
     const eur = (minor: string) => ({ minor, currency: 'EUR' });
     await renderProviders(
-      <BudgetRow
-        homePeriodKind="weekly"
-        budget={{
-          id: 'b1',
-          name: 'Groceries',
-          categoryIds: [],
-          periodKind: 'monthly',
-          amount: eur('40000'),
-          spent: eur('10000'),
-          ratio: '0.2500',
-          fxMissing: true,
-          period: {
-            key: '2026-11',
-            start: '2026-11-01T00:00:00.000Z',
-            end: '2026-12-01T00:00:00.000Z',
+      <CategoryList
+        fxMissing
+        styleOf={() => ({ icon: 'cart', color: 'green' })}
+        onOpenCategory={() => undefined}
+        groups={[
+          {
+            kind: 'budget',
+            categories: [{ categoryId: 'c1', name: 'Food', spent: eur('10000') }],
+            budget: {
+              id: 'b1',
+              name: 'Groceries',
+              categoryIds: ['c1'],
+              periodKind: 'weekly',
+              amount: eur('40000'),
+              spent: eur('10000'),
+              ratio: '0.2500',
+              fxMissing: true,
+              period: {
+                key: '2026-11',
+                start: '2026-11-01T00:00:00.000Z',
+                end: '2026-12-01T00:00:00.000Z',
+              },
+            },
           },
-        }}
+        ]}
       />,
     );
     const allowed = [darkTheme.colors.onSurface, darkTheme.colors.onSurfaceVariant];

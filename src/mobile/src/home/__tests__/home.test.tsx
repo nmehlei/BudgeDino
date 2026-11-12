@@ -6,12 +6,18 @@ import { PaperProvider } from 'react-native-paper';
 
 import { ApiClientError } from '../../api/errors';
 import { daysLeftInPeriod, formatRelative } from '../../format/time';
-import { lightTheme } from '../../theme';
-import { BudgetRow } from '../BudgetRow';
+import { lightTheme, WARNING_LIGHT } from '../../theme';
+import { groupForHome } from '../budget-math';
+import { CategoryList } from '../CategoryList';
 import { HomeScreen } from '../HomeScreen';
 
 const mockRouter = { push: jest.fn() };
-const mockApi = { getHome: jest.fn(), syncConnector: jest.fn(), listMembers: jest.fn() };
+const mockApi = {
+  getHome: jest.fn(),
+  syncConnector: jest.fn(),
+  listMembers: jest.fn(),
+  listCategories: jest.fn(),
+};
 
 jest.mock('react-native-mmkv', () => ({ createMMKV: jest.fn(), deleteMMKV: jest.fn() }));
 jest.mock('expo-secure-store', () => ({}));
@@ -28,7 +34,7 @@ function budget(over: Partial<BudgetView> = {}): BudgetView {
   return {
     id: 'b1',
     name: 'Groceries',
-    categoryIds: [],
+    categoryIds: ['c1'],
     periodKind: 'monthly',
     amount: eur('40000'),
     spent: eur('10000'),
@@ -113,26 +119,39 @@ beforeEach(() => {
   mockApi.getHome.mockReset();
   mockApi.syncConnector.mockReset();
   mockApi.listMembers.mockReset();
+  mockApi.listCategories.mockReset();
+  mockApi.listCategories.mockResolvedValue({ categories: [] });
   mockApi.listMembers.mockResolvedValue(members('member'));
 });
 afterEach(() => {
+  jest.useRealTimers();
   jest.restoreAllMocks();
 });
 
-describe('BudgetRow', () => {
-  const renderRow = (b: BudgetView, extra: Omit<Parameters<typeof BudgetRow>[0], 'budget'> = {}) =>
-    render(
+describe('budget rows', () => {
+  const styleOf = () => ({ icon: 'cart' as const, color: 'green' });
+  const renderRow = (b: BudgetView, now = new Date('2026-11-12T10:00:00Z')) => {
+    const breakdown = [{ categoryId: 'c1', name: 'Food', spent: b.spent, icon: null, color: null }];
+    return render(
       <PaperProvider>
-        <BudgetRow budget={b} {...extra} />
+        <CategoryList
+          groups={groupForHome([b], breakdown)}
+          fxMissing={false}
+          styleOf={styleOf}
+          onOpenCategory={jest.fn()}
+          now={now}
+        />
       </PaperProvider>,
     );
+  };
   const fill = () =>
     StyleSheet.flatten(screen.getByTestId('budget-bar-fill').props.style) as {
       width: string;
       backgroundColor: string;
     };
 
-  it('shows "spent / amount" on one line and a thin bar', async () => {
+  it('shows "spent / amount", a 6 dp bar and a 2 x 12 dp pace tick at the elapsed fraction', async () => {
+    // 12 Nov 10:00Z is 11.42 of 30 days into the period (UTC bounds): 38.06 %.
     await renderRow(budget());
     expect(screen.getByTestId('budget-amounts')).toHaveTextContent(/^100,00\s€ \/ 400,00\s€$/);
     expect(fill().width).toBe('25%');
@@ -141,6 +160,20 @@ describe('BudgetRow', () => {
       height: number;
     };
     expect(track.height).toBe(6);
+    const tick = StyleSheet.flatten(screen.getByTestId('pace-tick').props.style) as {
+      left: string;
+      width: number;
+      height: number;
+      opacity: number;
+      backgroundColor: string;
+    };
+    expect(tick).toMatchObject({
+      left: '38.06%',
+      width: 2,
+      height: 12,
+      opacity: 0.55,
+      backgroundColor: lightTheme.colors.onSurface,
+    });
     expect(screen.queryByTestId('budget-over')).toBeNull();
   });
 
@@ -159,7 +192,7 @@ describe('BudgetRow', () => {
   it('refund (negative spent) clamps at 0 % and shows the negative amount', async () => {
     await renderRow(budget({ spent: eur('-2500'), ratio: '0.0000' }));
     expect(fill().width).toBe('0%');
-    expect(screen.getByText(/-25,00/)).toBeTruthy();
+    expect(screen.getAllByText(/-25,00/).length).toBeGreaterThan(0);
   });
 
   it('zero budget: no division by zero, empty bar without spending', async () => {
@@ -183,7 +216,7 @@ describe('BudgetRow', () => {
         ratio: '24691357.8025',
       }),
     );
-    expect(screen.getByText(/123\.456\.789\.012\.345/)).toBeTruthy();
+    expect(screen.getAllByText(/123\.456\.789\.012\.345/).length).toBeGreaterThan(0);
     expect(screen.getByTestId('budget-over')).toHaveTextContent(/123\.456\.784\.012\.345/);
   });
 
@@ -192,21 +225,11 @@ describe('BudgetRow', () => {
     expect(screen.getByText("Some foreign amounts couldn't be converted.")).toBeTruthy();
   });
 
-  it('labels the period kind only when it differs from the Home period', async () => {
-    await renderRow(budget({ periodKind: 'weekly' }), { homePeriodKind: 'monthly' });
-    expect(screen.getByText('Weekly')).toBeTruthy();
-    await renderRow(budget(), { homePeriodKind: 'monthly' });
-    expect(screen.queryByText('Monthly')).toBeNull();
-  });
-
-  it('is tappable only with an onPress', async () => {
-    const onPress = jest.fn();
-    await renderRow(budget(), { onPress });
-    await fireEvent.press(screen.getByTestId('budget-b1'));
-    expect(onPress).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('budget-b1').props.accessibilityRole).toBe('button');
+  it('labels weekly budgets "week" and monthly ones not', async () => {
+    await renderRow(budget({ periodKind: 'weekly' }));
+    expect(screen.getByText('week')).toBeTruthy();
     await renderRow(budget());
-    expect(screen.getByTestId('budget-b1').props.accessibilityRole).toBeUndefined();
+    expect(screen.queryByText('week')).toBeNull();
   });
 });
 
@@ -230,9 +253,10 @@ describe('HomeScreen', () => {
     mockApi.getHome.mockResolvedValue(home());
     await renderHome();
     await screen.findByText('Groceries');
-    const rows = screen.getAllByTestId('breakdown-row');
-    expect(rows).toHaveLength(2);
-    expect(rows[0]).toHaveTextContent(/Rent/);
+    // One list: the budget row first, then the categories no budget covers.
+    expect(screen.getByTestId('budget-b1')).toBeTruthy();
+    expect(screen.getByTestId('category-row-c2')).toHaveTextContent(/Rent/);
+    expect(screen.queryByTestId('category-row-c1')).toBeNull();
     expect(screen.getByTestId('income-row')).toHaveTextContent(/2\.500,00/);
     expect(screen.queryByTestId('uncategorized-income-row')).toBeNull();
     expect(screen.getByTestId('connector-chip-c-own-ok')).toBeTruthy();
@@ -258,8 +282,8 @@ describe('HomeScreen', () => {
     );
     await renderHome();
     await screen.findByText('Groceries');
-    const [rent, uncategorised] = screen.getAllByTestId('breakdown-row');
-    if (!rent || !uncategorised) throw new Error('missing breakdown rows');
+    const rent = screen.getByTestId('category-row-c2');
+    const uncategorised = screen.getByTestId('category-row-uncategorized');
 
     await fireEvent.press(rent);
     expect(mockRouter.push).toHaveBeenLastCalledWith({
@@ -500,6 +524,7 @@ describe('HomeScreen redesign', () => {
   };
 
   it('header: arrows switch the period, the useless one is disabled, subtitle follows the period', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-11-12T10:00:00Z'));
     mockApi.getHome.mockImplementation((period: string) =>
       Promise.resolve(home({ period: period === 'previous' ? OCT : NOV })),
     );
@@ -509,10 +534,7 @@ describe('HomeScreen redesign', () => {
     const next = () => screen.getByLabelText('Current period');
     expect(prev().props.accessibilityState).toMatchObject({ disabled: false });
     expect(next().props.accessibilityState).toMatchObject({ disabled: true });
-    const expected = daysLeftInPeriod(NOV.end);
-    expect(screen.getByTestId('period-subtitle')).toHaveTextContent(
-      expected === 1 ? '1 day left' : `${expected} days left`,
-    );
+    expect(screen.getByTestId('period-subtitle')).toHaveTextContent(/^19 days left/);
 
     await fireEvent.press(prev());
     expect(await screen.findByText('October 2026')).toBeTruthy();
@@ -522,18 +544,12 @@ describe('HomeScreen redesign', () => {
 
     await fireEvent.press(next());
     expect(await screen.findByText('November 2026')).toBeTruthy();
-    expect(mockApi.getHome).toHaveBeenLastCalledWith('current');
+    expect(mockApi.getHome).toHaveBeenCalledWith('current');
   });
 
-  it('summary: total spent is the exact bigint sum of the breakdown, of the same-kind budgets', async () => {
+  it('summary: the headline total is the exact bigint sum of the breakdown, with "spent so far"', async () => {
     mockApi.getHome.mockResolvedValue(
       home({
-        budgets: [
-          budget({ id: 'b1', amount: eur('40000') }),
-          budget({ id: 'b2', name: 'Eating out', amount: eur('15000') }),
-          // A weekly budget on a monthly Home covers a different span: not added.
-          budget({ id: 'b3', name: 'Coffee', periodKind: 'weekly', amount: eur('2000') }),
-        ],
         breakdown: [
           {
             categoryId: 'c2',
@@ -551,12 +567,12 @@ describe('HomeScreen redesign', () => {
     expect(await screen.findByTestId('summary-spent')).toHaveTextContent(
       /^90\.071\.992\.547\.533,38\s€$/,
     );
-    expect(screen.getByTestId('summary-budgeted')).toHaveTextContent(/^of 550,00\s€ budgeted$/);
+    expect(screen.getByText('spent so far')).toBeTruthy();
+    expect(screen.queryByTestId('summary-budgeted')).toBeNull();
     expect(screen.getByTestId('income-row')).toHaveTextContent(/^Income 2\.500,00\s€$/);
-    expect(screen.getByText('Weekly')).toBeTruthy();
   });
 
-  it('summary: no "budgeted" line without budgets, no total for mixed currencies', async () => {
+  it('summary: no total for mixed currencies', async () => {
     mockApi.getHome.mockResolvedValue(
       home({
         budgets: [],
@@ -575,50 +591,211 @@ describe('HomeScreen redesign', () => {
     await renderHome();
     expect(await screen.findByTestId('summary-mixed')).toBeTruthy();
     expect(screen.queryByTestId('summary-spent')).toBeNull();
-    expect(screen.queryByTestId('summary-budgeted')).toBeNull();
-    expect(screen.getByText('No budgets yet.')).toBeTruthy();
   });
 
-  it('spending rows: share bars proportional to the total, in the primary colour', async () => {
-    mockApi.getHome.mockResolvedValue(
-      home({
-        breakdown: [
-          { categoryId: 'c2', name: 'Rent', spent: eur('75000'), icon: null, color: null },
-          { categoryId: 'c1', name: 'Food', spent: eur('25000'), icon: null, color: null },
-        ],
-      }),
-    );
-    await renderHome();
-    await screen.findByText('Rent');
-    const fills = screen.getAllByTestId('breakdown-share-fill', { includeHiddenElements: true });
-    const styles = fills.map(
-      (f) => StyleSheet.flatten(f.props.style) as { width: string; backgroundColor: string },
-    );
-    expect(styles.map((st) => st.width)).toEqual(['75%', '25%']);
-    expect(styles[0]?.backgroundColor).toBe(lightTheme.colors.primary);
-    expect(screen.getAllByTestId('breakdown-row')[0]?.props.accessibilityLabel).toMatch(
-      /^Rent, 750,00\s€, 75 percent of spending\. Show transactions$/,
-    );
-  });
-
-  it('admins open a budget from its row', async () => {
-    mockApi.getHome.mockResolvedValue(home());
-    mockApi.listMembers.mockResolvedValue(members('admin'));
-    await renderHome();
-    await screen.findByText('Groceries');
-    await waitFor(() => {
-      expect(screen.getByTestId('budget-b1').props.accessibilityRole).toBe('button');
+  describe('comparison and chart', () => {
+    const day = (i: number, minor: number) => ({
+      date: `2026-11-${String(i + 1).padStart(2, '0')}`,
+      spent: eur(String(minor)),
     });
-    await fireEvent.press(screen.getByTestId('budget-b1'));
-    expect(mockRouter.push).toHaveBeenCalledWith('/more/budgets/b1');
+    const series = (minors: number[]) => minors.map((m, i) => day(i, m));
+    // Previous month: 40938 by day 3, then quiet (30 days).
+
+    function serve(current: number[], previous: number[] | null) {
+      mockApi.getHome.mockImplementation((period: string) =>
+        Promise.resolve(
+          period === 'current'
+            ? home({ period: NOV, daily: series(current) })
+            : home({ period: OCT, daily: previous ? series(previous) : [] }),
+        ),
+      );
+    }
+
+    it('"less" in the primary colour: 58 € under last month by this day', async () => {
+      // Current 35138 by day 3 against 40938.
+      serve([10000, 10000, 15138], [20000, 10000, 10938, ...Array<number>(27).fill(0)]);
+      await renderHome();
+      const line = await screen.findByTestId('summary-comparison');
+      expect(line).toHaveTextContent(/^↓ 58,00\s€ less than by this day last month$/);
+      expect((StyleSheet.flatten(line.props.style) as { color: string }).color).toBe(
+        lightTheme.colors.primary,
+      );
+    });
+
+    it('"more" in the warning colour', async () => {
+      serve([30000, 10000, 10938], [20000, 10000, 10938, ...Array<number>(27).fill(0)]);
+      await renderHome();
+      const line = await screen.findByTestId('summary-comparison');
+      expect(line).toHaveTextContent(/^↑ 100,00\s€ more than by this day last month$/);
+      expect((StyleSheet.flatten(line.props.style) as { color: string }).color).toBe(WARNING_LIGHT);
+    });
+
+    it('is hidden when the previous period is empty or equal', async () => {
+      serve([10000, 10000, 15138], null);
+      await renderHome();
+      await screen.findByTestId('summary-spent');
+      await waitFor(() => {
+        expect(mockApi.getHome).toHaveBeenCalledWith('previous');
+      });
+      expect(screen.queryByTestId('summary-comparison')).toBeNull();
+    });
+
+    it('is hidden when equal', async () => {
+      serve([20000, 10000, 10938], [20000, 10000, 10938, ...Array<number>(27).fill(0)]);
+      await renderHome();
+      await screen.findByTestId('summary-spent');
+      await waitFor(() => {
+        expect(client.getQueryData(['home', 'previous'])).toBeDefined();
+      });
+      expect(screen.queryByTestId('summary-comparison')).toBeNull();
+    });
+
+    it('draws the chart with a today dot for the current period', async () => {
+      serve([10000, 10000, 15138], [20000, 10000, 10938, ...Array<number>(27).fill(0)]);
+      await renderHome();
+      await screen.findByTestId('pace-plot');
+      await fireEvent(screen.getByTestId('pace-plot'), 'layout', {
+        nativeEvent: { layout: { width: 290, height: 150 } },
+      });
+      expect(screen.getByTestId('pace-today-dot')).toBeTruthy();
+      await waitFor(() => {
+        expect(screen.getByTestId('pace-previous-path')).toBeTruthy();
+      });
+      expect(screen.getByText('this month')).toBeTruthy();
+      expect(screen.getByText('October')).toBeTruthy();
+    });
+
+    it('on the previous period: no today dot, no comparison line, compared with the month before', async () => {
+      mockApi.getHome.mockImplementation((period: string) =>
+        Promise.resolve(
+          period === 'current'
+            ? home({ period: NOV, daily: series([100]) })
+            : home({
+                period: OCT,
+                daily: series([10000, 10000, 15138]),
+              }),
+        ),
+      );
+      await renderHome();
+      await screen.findByText('November 2026');
+      await fireEvent.press(screen.getByTestId('period-previous'));
+      await screen.findByText('October 2026');
+      await waitFor(() => {
+        expect(mockApi.getHome).toHaveBeenCalledWith('2026-09');
+      });
+      await fireEvent(screen.getByTestId('pace-plot'), 'layout', {
+        nativeEvent: { layout: { width: 290, height: 150 } },
+      });
+      expect(screen.queryByTestId('pace-today-dot')).toBeNull();
+      expect(screen.queryByTestId('summary-comparison')).toBeNull();
+      expect(screen.getByText('spent')).toBeTruthy();
+      expect(screen.getByText('September')).toBeTruthy();
+    });
+
+    it('1st of the month, nothing spent yet: flat chart, no comparison, no crash', async () => {
+      serve([0], [0, 0, 0, ...Array<number>(27).fill(0)]);
+      await renderHome();
+      await screen.findByTestId('pace-plot');
+      expect(screen.queryByTestId('summary-comparison')).toBeNull();
+    });
   });
 
-  it('members cannot open the budget editor from Home', async () => {
-    mockApi.getHome.mockResolvedValue(home());
-    await renderHome();
-    await screen.findByText('Groceries');
-    await fireEvent.press(screen.getByTestId('budget-b1'));
-    expect(mockRouter.push).not.toHaveBeenCalled();
+  describe('list', () => {
+    const multi = budget({
+      id: 'b2',
+      name: 'Fun',
+      categoryIds: ['c3', 'c4'],
+      spent: eur('5000'),
+      amount: eur('20000'),
+      ratio: '0.2500',
+    });
+    const withMulti = () =>
+      home({
+        budgets: [budget(), multi],
+        breakdown: [
+          { categoryId: 'c2', name: 'Rent', spent: eur('90000'), icon: null, color: null },
+          { categoryId: 'c3', name: 'Games', spent: eur('5000'), icon: null, color: null },
+          { categoryId: 'c1', name: 'Food', spent: eur('12345'), icon: null, color: null },
+        ],
+      });
+
+    it('a single-category budget is one tappable row that drills into its category and own period', async () => {
+      mockApi.getHome.mockResolvedValue(
+        home({
+          budgets: [
+            budget({
+              periodKind: 'weekly',
+              period: {
+                key: '2026-W46',
+                start: '2026-11-08T23:00:00.000Z',
+                end: '2026-11-15T23:00:00.000Z',
+              },
+            }),
+          ],
+        }),
+      );
+      await renderHome();
+      await fireEvent.press(await screen.findByTestId('budget-b1'));
+      expect(mockRouter.push).toHaveBeenLastCalledWith({
+        pathname: '/transactions',
+        params: { categoryId: 'c1', from: '2026-11-09', to: '2026-11-15', n: expect.any(String) },
+      });
+      expect(screen.getByText('week')).toBeTruthy();
+    });
+
+    it('a multi-category budget is not tappable; indented sub-rows are, with 0,00 muted when unspent', async () => {
+      mockApi.getHome.mockResolvedValue(withMulti());
+      await renderHome();
+      await screen.findByText('Fun');
+      expect(screen.getByTestId('budget-b2').props.accessibilityRole).toBeUndefined();
+      const games = screen.getByTestId('budget-b2-category-c3');
+      expect(games).toHaveTextContent(/Games.*50,00/);
+      const unspent = screen.getByTestId('budget-b2-category-c4');
+      expect(unspent).toHaveTextContent(/0,00\s€/);
+      await fireEvent.press(games);
+      expect(mockRouter.push).toHaveBeenLastCalledWith({
+        pathname: '/transactions',
+        params: expect.objectContaining({ categoryId: 'c3', n: expect.any(String) }),
+      });
+      // Sub-rows are not repeated in the rest.
+      expect(screen.queryByTestId('category-row-c3')).toBeNull();
+      expect(screen.getByTestId('category-row-c2')).toBeTruthy();
+    });
+
+    it('rest rows are tappable', async () => {
+      mockApi.getHome.mockResolvedValue(home());
+      await renderHome();
+      await fireEvent.press(await screen.findByTestId('category-row-c2'));
+      expect(mockRouter.push).toHaveBeenCalledTimes(1);
+    });
+
+    it('admins get no budget editor from Home any more (single rows drill down)', async () => {
+      mockApi.getHome.mockResolvedValue(home());
+      mockApi.listMembers.mockResolvedValue(members('admin'));
+      await renderHome();
+      await fireEvent.press(await screen.findByTestId('budget-b1'));
+      expect(mockRouter.push).not.toHaveBeenCalledWith('/more/budgets/b1');
+    });
+  });
+
+  describe('sync line', () => {
+    it('is compact in the header when everything is ok, without the status bar', async () => {
+      mockApi.getHome.mockResolvedValue(home({ sync: [ownOk] }));
+      await renderHome();
+      await screen.findByText('Groceries');
+      expect(screen.getByTestId('period-subtitle')).toHaveTextContent(
+        /days? left · ✓ synced 5 min ago$/,
+      );
+      expect(screen.queryByTestId('sync-status')).toBeNull();
+    });
+
+    it('keeps the full bar when a connector has a problem', async () => {
+      mockApi.getHome.mockResolvedValue(home({ sync: [ownOk, ownAttention] }));
+      await renderHome();
+      await screen.findByText('Groceries');
+      expect(screen.getByTestId('sync-status')).toBeTruthy();
+      expect(screen.getByTestId('period-subtitle')).not.toHaveTextContent(/synced/);
+    });
   });
 });
 

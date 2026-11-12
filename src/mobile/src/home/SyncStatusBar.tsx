@@ -19,10 +19,28 @@ interface Props {
   now?: number;
 }
 
-/** One chip per connector with its status and last successful sync. Needs-attention chips open Connections. */
+/**
+ * "✓ synced 5 min ago" when every connector is ok and has synced (the age is that of the stalest one),
+ * else null: any problem, a disabled or never-synced connector keeps the full bar.
+ */
+export function compactSyncText(connectors: ConnectorInfo[], now?: number): string | null {
+  if (connectors.length === 0) return null;
+  let oldest = Infinity;
+  for (const c of connectors) {
+    const at = c.lastSuccessAt ? Date.parse(c.lastSuccessAt) : NaN;
+    if (c.status !== 'ok' || Number.isNaN(at)) return null;
+    oldest = Math.min(oldest, at);
+  }
+  return `✓ synced ${formatRelative(oldest, now)}`;
+}
+
+/**
+ * One chip per connector with its status and last successful sync. Needs-attention chips open
+ * Connections. Renders nothing while everything is fine: the header's sub-line says "✓ synced".
+ */
 export function SyncStatusBar({ connectors, onNeedsAttention, now }: Props) {
   const theme = useAppTheme();
-  if (connectors.length === 0) return null;
+  if (connectors.length === 0 || compactSyncText(connectors, now) !== null) return null;
   return (
     <View style={styles.container} testID="sync-status">
       {connectors.map((c) => {
